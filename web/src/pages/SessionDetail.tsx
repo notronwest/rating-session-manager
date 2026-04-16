@@ -367,7 +367,7 @@ export default function SessionDetail() {
                 opacity: running ? 0.5 : 1,
               }}
             >
-              Clear Results
+              Clear Segments & Clips
             </button>
           ) : (
             <button
