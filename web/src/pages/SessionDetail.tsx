@@ -541,8 +541,8 @@ export default function SessionDetail() {
         </div>
       )}
 
-      {/* Logs */}
-      {(logs.length > 0 || running) && (
+      {/* Logs — only visible while processing */}
+      {running && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <h2 style={{ fontSize: 16, fontWeight: 600 }}>Logs</h2>
