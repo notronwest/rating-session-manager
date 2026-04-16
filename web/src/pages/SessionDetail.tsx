@@ -162,6 +162,14 @@ export default function SessionDetail() {
     }
   };
 
+  const resetSession = async () => {
+    if (!confirm("Reset this session? This will delete exported clips, segments, and logs.")) return;
+    await fetch(`/api/sessions/${id}/reset`, { method: "POST" });
+    setEditSegments(null);
+    setLogs([]);
+    fetchSession();
+  };
+
   const updateSegment = (index: number, field: "start" | "end", value: string) => {
     if (!editSegments) return;
     setEditSegments(
@@ -201,6 +209,21 @@ export default function SessionDetail() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>{session.label || `Session ${session.id.slice(0, 8)}`}</h1>
         <StatusBadge status={session.status} />
+        <div style={{ flex: 1 }} />
+        {(session.segments || session.clip_paths || session.error || logs.length > 0) && (
+          <button
+            onClick={resetSession}
+            disabled={running}
+            style={{
+              padding: "6px 14px", background: "#fff", color: "#d93025",
+              border: "1px solid #d93025", borderRadius: 6, fontSize: 13,
+              fontWeight: 500, cursor: running ? "not-allowed" : "pointer",
+              opacity: running ? 0.5 : 1,
+            }}
+          >
+            Start Over
+          </button>
+        )}
       </div>
 
       {session.error && (

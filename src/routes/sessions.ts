@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { v4 as uuid } from "uuid";
+import fs from "fs";
+import path from "path";
 import { getDb } from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
 import type { Session, GameSegment } from "../types.js";
@@ -177,6 +179,40 @@ router.post("/:id/export", async (req, res) => {
     addLog(`Export failed: ${msg}`);
     res.status(500).json({ error: msg });
   }
+});
+
+// POST /api/sessions/:id/reset — Reset session to start over
+router.post("/:id/reset", (_req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+
+  // Delete exported clip files from disk
+  if (session.clip_paths && session.clip_paths.length > 0) {
+    for (const clipPath of session.clip_paths) {
+      try { fs.unlinkSync(clipPath); } catch { /* already gone */ }
+    }
+    // Try to remove the clips directory if empty
+    try {
+      const dir = path.dirname(session.clip_paths[0]);
+      fs.rmdirSync(dir);
+    } catch { /* not empty or already gone */ }
+  }
+
+  // Reset session fields
+  db.prepare(`
+    UPDATE sessions
+    SET status = 'scheduled', segments = NULL, clip_paths = NULL, error = NULL, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(session.id);
+
+  // Clear logs
+  db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
+
+  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
+  res.json(rowToSession(updated));
 });
 
 export default router;
