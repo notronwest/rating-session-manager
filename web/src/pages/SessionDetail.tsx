@@ -77,7 +77,9 @@ export default function SessionDetail() {
   const [running, setRunning] = useState(false);
   const [editSegments, setEditSegments] = useState<GameSegment[] | null>(null);
   const [videoPath, setVideoPath] = useState("");
-  const [confirmAction, setConfirmAction] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string; message: string; confirmLabel: string; onConfirm: () => void;
+  } | null>(null);
   const [videoFiles, setVideoFiles] = useState<VideoFile[]>([]);
 
   // Detection parameters
@@ -165,11 +167,14 @@ export default function SessionDetail() {
 
   const clearResults = () => {
     const hasClips = session?.clip_paths && session.clip_paths.length > 0;
-    const msg = hasClips
-      ? "This will delete exported clips and detected segments."
-      : "This will delete detected segments.";
+    const segCount = session?.segments?.length || 0;
+    const clipCount = session?.clip_paths?.length || 0;
     setConfirmAction({
-      message: msg,
+      title: "Clear Segments & Clips",
+      message: hasClips
+        ? `This will delete ${clipCount} exported clip file${clipCount !== 1 ? "s" : ""} from disk and ${segCount} detected segment${segCount !== 1 ? "s" : ""}. You can then re-run game detection.`
+        : `This will delete ${segCount} detected segment${segCount !== 1 ? "s" : ""}. You can then re-run game detection.`,
+      confirmLabel: "Delete",
       onConfirm: async () => {
         setConfirmAction(null);
         await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
@@ -181,7 +186,9 @@ export default function SessionDetail() {
 
   const cancelSession = () => {
     setConfirmAction({
-      message: "This will delete clips, segments, and all logs. The session will be reset to scheduled.",
+      title: "Cancel Build",
+      message: "This will delete all clips, segments, and logs. The session will be reset to its initial state.",
+      confirmLabel: "Reset Session",
       onConfirm: async () => {
         setConfirmAction(null);
         await fetch(`/api/sessions/${id}/cancel`, { method: "POST" });
@@ -248,35 +255,48 @@ export default function SessionDetail() {
         )}
       </div>
 
-      {/* Inline confirmation banner */}
+      {/* Confirmation modal */}
       {confirmAction && (
-        <div style={{
-          background: "#fef7e0", border: "1px solid #f0d68a", borderRadius: 8,
-          padding: "12px 16px", marginBottom: 16, display: "flex",
-          alignItems: "center", justifyContent: "space-between",
-        }}>
-          <span style={{ fontSize: 14, color: "#7a5c00" }}>
-            {confirmAction.message}
-          </span>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0, marginLeft: 16 }}>
-            <button
-              onClick={() => setConfirmAction(null)}
-              style={{
-                padding: "6px 14px", background: "#fff", color: "#666",
-                border: "1px solid #ccc", borderRadius: 6, fontSize: 13, cursor: "pointer",
-              }}
-            >
-              Nevermind
-            </button>
-            <button
-              onClick={confirmAction.onConfirm}
-              style={{
-                padding: "6px 14px", background: "#d93025", color: "#fff",
-                border: "none", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer",
-              }}
-            >
-              Yes, delete
-            </button>
+        <div
+          onClick={() => setConfirmAction(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 12, padding: 24,
+              maxWidth: 420, width: "90%", boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
+            }}
+          >
+            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+              {confirmAction.title}
+            </h3>
+            <p style={{ fontSize: 14, color: "#666", marginBottom: 20, lineHeight: 1.5 }}>
+              {confirmAction.message}
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setConfirmAction(null)}
+                style={{
+                  padding: "8px 16px", background: "#fff", color: "#666",
+                  border: "1px solid #ccc", borderRadius: 6, fontSize: 14, cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction.onConfirm}
+                style={{
+                  padding: "8px 16px", background: "#d93025", color: "#fff",
+                  border: "none", borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                {confirmAction.confirmLabel}
+              </button>
+            </div>
           </div>
         </div>
       )}
