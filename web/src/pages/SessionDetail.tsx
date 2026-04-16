@@ -179,6 +179,7 @@ export default function SessionDetail() {
         setConfirmAction(null);
         await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
         setEditSegments(null);
+        setLogs([]);
         fetchSession();
       },
     });

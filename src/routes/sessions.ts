@@ -208,10 +208,8 @@ router.post("/:id/start-over", (_req, res) => {
     UPDATE sessions SET segments = NULL, clip_paths = NULL, error = NULL, updated_at = datetime('now') WHERE id = ?
   `).run(session.id);
 
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-  addLog(`Start over: cleared segments, deleted ${deleted} clip files`);
+  // Clear old logs so the next detection starts fresh
+  db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
 
   const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
   res.json(rowToSession(updated));
