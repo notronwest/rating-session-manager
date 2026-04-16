@@ -20,6 +20,14 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, videoDir: process.env.VIDEO_DIR || null });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Session Manager API running on http://localhost:${PORT}`);
 });
+
+// Graceful shutdown so tsx watch can restart cleanly
+function shutdown() {
+  server.close();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
