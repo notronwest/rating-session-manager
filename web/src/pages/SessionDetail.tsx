@@ -129,8 +129,18 @@ export default function SessionDetail() {
   };
 
   const runDetection = async () => {
+    // Clear old logs and segments before starting
+    setLogs([]);
+    setEditSegments(null);
     setRunning(true);
     try {
+      // Clear server-side logs too
+      await fetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ segments: null, error: null }),
+      });
+
       const res = await fetch(`/api/sessions/${id}/detect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,12 +156,13 @@ export default function SessionDetail() {
       if (data.segments) setEditSegments(data.segments);
     } finally {
       setRunning(false);
-      fetchSession();
+      await fetchSession();
     }
   };
 
   const runExport = async () => {
     if (!editSegments || editSegments.length === 0) return;
+    setLogs([]);
     setRunning(true);
     try {
       await fetch(`/api/sessions/${id}/export`, {
@@ -161,7 +172,7 @@ export default function SessionDetail() {
       });
     } finally {
       setRunning(false);
-      fetchSession();
+      await fetchSession();
     }
   };
 

@@ -106,7 +106,8 @@ router.post("/:id/detect", async (req, res) => {
     db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
   };
 
-  // Update status to splitting
+  // Clear old logs and update status
+  db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
   db.prepare("UPDATE sessions SET status = 'splitting', error = NULL, updated_at = datetime('now') WHERE id = ?").run(session.id);
   addLog("Starting game detection...");
 
