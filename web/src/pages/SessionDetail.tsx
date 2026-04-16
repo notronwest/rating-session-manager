@@ -419,8 +419,16 @@ export default function SessionDetail() {
           </div>
         )}
         {session.video_path && (
-          <div style={{ marginTop: 6, fontSize: 12, color: "#999", fontFamily: "monospace" }}>
-            {session.video_path}
+          <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "#999", fontFamily: "monospace" }}>
+              {session.video_path}
+            </span>
+            <Link
+              to={`/roi?path=${encodeURIComponent(session.video_path)}`}
+              style={{ fontSize: 12, color: "#1a73e8", textDecoration: "none" }}
+            >
+              Configure Court ROI →
+            </Link>
           </div>
         )}
       </div>

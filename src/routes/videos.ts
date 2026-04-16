@@ -1,6 +1,12 @@
 import { Router } from "express";
+import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPTS_DIR = path.resolve(__dirname, "../../scripts/videos");
+const ROI_PATH = path.join(SCRIPTS_DIR, "roi.json");
 
 const router = Router();
 
@@ -82,6 +88,94 @@ router.get("/stream", (req, res) => {
     });
     fs.createReadStream(filePath).pipe(res);
   }
+});
+
+// GET /api/videos/frame?path=...&t=60 — Extract a single frame at time t seconds as JPEG
+router.get("/frame", (req, res) => {
+  const filePath = req.query.path as string;
+  const t = parseFloat((req.query.t as string) || "60");
+  if (!filePath) return res.status(400).json({ error: "path required" });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+
+  // Use ffmpeg to extract a frame
+  const args = [
+    "-ss", String(t),
+    "-i", filePath,
+    "-vframes", "1",
+    "-q:v", "3",
+    "-f", "image2pipe",
+    "-vcodec", "mjpeg",
+    "pipe:1",
+  ];
+
+  const proc = spawn("ffmpeg", args);
+  res.setHeader("Content-Type", "image/jpeg");
+  proc.stdout.pipe(res);
+
+  proc.stderr.on("data", () => { /* ffmpeg is verbose, ignore */ });
+  proc.on("error", (err) => {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+  proc.on("close", (code) => {
+    if (code !== 0 && !res.headersSent) {
+      res.status(500).json({ error: `ffmpeg exited with code ${code}` });
+    }
+  });
+});
+
+// GET /api/videos/dimensions?path=... — Get video width and height
+router.get("/dimensions", (req, res) => {
+  const filePath = req.query.path as string;
+  if (!filePath) return res.status(400).json({ error: "path required" });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+
+  const args = [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "stream=width,height,duration",
+    "-of", "json",
+    filePath,
+  ];
+  const proc = spawn("ffprobe", args);
+  let output = "";
+  proc.stdout.on("data", (d) => { output += d.toString(); });
+  proc.on("close", (code) => {
+    if (code !== 0) return res.status(500).json({ error: "ffprobe failed" });
+    try {
+      const data = JSON.parse(output);
+      const stream = data.streams?.[0];
+      res.json({
+        width: stream?.width,
+        height: stream?.height,
+        duration: parseFloat(stream?.duration || "0"),
+      });
+    } catch (err) {
+      res.status(500).json({ error: "failed to parse ffprobe output" });
+    }
+  });
+  proc.on("error", (err) => res.status(500).json({ error: err.message }));
+});
+
+// GET /api/videos/roi — Read current roi.json
+router.get("/roi", (_req, res) => {
+  if (!fs.existsSync(ROI_PATH)) return res.json({ type: "polygon", points: [] });
+  const raw = fs.readFileSync(ROI_PATH, "utf-8");
+  try {
+    res.json(JSON.parse(raw));
+  } catch {
+    res.json({ type: "polygon", points: [] });
+  }
+});
+
+// PUT /api/videos/roi — Save new roi.json
+router.put("/roi", (req, res) => {
+  const { points } = req.body;
+  if (!Array.isArray(points) || points.length < 3) {
+    return res.status(400).json({ error: "points must be an array of at least 3 [x,y] pairs" });
+  }
+  const roi = { type: "polygon", points };
+  fs.writeFileSync(ROI_PATH, JSON.stringify(roi, null, 2), "utf-8");
+  res.json(roi);
 });
 
 export default router;
