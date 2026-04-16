@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 
@@ -505,48 +505,81 @@ export default function SessionDetail() {
               </tr>
             </thead>
             <tbody>
-              {editSegments.map((seg, i) => (
-                <tr key={seg.index} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                  <td style={{ padding: "8px 10px", fontSize: 14, fontWeight: 600 }}>
-                    Game {seg.index}
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>
-                    <input
-                      type="text"
-                      value={seg.start}
-                      onChange={(e) => updateSegment(seg.index, "start", e.target.value)}
-                      style={inputStyle}
-                    />
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>
-                    <input
-                      type="text"
-                      value={seg.end}
-                      onChange={(e) => updateSegment(seg.index, "end", e.target.value)}
-                      style={inputStyle}
-                    />
-                  </td>
-                  <td style={{ padding: "8px 10px", fontSize: 13, color: "#666" }}>
-                    {Math.round(seg.duration_sec / 60)}m
-                  </td>
-                  <td style={{ padding: "8px 10px", display: "flex", gap: 8 }}>
-                    {i < editSegments.length - 1 && (
-                      <button
-                        onClick={() => mergeWithNext(seg.index)}
-                        style={{ background: "none", border: "none", color: "#1a73e8", cursor: "pointer", fontSize: 13 }}
-                      >
-                        Merge
-                      </button>
+              {editSegments.map((seg, i) => {
+                // Calculate gap from previous segment
+                let gapSec = 0;
+                if (i > 0) {
+                  const prev = editSegments[i - 1];
+                  const toSec = (t: string) => {
+                    const [h, m, rest] = t.split(":");
+                    const [s, ms] = (rest || "0").split(".");
+                    return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + (ms ? parseInt(ms) / 1000 : 0);
+                  };
+                  gapSec = Math.round(toSec(seg.start) - toSec(prev.end));
+                }
+
+                return (
+                  <React.Fragment key={seg.index}>
+                    {i > 0 && (
+                      <tr>
+                        <td colSpan={5} style={{ padding: "2px 10px", background: gapSec <= 30 ? "#fff8e1" : "#f8f9fa" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{
+                              fontSize: 11, color: gapSec <= 30 ? "#e37400" : "#999",
+                              fontWeight: gapSec <= 30 ? 600 : 400,
+                            }}>
+                              {gapSec <= 0 ? "no gap" : `${gapSec}s gap`}
+                              {gapSec <= 30 && gapSec > 0 && " — likely same game"}
+                              {gapSec <= 0 && " — continuous, likely same game"}
+                            </span>
+                            <button
+                              onClick={() => mergeWithNext(editSegments[i - 1].index)}
+                              style={{
+                                background: "none", border: "1px solid #1a73e8", color: "#1a73e8",
+                                borderRadius: 4, padding: "1px 8px", fontSize: 11, cursor: "pointer",
+                              }}
+                            >
+                              Merge these
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                    <button
-                      onClick={() => removeSegment(seg.index)}
-                      style={{ background: "none", border: "none", color: "#d93025", cursor: "pointer", fontSize: 13 }}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    <tr style={{ borderBottom: "1px solid #f0f0f0" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 14, fontWeight: 600 }}>
+                        Game {seg.index}
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <input
+                          type="text"
+                          value={seg.start}
+                          onChange={(e) => updateSegment(seg.index, "start", e.target.value)}
+                          style={inputStyle}
+                        />
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <input
+                          type="text"
+                          value={seg.end}
+                          onChange={(e) => updateSegment(seg.index, "end", e.target.value)}
+                          style={inputStyle}
+                        />
+                      </td>
+                      <td style={{ padding: "8px 10px", fontSize: 13, color: "#666" }}>
+                        {Math.round(seg.duration_sec / 60)}m
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <button
+                          onClick={() => removeSegment(seg.index)}
+                          style={{ background: "none", border: "none", color: "#d93025", cursor: "pointer", fontSize: 13 }}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
