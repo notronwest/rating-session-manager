@@ -181,34 +181,57 @@ router.post("/:id/export", async (req, res) => {
   }
 });
 
-// POST /api/sessions/:id/reset — Reset session to start over
-router.post("/:id/reset", (_req, res) => {
+function deleteClipFiles(session: Session) {
+  if (!session.clip_paths || session.clip_paths.length === 0) return 0;
+  let deleted = 0;
+  for (const clipPath of session.clip_paths) {
+    try { fs.unlinkSync(clipPath); deleted++; } catch { /* already gone */ }
+  }
+  // Try to remove the clips directory if empty
+  try {
+    const dir = path.dirname(session.clip_paths[0]);
+    fs.rmdirSync(dir);
+  } catch { /* not empty or already gone */ }
+  return deleted;
+}
+
+// POST /api/sessions/:id/start-over — Delete clips, keep session/segments/logs
+router.post("/:id/start-over", (_req, res) => {
   const db = getDb();
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
 
   const session = rowToSession(row);
+  const deleted = deleteClipFiles(session);
 
-  // Delete exported clip files from disk
-  if (session.clip_paths && session.clip_paths.length > 0) {
-    for (const clipPath of session.clip_paths) {
-      try { fs.unlinkSync(clipPath); } catch { /* already gone */ }
-    }
-    // Try to remove the clips directory if empty
-    try {
-      const dir = path.dirname(session.clip_paths[0]);
-      fs.rmdirSync(dir);
-    } catch { /* not empty or already gone */ }
-  }
+  db.prepare(`
+    UPDATE sessions SET clip_paths = NULL, error = NULL, updated_at = datetime('now') WHERE id = ?
+  `).run(session.id);
 
-  // Reset session fields
+  const addLog = (msg: string) => {
+    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
+  };
+  addLog(`Start over: deleted ${deleted} clip files`);
+
+  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
+  res.json(rowToSession(updated));
+});
+
+// POST /api/sessions/:id/cancel — Full reset: delete clips, clear segments, logs, reset status
+router.post("/:id/cancel", (_req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+  deleteClipFiles(session);
+
   db.prepare(`
     UPDATE sessions
     SET status = 'scheduled', segments = NULL, clip_paths = NULL, error = NULL, updated_at = datetime('now')
     WHERE id = ?
   `).run(session.id);
 
-  // Clear logs
   db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
 
   const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;

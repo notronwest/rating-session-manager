@@ -162,9 +162,15 @@ export default function SessionDetail() {
     }
   };
 
-  const resetSession = async () => {
-    if (!confirm("Reset this session? This will delete exported clips, segments, and logs.")) return;
-    await fetch(`/api/sessions/${id}/reset`, { method: "POST" });
+  const startOver = async () => {
+    if (!confirm("Delete exported clips? Segments and logs will be kept.")) return;
+    await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
+    fetchSession();
+  };
+
+  const cancelSession = async () => {
+    if (!confirm("Cancel this session build? This will delete clips, segments, and all logs.")) return;
+    await fetch(`/api/sessions/${id}/cancel`, { method: "POST" });
     setEditSegments(null);
     setLogs([]);
     fetchSession();
@@ -210,9 +216,23 @@ export default function SessionDetail() {
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>{session.label || `Session ${session.id.slice(0, 8)}`}</h1>
         <StatusBadge status={session.status} />
         <div style={{ flex: 1 }} />
+        {session.clip_paths && session.clip_paths.length > 0 && (
+          <button
+            onClick={startOver}
+            disabled={running}
+            style={{
+              padding: "6px 14px", background: "#fff", color: "#e37400",
+              border: "1px solid #e37400", borderRadius: 6, fontSize: 13,
+              fontWeight: 500, cursor: running ? "not-allowed" : "pointer",
+              opacity: running ? 0.5 : 1,
+            }}
+          >
+            Start Over
+          </button>
+        )}
         {(session.segments || session.clip_paths || session.error || logs.length > 0) && (
           <button
-            onClick={resetSession}
+            onClick={cancelSession}
             disabled={running}
             style={{
               padding: "6px 14px", background: "#fff", color: "#d93025",
@@ -221,7 +241,7 @@ export default function SessionDetail() {
               opacity: running ? 0.5 : 1,
             }}
           >
-            Start Over
+            Cancel Build
           </button>
         )}
       </div>
