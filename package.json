@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
-    "dev:server": "node --import tsx/esm --watch src/server.ts",
+    "dev:server": "tsx src/server.ts",
     "dev:web": "vite",
     "build": "tsc && vite build",
     "start": "node dist/server.js"
