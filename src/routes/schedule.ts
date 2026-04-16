@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../../data");
 
 const RATING_KEYWORDS = ["rating", "rated", "assessment", "eval"];
+const RATING_RESERVATION_TYPES = ["rating session"];
 
 interface ScheduleItem {
   Id: number;
@@ -23,7 +24,9 @@ interface ScheduleItem {
 }
 
 function isRatingEvent(item: ScheduleItem): boolean {
-  const name = (item.EventName || item.ReservationType || "").toLowerCase();
+  const resType = (item.ReservationType || "").toLowerCase();
+  if (RATING_RESERVATION_TYPES.includes(resType)) return true;
+  const name = (item.EventName || "").toLowerCase();
   return RATING_KEYWORDS.some((kw) => name.includes(kw));
 }
 

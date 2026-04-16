@@ -78,13 +78,13 @@ def main():
         print(f"       {start_time} - {end_time} | Courts: {courts} | Members: {members}")
         print()
 
-    # Identify potential rating events
+    # Identify rating events — ReservationType "Rating Session" is the primary signal
+    rating_res_types = ["rating session"]
     rating_keywords = ["rating", "rated", "assessment", "eval"]
     rating_events = [
         item for item in items
-        if any(kw in (item.get("EventName") or "").lower() or
-               kw in (item.get("ReservationType") or "").lower()
-               for kw in rating_keywords)
+        if (item.get("ReservationType") or "").lower() in rating_res_types
+        or any(kw in (item.get("EventName") or "").lower() for kw in rating_keywords)
     ]
 
     if rating_events:
