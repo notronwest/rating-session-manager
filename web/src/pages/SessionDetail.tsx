@@ -77,6 +77,7 @@ export default function SessionDetail() {
   const [running, setRunning] = useState(false);
   const [editSegments, setEditSegments] = useState<GameSegment[] | null>(null);
   const [videoPath, setVideoPath] = useState("");
+  const [confirmAction, setConfirmAction] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [videoFiles, setVideoFiles] = useState<VideoFile[]>([]);
 
   // Detection parameters
@@ -162,23 +163,33 @@ export default function SessionDetail() {
     }
   };
 
-  const clearResults = async () => {
+  const clearResults = () => {
     const hasClips = session?.clip_paths && session.clip_paths.length > 0;
     const msg = hasClips
-      ? "Delete exported clips and detected segments?"
-      : "Delete detected segments?";
-    if (!confirm(msg)) return;
-    await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
-    setEditSegments(null);
-    fetchSession();
+      ? "This will delete exported clips and detected segments."
+      : "This will delete detected segments.";
+    setConfirmAction({
+      message: msg,
+      onConfirm: async () => {
+        setConfirmAction(null);
+        await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
+        setEditSegments(null);
+        fetchSession();
+      },
+    });
   };
 
-  const cancelSession = async () => {
-    if (!confirm("Cancel this session build? This will delete clips, segments, and all logs.")) return;
-    await fetch(`/api/sessions/${id}/cancel`, { method: "POST" });
-    setEditSegments(null);
-    setLogs([]);
-    fetchSession();
+  const cancelSession = () => {
+    setConfirmAction({
+      message: "This will delete clips, segments, and all logs. The session will be reset to scheduled.",
+      onConfirm: async () => {
+        setConfirmAction(null);
+        await fetch(`/api/sessions/${id}/cancel`, { method: "POST" });
+        setEditSegments(null);
+        setLogs([]);
+        fetchSession();
+      },
+    });
   };
 
   const updateSegment = (index: number, field: "start" | "end", value: string) => {
@@ -236,6 +247,39 @@ export default function SessionDetail() {
           </button>
         )}
       </div>
+
+      {/* Inline confirmation banner */}
+      {confirmAction && (
+        <div style={{
+          background: "#fef7e0", border: "1px solid #f0d68a", borderRadius: 8,
+          padding: "12px 16px", marginBottom: 16, display: "flex",
+          alignItems: "center", justifyContent: "space-between",
+        }}>
+          <span style={{ fontSize: 14, color: "#7a5c00" }}>
+            {confirmAction.message}
+          </span>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, marginLeft: 16 }}>
+            <button
+              onClick={() => setConfirmAction(null)}
+              style={{
+                padding: "6px 14px", background: "#fff", color: "#666",
+                border: "1px solid #ccc", borderRadius: 6, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              Nevermind
+            </button>
+            <button
+              onClick={confirmAction.onConfirm}
+              style={{
+                padding: "6px 14px", background: "#d93025", color: "#fff",
+                border: "none", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Yes, delete
+            </button>
+          </div>
+        </div>
+      )}
 
       {session.error && (
         <div style={{ background: "#fce8e6", border: "1px solid #f5c6cb", borderRadius: 8, padding: 12, marginBottom: 16, color: "#d93025", fontSize: 13 }}>
