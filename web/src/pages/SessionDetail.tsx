@@ -162,8 +162,12 @@ export default function SessionDetail() {
     }
   };
 
-  const startOver = async () => {
-    if (!confirm("Start over? This will delete clips and segments so you can re-detect games.")) return;
+  const clearResults = async () => {
+    const hasClips = session?.clip_paths && session.clip_paths.length > 0;
+    const msg = hasClips
+      ? "Delete exported clips and detected segments?"
+      : "Delete detected segments?";
+    if (!confirm(msg)) return;
     await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
     setEditSegments(null);
     fetchSession();
@@ -354,11 +358,16 @@ export default function SessionDetail() {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {session.segments ? (
             <button
-              onClick={startOver}
+              onClick={clearResults}
               disabled={running}
-              style={running ? btnDisabledStyle : { ...btnStyle, background: "#e37400" }}
+              style={{
+                padding: "8px 16px", background: "#fff", color: "#e37400",
+                border: "1px solid #e37400", borderRadius: 6, fontSize: 14,
+                fontWeight: 600, cursor: running ? "not-allowed" : "pointer",
+                opacity: running ? 0.5 : 1,
+              }}
             >
-              Re-detect Games
+              Clear Results
             </button>
           ) : (
             <button
@@ -371,7 +380,7 @@ export default function SessionDetail() {
           )}
           {session.segments && (
             <span style={{ fontSize: 12, color: "#999" }}>
-              Clears current segments{session.clip_paths ? " and exported clips" : ""}
+              Deletes {session.clip_paths ? "exported clips and " : ""}detected segments so you can re-detect
             </span>
           )}
         </div>
