@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
+import VideoSegmentEditor from "../components/VideoSegmentEditor";
 
 interface GameSegment {
   index: number;
@@ -423,6 +424,17 @@ export default function SessionDetail() {
           </div>
         )}
       </div>
+
+      {/* Video Player + Segment Editor */}
+      {session.video_path && editSegments && editSegments.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <VideoSegmentEditor
+            videoPath={session.video_path}
+            segments={editSegments}
+            onSegmentsChange={setEditSegments}
+          />
+        </div>
+      )}
 
       {/* Detection */}
       <div style={cardStyle}>
