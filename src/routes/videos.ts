@@ -174,7 +174,10 @@ router.put("/roi", (req, res) => {
     return res.status(400).json({ error: "points must be an array of at least 3 [x,y] pairs" });
   }
   const roi = { type: "polygon", points };
-  fs.writeFileSync(ROI_PATH, JSON.stringify(roi, null, 2), "utf-8");
+  // Format with each point on one line
+  const pointsStr = points.map((p: number[]) => `    [${p[0]}, ${p[1]}]`).join(",\n");
+  const json = `{\n  "type": "polygon",\n  "points": [\n${pointsStr}\n  ]\n}\n`;
+  fs.writeFileSync(ROI_PATH, json, "utf-8");
   res.json(roi);
 });
 
