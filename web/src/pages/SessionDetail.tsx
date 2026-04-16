@@ -83,11 +83,11 @@ export default function SessionDetail() {
   const [videoFiles, setVideoFiles] = useState<VideoFile[]>([]);
 
   // Detection parameters
-  const [warmup, setWarmup] = useState("0");
-  const [minGap, setMinGap] = useState("8");
-  const [longBreak, setLongBreak] = useState("22");
-  const [restartLookahead, setRestartLookahead] = useState("18");
-  const [minGame, setMinGame] = useState("300");
+  const [warmup, setWarmup] = useState("600");
+  const [minGap, setMinGap] = useState("15");
+  const [longBreak, setLongBreak] = useState("45");
+  const [restartLookahead, setRestartLookahead] = useState("30");
+  const [minGame, setMinGame] = useState("360");
 
   const fetchSession = useCallback(async () => {
     const [sRes, lRes, vRes] = await Promise.all([
@@ -209,6 +209,23 @@ export default function SessionDetail() {
         fetchSession();
       },
     });
+  };
+
+  const mergeWithNext = (index: number) => {
+    if (!editSegments) return;
+    const idx = editSegments.findIndex((s) => s.index === index);
+    if (idx < 0 || idx >= editSegments.length - 1) return;
+    const current = editSegments[idx];
+    const next = editSegments[idx + 1];
+    const merged = {
+      ...current,
+      end: next.end,
+      duration_sec: current.duration_sec + next.duration_sec,
+    };
+    const updated = [...editSegments];
+    updated.splice(idx, 2, merged);
+    // Re-number
+    setEditSegments(updated.map((seg, i) => ({ ...seg, index: i + 1 })));
   };
 
   const updateSegment = (index: number, field: "start" | "end", value: string) => {
@@ -488,7 +505,7 @@ export default function SessionDetail() {
               </tr>
             </thead>
             <tbody>
-              {editSegments.map((seg) => (
+              {editSegments.map((seg, i) => (
                 <tr key={seg.index} style={{ borderBottom: "1px solid #f0f0f0" }}>
                   <td style={{ padding: "8px 10px", fontSize: 14, fontWeight: 600 }}>
                     Game {seg.index}
@@ -510,9 +527,17 @@ export default function SessionDetail() {
                     />
                   </td>
                   <td style={{ padding: "8px 10px", fontSize: 13, color: "#666" }}>
-                    {formatTime(seg.start)} — {formatTime(seg.end)} ({Math.round(seg.duration_sec / 60)}m)
+                    {Math.round(seg.duration_sec / 60)}m
                   </td>
-                  <td style={{ padding: "8px 10px" }}>
+                  <td style={{ padding: "8px 10px", display: "flex", gap: 8 }}>
+                    {i < editSegments.length - 1 && (
+                      <button
+                        onClick={() => mergeWithNext(seg.index)}
+                        style={{ background: "none", border: "none", color: "#1a73e8", cursor: "pointer", fontSize: 13 }}
+                      >
+                        Merge
+                      </button>
+                    )}
                     <button
                       onClick={() => removeSegment(seg.index)}
                       style={{ background: "none", border: "none", color: "#d93025", cursor: "pointer", fontSize: 13 }}
