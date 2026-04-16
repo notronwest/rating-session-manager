@@ -205,13 +205,13 @@ router.post("/:id/start-over", (_req, res) => {
   const deleted = deleteClipFiles(session);
 
   db.prepare(`
-    UPDATE sessions SET clip_paths = NULL, error = NULL, updated_at = datetime('now') WHERE id = ?
+    UPDATE sessions SET segments = NULL, clip_paths = NULL, error = NULL, updated_at = datetime('now') WHERE id = ?
   `).run(session.id);
 
   const addLog = (msg: string) => {
     db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
   };
-  addLog(`Start over: deleted ${deleted} clip files`);
+  addLog(`Start over: cleared segments, deleted ${deleted} clip files`);
 
   const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
   res.json(rowToSession(updated));

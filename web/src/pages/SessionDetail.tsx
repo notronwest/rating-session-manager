@@ -163,8 +163,9 @@ export default function SessionDetail() {
   };
 
   const startOver = async () => {
-    if (!confirm("Delete exported clips? Segments and logs will be kept.")) return;
+    if (!confirm("Start over? This will delete clips and segments so you can re-detect games.")) return;
     await fetch(`/api/sessions/${id}/start-over`, { method: "POST" });
+    setEditSegments(null);
     fetchSession();
   };
 
@@ -216,7 +217,7 @@ export default function SessionDetail() {
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>{session.label || `Session ${session.id.slice(0, 8)}`}</h1>
         <StatusBadge status={session.status} />
         <div style={{ flex: 1 }} />
-        {session.clip_paths && session.clip_paths.length > 0 && (
+        {(session.segments || session.clip_paths) && (
           <button
             onClick={startOver}
             disabled={running}
