@@ -30,11 +30,19 @@ def motion_series(video_path, court_mask, court_area, out_size, sample_fps, diff
         raise SystemExit(f"Could not open video: {video_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    duration_sec = total_frames / fps if fps else 0
     step = max(1, int(round(fps / sample_fps)))
+
+    print(f"Video: {duration_sec/60:.1f} min ({total_frames} frames @ {fps:.1f} fps)")
+    print(f"Sampling every {step} frames ({sample_fps} fps analysis)")
+    import sys
+    sys.stdout.flush()
 
     prev = None
     times = []
     scores = []
+    last_pct = -1
 
     idx = 0
     while True:
@@ -45,6 +53,15 @@ def motion_series(video_path, court_mask, court_area, out_size, sample_fps, diff
         if idx % step != 0:
             idx += 1
             continue
+
+        # Progress reporting
+        if total_frames > 0:
+            pct = int(100 * idx / total_frames)
+            if pct >= last_pct + 10:
+                elapsed_min = idx / fps / 60
+                print(f"Progress: {pct}% ({elapsed_min:.0f} min of video analyzed)")
+                sys.stdout.flush()
+                last_pct = pct
 
         ok, frame = cap.retrieve()
         if not ok:
@@ -74,6 +91,8 @@ def motion_series(video_path, court_mask, court_area, out_size, sample_fps, diff
         idx += 1
 
     cap.release()
+    print(f"Motion analysis complete — {len(scores)} samples collected")
+    sys.stdout.flush()
     return np.array(times, dtype=np.float32), np.array(scores, dtype=np.float32)
 
 

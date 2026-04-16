@@ -89,7 +89,8 @@ export function detectGames(
     if (opts.restartLookahead !== undefined) args.push("--restart-lookahead", String(opts.restartLookahead));
     if (opts.minGame !== undefined) args.push("--min-game", String(opts.minGame));
 
-    onLog(`Running: ${python} ${args.join(" ")}`);
+    onLog(`Video: ${path.basename(opts.videoPath)}`);
+    onLog(`Analyzing video for game breaks — this may take several minutes...`);
 
     const proc = spawn(python, args, { cwd: SCRIPTS_DIR });
 
@@ -100,11 +101,12 @@ export function detectGames(
 
     proc.stderr.on("data", (data: Buffer) => {
       const msg = data.toString().trim();
-      if (msg) onLog(`[stderr] ${msg}`);
+      if (msg) onLog(msg);
     });
 
     proc.on("close", (code) => {
       if (code !== 0) {
+        onLog(`Detection failed (exit code ${code})`);
         reject(new Error(`detect_games.py exited with code ${code}`));
         return;
       }
@@ -112,7 +114,7 @@ export function detectGames(
       try {
         const srtText = fs.readFileSync(srtPath, "utf-8");
         const segments = parseSrtToSegments(srtText);
-        onLog(`Detected ${segments.length} game segments`);
+        onLog(`Detection complete — found ${segments.length} game segments`);
         resolve(segments);
       } catch (err) {
         reject(new Error(`Failed to read SRT output: ${err}`));

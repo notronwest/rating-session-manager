@@ -105,6 +105,17 @@ export default function SessionDetail() {
 
   useEffect(() => { fetchSession(); }, [fetchSession]);
 
+  // Poll logs while a job is running
+  useEffect(() => {
+    if (!running) return;
+    const interval = setInterval(async () => {
+      const res = await fetch(`/api/sessions/${id}/logs`);
+      const data = await res.json();
+      setLogs(data);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [running, id]);
+
   const updateVideoPath = async () => {
     await fetch(`/api/sessions/${id}`, {
       method: "PATCH",
@@ -399,10 +410,14 @@ export default function SessionDetail() {
       )}
 
       {/* Logs */}
-      {logs.length > 0 && (
+      {(logs.length > 0 || running) && (
         <div style={cardStyle}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Logs</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Logs</h2>
+            {running && <ProcessingSpinner />}
+          </div>
           <div
+            ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
             style={{
               background: "#1e1e1e",
               color: "#d4d4d4",
@@ -415,18 +430,46 @@ export default function SessionDetail() {
               lineHeight: 1.6,
             }}
           >
+            {logs.length === 0 && running && (
+              <div style={{ color: "#888" }}>Starting...</div>
+            )}
             {logs.map((log) => (
               <div key={log.id}>
                 <span style={{ color: "#666" }}>
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </span>{" "}
-                {log.message}
+                <span style={{ color: log.message.includes("failed") || log.message.includes("error") ? "#f28b82" : "#d4d4d4" }}>
+                  {log.message}
+                </span>
               </div>
             ))}
+            {running && (
+              <div style={{ color: "#888", marginTop: 4 }}>
+                <span style={{ animation: "none" }}>...</span>
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function ProcessingSpinner() {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 14,
+        height: 14,
+        border: "2px solid #ddd",
+        borderTopColor: "#1a73e8",
+        borderRadius: "50%",
+        animation: "spin 0.8s linear infinite",
+      }}
+    >
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </span>
   );
 }
 
