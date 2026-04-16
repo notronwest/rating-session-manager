@@ -9,3 +9,5 @@ dist/
 web/dist/
 data/
 debug/
+venv/
+scripts/videos/venv/
