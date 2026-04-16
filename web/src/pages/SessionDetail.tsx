@@ -217,20 +217,6 @@ export default function SessionDetail() {
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>{session.label || `Session ${session.id.slice(0, 8)}`}</h1>
         <StatusBadge status={session.status} />
         <div style={{ flex: 1 }} />
-        {(session.segments || session.clip_paths) && (
-          <button
-            onClick={startOver}
-            disabled={running}
-            style={{
-              padding: "6px 14px", background: "#fff", color: "#e37400",
-              border: "1px solid #e37400", borderRadius: 6, fontSize: 13,
-              fontWeight: 500, cursor: running ? "not-allowed" : "pointer",
-              opacity: running ? 0.5 : 1,
-            }}
-          >
-            Start Over
-          </button>
-        )}
         {(session.segments || session.clip_paths || session.error || logs.length > 0) && (
           <button
             onClick={cancelSession}
@@ -365,13 +351,30 @@ export default function SessionDetail() {
             </div>
           ))}
         </div>
-        <button
-          onClick={runDetection}
-          disabled={running || !session.video_path}
-          style={running || !session.video_path ? btnDisabledStyle : btnStyle}
-        >
-          {running ? "Detecting..." : "Detect Games"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {session.segments ? (
+            <button
+              onClick={startOver}
+              disabled={running}
+              style={running ? btnDisabledStyle : { ...btnStyle, background: "#e37400" }}
+            >
+              Re-detect Games
+            </button>
+          ) : (
+            <button
+              onClick={runDetection}
+              disabled={running || !session.video_path}
+              style={running || !session.video_path ? btnDisabledStyle : btnStyle}
+            >
+              {running ? "Detecting..." : "Detect Games"}
+            </button>
+          )}
+          {session.segments && (
+            <span style={{ fontSize: 12, color: "#999" }}>
+              Clears current segments{session.clip_paths ? " and exported clips" : ""}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Segments */}
