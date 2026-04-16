@@ -32,6 +32,13 @@ interface Member {
   Email: string;
 }
 
+interface VideoFile {
+  name: string;
+  path: string;
+  size_bytes: number;
+  modified: string;
+}
+
 const labelStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600, color: "#666", display: "block", marginBottom: 4,
 };
@@ -53,6 +60,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [ratingEvents, setRatingEvents] = useState<RatingEvent[]>([]);
+  const [videoFiles, setVideoFiles] = useState<VideoFile[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Manual session creation
@@ -65,14 +73,17 @@ export default function Dashboard() {
   const [showResults, setShowResults] = useState(false);
 
   const fetchData = async () => {
-    const [sRes, eRes] = await Promise.all([
+    const [sRes, eRes, vRes] = await Promise.all([
       fetch("/api/sessions"),
       fetch("/api/schedule/rating-events"),
+      fetch("/api/videos"),
     ]);
     const sData = await sRes.json();
     const eData = await eRes.json();
+    const vData = await vRes.json();
     setSessions(sData);
     setRatingEvents(eData.events || []);
+    setVideoFiles(vData.videos || []);
     setLoading(false);
   };
 
@@ -226,14 +237,35 @@ export default function Dashboard() {
               />
             </div>
             <div>
-              <label style={labelStyle}>Video File Path (optional)</label>
-              <input
-                type="text"
-                placeholder="/path/to/session-recording.mp4"
-                value={newVideoPath}
-                onChange={(e) => setNewVideoPath(e.target.value)}
-                style={inputStyle}
-              />
+              <label style={labelStyle}>Video File (optional)</label>
+              {videoFiles.length > 0 ? (
+                <select
+                  value={newVideoPath}
+                  onChange={(e) => setNewVideoPath(e.target.value)}
+                  style={{ ...inputStyle, background: "#fff" }}
+                >
+                  <option value="">None — assign later</option>
+                  {videoFiles.map((vf) => {
+                    const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
+                    const date = new Date(vf.modified).toLocaleDateString([], {
+                      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                    });
+                    return (
+                      <option key={vf.path} value={vf.path}>
+                        {vf.name} ({sizeMB} MB — {date})
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="/path/to/session-recording.mp4"
+                  value={newVideoPath}
+                  onChange={(e) => setNewVideoPath(e.target.value)}
+                  style={inputStyle}
+                />
+              )}
             </div>
           </div>
 
