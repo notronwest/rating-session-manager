@@ -39,7 +39,7 @@ cd rating-session-manager
 ./setup.sh
 ```
 
-This installs npm packages, creates the Python venv at `scripts/videos/venv` with opencv + numpy, installs Playwright + Chromium, and copies `.env.example` to `.env` if missing.
+This installs npm packages, creates the Python venv at `scripts/videos/venv` with opencv + numpy, installs Playwright + Chromium, and copies `.env.template` to `.env` if missing. If `.env` already exists, setup warns about any variables added to the template since your last setup.
 
 ### 4. Configure `.env`
 

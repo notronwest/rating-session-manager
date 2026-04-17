@@ -68,7 +68,7 @@ If courtreserve-scheduler is not present, the video processing features still wo
 
 ```
 setup.sh                     # One-command setup for new machines
-.env.example                 # Template for environment variables
+.env.template                # Template for environment variables (copied to .env by setup.sh)
 src/
   server.ts                  # Express entry point
   types.ts                   # Shared TypeScript types
@@ -156,7 +156,7 @@ PORT=3001                              # Express API port (default 3001)
 
 1. Clone this repo and courtreserve-scheduler as siblings
 2. Run `./setup.sh`
-3. Copy `.env` from old machine (or create from `.env.example`)
+3. Copy `.env` from old machine (or create from `.env.template`)
 4. Copy `data/members.json` from old machine (or re-scrape)
 5. Set `VIDEO_DIR` to where videos are on the new machine
 6. `npm run dev`

@@ -106,9 +106,18 @@ echo ""
 echo "--- Environment ---"
 if [ -f ".env" ]; then
   echo ".env file exists"
+  # Warn about variables present in the template but missing from .env
+  MISSING=$(comm -23 \
+    <(grep -E '^[A-Z_]+=' .env.template | cut -d= -f1 | sort) \
+    <(grep -E '^[A-Z_]+=' .env | cut -d= -f1 | sort))
+  if [ -n "$MISSING" ]; then
+    echo "WARNING: .env is missing variables from .env.template:"
+    echo "$MISSING" | sed 's/^/  - /'
+    echo "Add them to .env (see .env.template for defaults)."
+  fi
 else
-  echo "Creating .env from .env.example..."
-  cp .env.example .env
+  echo "Creating .env from .env.template..."
+  cp .env.template .env
   echo "IMPORTANT: Edit .env with your credentials and paths"
 fi
 
