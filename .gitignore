@@ -11,3 +11,4 @@ data/
 debug/
 venv/
 scripts/videos/venv/
+logs/
