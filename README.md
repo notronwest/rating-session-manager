@@ -76,7 +76,141 @@ npm run dev
 
 Open http://localhost:3000. The Vite dev server proxies `/api` to the Express server on port 3001.
 
-## Building for production
+## Deploying as a production service (macOS)
+
+This flow runs the API as a launchd daemon and serves the built SPA through Caddy at `https://sessions.wmpc.ai`. Targets a Mac with Apple Silicon (`/opt/homebrew`). Adjust paths for Intel (`/usr/local`) if needed.
+
+### 1. Build
+
+```bash
+npm run build
+```
+
+Produces `dist/server.js` (API) and `../../www/sessionmanager/` (SPA).
+
+### 2. Install the API as a LaunchDaemon
+
+Make the log directory (the plist writes to `logs/server.log` and `logs/server.err`):
+
+```bash
+mkdir -p logs
+```
+
+Copy the plist into the system LaunchDaemons folder:
+
+```bash
+sudo cp launchd/ai.wmpc.sessions.plist /Library/LaunchDaemons/
+```
+
+```bash
+sudo chown root:wheel /Library/LaunchDaemons/ai.wmpc.sessions.plist
+```
+
+```bash
+sudo chmod 644 /Library/LaunchDaemons/ai.wmpc.sessions.plist
+```
+
+Load and start:
+
+```bash
+sudo launchctl bootstrap system /Library/LaunchDaemons/ai.wmpc.sessions.plist
+```
+
+Verify it's listening on port 3001:
+
+```bash
+lsof -iTCP:3001 -sTCP:LISTEN
+```
+
+Tail the logs if anything looks off:
+
+```bash
+tail -f logs/server.log logs/server.err
+```
+
+**If your username isn't `notronwest` or node isn't at `/opt/homebrew/bin/node`:** edit [launchd/ai.wmpc.sessions.plist](launchd/ai.wmpc.sessions.plist) before copying. Check with `whoami` and `which node`.
+
+**Restart after code changes:**
+
+```bash
+npm run build
+```
+
+```bash
+sudo launchctl kickstart -k system/ai.wmpc.sessions
+```
+
+**Uninstall:**
+
+```bash
+sudo launchctl bootout system/ai.wmpc.sessions
+```
+
+```bash
+sudo rm /Library/LaunchDaemons/ai.wmpc.sessions.plist
+```
+
+### 3. Install and configure Caddy
+
+Caddy reverse-proxies `/api/*` to the Node server and serves the SPA from the `www/` build directory, with auto-managed TLS.
+
+```bash
+brew install caddy
+```
+
+Create `/opt/homebrew/etc/Caddyfile`:
+
+```caddy
+sessions.wmpc.ai {
+    tls internal
+
+    handle /api/* {
+        reverse_proxy localhost:3001
+    }
+
+    handle {
+        root * /Users/YOUR_USER/data/web/wmpc/projects/www/sessionmanager
+        try_files {path} /index.html
+        file_server
+        encode gzip
+    }
+}
+```
+
+Validate:
+
+```bash
+/opt/homebrew/bin/caddy validate --config /opt/homebrew/etc/Caddyfile
+```
+
+Start Caddy as root (needed to bind ports 80/443):
+
+```bash
+sudo brew services start caddy
+```
+
+Trust Caddy's local CA on this Mac so browsers don't warn (a GUI password prompt will appear — don't use `sudo`):
+
+```bash
+caddy trust
+```
+
+### 4. Point clients at the server
+
+Because `sessions.wmpc.ai` isn't in public DNS (`tls internal` serves a self-signed cert), add this to `/etc/hosts` on every client that needs access — replacing `10.0.0.110` with the server's LAN IP:
+
+```
+10.0.0.110  sessions.wmpc.ai
+```
+
+Other clients will hit a browser cert warning until you install Caddy's root CA on them. The root cert is at `/var/root/Library/Application Support/Caddy/pki/authorities/local/root.crt` on the server — copy it to each client and install it as a trusted root.
+
+### Notes
+
+- **For public DNS + real Let's Encrypt cert**: add an A record for `sessions.wmpc.ai` at your DNS provider, forward router ports 80/443 to the server, and remove `tls internal` from the Caddyfile.
+- **`better-sqlite3` ABI mismatch** after a Node upgrade: `npm rebuild better-sqlite3`, then `sudo launchctl kickstart -k system/ai.wmpc.sessions`.
+
+## Building for production (frontend only)
 
 ```bash
 npm run build
