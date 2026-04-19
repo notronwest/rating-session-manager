@@ -478,6 +478,44 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
   });
 });
 
+// POST /api/sessions/:id/pbvision-renotify — Re-fire the rating-hub webhook
+// for every already-attached pb.vision video ID on this session. Useful when
+// the original notify attempts failed (wrong secret, network hiccup, etc).
+router.post("/:id/pbvision-renotify", async (req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+  const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
+  if (vids.length === 0) {
+    return res.status(400).json({ error: "No pb.vision video IDs on this session yet" });
+  }
+
+  const addLog = (msg: string) => {
+    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
+  };
+
+  addLog(`Re-firing rating-hub webhook for ${vids.length} video IDs...`);
+
+  const results: { vid: string; ok: boolean; status?: string; error?: string }[] = [];
+  for (const vid of vids) {
+    try {
+      const r = await notifyRatingHub({ sessionId: session.id, videoId: vid, onLog: addLog });
+      results.push({ vid, ok: true, status: r.status });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = err instanceof WebhookError ? ` (HTTP ${err.status ?? "?"})` : "";
+      results.push({ vid, ok: false, error: `${msg}${code}` });
+      addLog(`Warning: rating-hub webhook failed for ${vid}: ${msg}`);
+    }
+  }
+
+  const ok = results.filter((r) => r.ok).length;
+  addLog(`Re-notify complete: ${ok}/${vids.length} OK`);
+  res.json({ results, ok, total: vids.length });
+});
+
 // POST /api/sessions/:id/create-rating-hub-session
 // Upsert a sessions row in the shared Supabase DB (rating-hub's schema) and
 // backfill games.session_id for any already-imported clips. Idempotent — safe

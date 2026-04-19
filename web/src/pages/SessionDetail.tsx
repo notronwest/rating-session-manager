@@ -269,6 +269,35 @@ export default function SessionDetail() {
     }
   };
 
+  const [renotifying, setRenotifying] = useState(false);
+  const [renotifyResult, setRenotifyResult] = useState<{
+    ok: number;
+    total: number;
+    results: { vid: string; ok: boolean; status?: string; error?: string }[];
+  } | null>(null);
+
+  const renotifyRatingHub = async () => {
+    setRenotifying(true);
+    setRenotifyResult(null);
+    setLogs([]);
+    try {
+      const res = await fetch(`/api/sessions/${id}/pbvision-renotify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRenotifyResult({ ok: 0, total: 0, results: [{ vid: "", ok: false, error: data.error || res.statusText }] });
+      } else {
+        setRenotifyResult({ ok: data.ok, total: data.total, results: data.results });
+      }
+    } finally {
+      setRenotifying(false);
+      await fetchSession();
+    }
+  };
+
   const fetchPbVisionIds = async () => {
     setFetching(true);
     setFetchSummary(null);
@@ -841,7 +870,27 @@ export default function SessionDetail() {
                 {" · browser-automation fallback (Partner API key pending)"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {uploadedCount > 0 && (
+                <button
+                  onClick={renotifyRatingHub}
+                  disabled={running || renotifying || fetching}
+                  style={{
+                    padding: "8px 14px",
+                    background: "none",
+                    border: "1px solid #5f6368",
+                    color: "#5f6368",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: running || renotifying || fetching ? "not-allowed" : "pointer",
+                    opacity: running || renotifying || fetching ? 0.5 : 1,
+                  }}
+                  title="Re-POST to the rating-hub webhook for every attached video ID — safe to click after secret rotations or if earlier calls failed silently"
+                >
+                  {renotifying ? "Re-notifying…" : "Re-notify Rating Hub"}
+                </button>
+              )}
               <button
                 onClick={fetchPbVisionIds}
                 disabled={running || fetching || allDone}
@@ -874,6 +923,28 @@ export default function SessionDetail() {
               </button>
             </div>
           </div>
+          {renotifyResult && (
+            <div
+              style={{
+                padding: "8px 12px", marginBottom: 10, borderRadius: 6, fontSize: 12,
+                background: renotifyResult.ok === renotifyResult.total ? "#e6f4ea" : "#fde7e7",
+                color: renotifyResult.ok === renotifyResult.total ? "#137333" : "#b00020",
+                border: `1px solid ${renotifyResult.ok === renotifyResult.total ? "#c8e6c9" : "#f5c6c6"}`,
+              }}
+            >
+              Re-notify: {renotifyResult.ok}/{renotifyResult.total} OK
+              <details style={{ marginTop: 6, color: "#444" }}>
+                <summary style={{ cursor: "pointer" }}>Per-video response</summary>
+                <ul style={{ fontSize: 11, fontFamily: "monospace", margin: "6px 0 0", padding: "0 0 0 20px" }}>
+                  {renotifyResult.results.map((r, i) => (
+                    <li key={i} style={{ color: r.ok ? "#137333" : "#b00020" }}>
+                      {r.vid || "(no vid)"}: {r.ok ? (r.status ?? "ok") : r.error}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
           {fetchSummary && (
             <div
               style={{
