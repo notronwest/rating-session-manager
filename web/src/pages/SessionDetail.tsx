@@ -227,6 +227,36 @@ export default function SessionDetail() {
   const [pasteValue, setPasteValue] = useState("");
   const [pasteSaving, setPasteSaving] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number } | null>(null);
+
+  const fetchPbVisionIds = async () => {
+    setFetching(true);
+    setFetchSummary(null);
+    setLogs([]);
+    try {
+      const res = await fetch(`/api/sessions/${id}/pbvision-fetch-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error("fetch-ids failed:", data.error || res.statusText);
+        setFetchSummary({ matched: 0, unmatchedClips: 0, unmatchedVideos: 0, webhookErrors: 0 });
+      } else {
+        setFetchSummary({
+          matched: data.matched?.length ?? 0,
+          unmatchedClips: data.unmatchedClips?.length ?? 0,
+          unmatchedVideos: data.unmatchedVideos?.length ?? 0,
+          webhookErrors: data.webhookErrors?.length ?? 0,
+        });
+      }
+    } finally {
+      setFetching(false);
+      await fetchSession();
+    }
+  };
 
   const confirmPbVisionId = async () => {
     if (pastingIndex === null) return;
@@ -772,19 +802,54 @@ export default function SessionDetail() {
                 {" · browser-automation fallback (Partner API key pending)"}
               </div>
             </div>
-            <button
-              onClick={() => runPbVisionUpload()}
-              disabled={running || allDone}
-              style={
-                running || allDone
-                  ? { ...btnDisabledStyle, background: "#137333" }
-                  : { ...btnStyle, background: "#137333" }
-              }
-              title={allDone ? "All clips are uploaded" : "Uploads clips sequentially via a visible browser window"}
-            >
-              {allDone ? "Uploaded" : running ? "Uploading…" : uploadedCount > 0 ? "Resume Upload" : "Upload to PB Vision"}
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={fetchPbVisionIds}
+                disabled={running || fetching || allDone}
+                style={{
+                  padding: "8px 14px",
+                  background: "none",
+                  border: "1px solid #1a73e8",
+                  color: "#1a73e8",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: running || fetching || allDone ? "not-allowed" : "pointer",
+                  opacity: running || fetching || allDone ? 0.5 : 1,
+                }}
+                title="Scrape your pb.vision library and auto-match videos to this session's clips by filename"
+              >
+                {fetching ? "Fetching…" : "Fetch IDs from pb.vision"}
+              </button>
+              <button
+                onClick={() => runPbVisionUpload()}
+                disabled={running || fetching || allDone}
+                style={
+                  running || fetching || allDone
+                    ? { ...btnDisabledStyle, background: "#137333" }
+                    : { ...btnStyle, background: "#137333" }
+                }
+                title={allDone ? "All clips are uploaded" : "Uploads clips sequentially via a visible browser window"}
+              >
+                {allDone ? "Uploaded" : running ? "Uploading…" : uploadedCount > 0 ? "Resume Upload" : "Upload to PB Vision"}
+              </button>
+            </div>
           </div>
+          {fetchSummary && (
+            <div
+              style={{
+                padding: "8px 12px", marginBottom: 10, borderRadius: 6, fontSize: 12,
+                background: fetchSummary.matched > 0 ? "#e6f4ea" : "#fff8e1",
+                color: fetchSummary.matched > 0 ? "#137333" : "#6b5200",
+                border: `1px solid ${fetchSummary.matched > 0 ? "#c8e6c9" : "#ffe082"}`,
+              }}
+            >
+              Matched {fetchSummary.matched}
+              {fetchSummary.unmatchedClips > 0 && ` · ${fetchSummary.unmatchedClips} clip${fetchSummary.unmatchedClips !== 1 ? "s" : ""} unmatched (paste manually)`}
+              {fetchSummary.unmatchedVideos > 0 && ` · ${fetchSummary.unmatchedVideos} video${fetchSummary.unmatchedVideos !== 1 ? "s" : ""} in library with no matching clip`}
+              {fetchSummary.webhookErrors > 0 && ` · ${fetchSummary.webhookErrors} webhook error${fetchSummary.webhookErrors !== 1 ? "s" : ""} (see logs)`}
+            </div>
+          )}
           <ul style={{ listStyle: "none", padding: 0, margin: 0, borderTop: "1px solid #f0f0f0" }}>
             {session.clip_paths.map((cp, i) => {
               const name = cp.split("/").pop() || cp;

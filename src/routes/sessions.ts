@@ -5,6 +5,7 @@ import path from "path";
 import { getDb } from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
+import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import type { Session, GameSegment } from "../types.js";
 
@@ -378,6 +379,102 @@ router.post("/:id/pbvision-confirm", async (req, res) => {
 
   const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
   res.json({ ...rowToSession(updated), webhookError });
+});
+
+// POST /api/sessions/:id/pbvision-fetch-ids — Scrape the user's pb.vision
+// library, auto-match videos to this session's clips by filename, populate
+// pbvision_video_ids for the matches, and fire the rating-hub webhook.
+// Returns the updated session + any unmatched clips + any unmatched library
+// videos so the UI can ask the user to pair them.
+router.post("/:id/pbvision-fetch-ids", async (req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+  if (!session.clip_paths || session.clip_paths.length === 0) {
+    return res.status(400).json({ error: "Session has no clips" });
+  }
+
+  const addLog = (msg: string) => {
+    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
+  };
+
+  let videos;
+  try {
+    videos = await listPbVisionVideos({
+      headed: req.body?.headed !== false,
+      onLog: (line) => addLog(`  ${line}`),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err instanceof ListError ? err.code : "unknown";
+    addLog(`Fetch failed: [${code}] ${msg}`);
+    return res.status(500).json({ error: msg, code });
+  }
+
+  addLog(`Fetched ${videos.length} videos from pb.vision library`);
+
+  const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
+  while (vids.length < session.clip_paths.length) vids.push(null);
+
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const stem = (p: string) => path.basename(p, path.extname(p));
+
+  const unmatchedVideos = new Set(videos.map((v) => v.vid));
+  const matches: { clipIndex: number; clipName: string; vid: string; title: string }[] = [];
+
+  for (let i = 0; i < session.clip_paths.length; i++) {
+    if (vids[i]) continue;
+    const basename = path.basename(session.clip_paths[i]);
+    const stemName = norm(stem(basename));
+    const hit = videos.find((v) => {
+      if (!unmatchedVideos.has(v.vid)) return false;
+      const title = norm(v.title || "");
+      return title.includes(stemName) || stemName.includes(title) || title.includes(norm(basename));
+    });
+    if (hit) {
+      vids[i] = hit.vid;
+      unmatchedVideos.delete(hit.vid);
+      matches.push({ clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title });
+      addLog(`  Matched ${basename} → ${hit.vid}`);
+    }
+  }
+
+  const allDone = vids.every((v) => !!v);
+  db.prepare(
+    "UPDATE sessions SET pbvision_video_ids = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
+  ).run(
+    JSON.stringify(vids),
+    allDone ? "processing" : session.status === "failed" ? "uploading" : session.status || "uploading",
+    session.id,
+  );
+
+  // Fire webhooks for any newly-matched vids
+  const webhookErrors: { vid: string; error: string }[] = [];
+  for (const m of matches) {
+    try {
+      await notifyRatingHub({ sessionId: session.id, videoId: m.vid, onLog: addLog });
+    } catch (whErr) {
+      const msg = whErr instanceof Error ? whErr.message : String(whErr);
+      webhookErrors.push({ vid: m.vid, error: msg });
+      addLog(`Warning: rating-hub webhook failed for ${m.vid}: ${msg}`);
+    }
+  }
+
+  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
+  const unmatchedClips = session.clip_paths
+    .map((cp, i) => ({ clipIndex: i, clipName: path.basename(cp) }))
+    .filter((c) => !vids[c.clipIndex]);
+  const unmatchedVideoList = videos.filter((v) => unmatchedVideos.has(v.vid));
+
+  res.json({
+    session: rowToSession(updated),
+    matched: matches,
+    unmatchedClips,
+    unmatchedVideos: unmatchedVideoList,
+    webhookErrors,
+  });
 });
 
 function deleteClipFiles(session: Session) {
