@@ -4,6 +4,18 @@ Upload a single video file to pb.vision by driving the web UI with Playwright.
 Used as a fallback until the PB Vision Partner API key is obtained. Once we
 have an API key, this script should be replaced with @pbvision/partner-sdk.
 
+pb.vision uses magic-link email auth (no password field). We persist the
+Chromium profile across runs under `.pbvision-profile/` so that once the user
+completes the magic-link flow once, subsequent uploads skip login entirely
+until the session cookie expires.
+
+First-run login flow:
+  1. Script opens a Chromium window and navigates to pb.vision
+  2. Fills PB_VISION_EMAIL into the email field and submits
+  3. User checks their email, copies the magic-link URL
+  4. User pastes the URL into the Chromium address bar
+  5. pb.vision authenticates and the script proceeds
+
 Emits the captured video ID as a single-line JSON object on stdout:
     {"vid": "abc123"}
 All progress messages go to stderr so the stdout can be piped safely.
@@ -13,7 +25,8 @@ Usage:
 
 Env:
     PB_VISION_EMAIL       pb.vision login email
-    PB_VISION_PASSWORD    pb.vision password
+    PB_VISION_PASSWORD    (unused — pb.vision is magic-link only, kept in .env
+                           for future Partner SDK integration)
 """
 
 import json
@@ -50,49 +63,81 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+PROFILE_DIR = PROJECT_ROOT / ".pbvision-profile"
+
+
 @contextmanager
 def browser(headless: bool):
-    import tempfile
-    import shutil
+    """Yield a Playwright page backed by a persistent Chromium profile.
 
-    profile_dir = tempfile.mkdtemp(prefix="pbvision_")
-    try:
-        with sync_playwright() as p:
-            launch_kwargs = dict(
-                user_data_dir=profile_dir,
-                headless=headless,
-                args=["--disable-blink-features=AutomationControlled"],
-            )
-            import shutil as _shutil
-            if _shutil.which("google-chrome") or _shutil.which("chrome"):
-                launch_kwargs["channel"] = "chrome"
-            context = p.chromium.launch_persistent_context(**launch_kwargs)
-            # Larger default timeouts so 2GB uploads don't time out.
-            context.set_default_timeout(120_000)
-            page = context.new_page()
-            Stealth().apply_stealth_sync(page)
-            try:
-                yield page
-            finally:
-                context.close()
-    finally:
-        shutil.rmtree(profile_dir, ignore_errors=True)
+    Persisting the profile means once the user completes pb.vision's
+    magic-link login, future runs reuse the stored session cookies and
+    skip login entirely.
+    """
+    PROFILE_DIR.mkdir(exist_ok=True)
+    with sync_playwright() as p:
+        launch_kwargs = dict(
+            user_data_dir=str(PROFILE_DIR),
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        import shutil as _shutil
+        if _shutil.which("google-chrome") or _shutil.which("chrome"):
+            launch_kwargs["channel"] = "chrome"
+        context = p.chromium.launch_persistent_context(**launch_kwargs)
+        # Larger default timeouts so 2GB uploads don't time out.
+        context.set_default_timeout(120_000)
+        page = context.new_page()
+        Stealth().apply_stealth_sync(page)
+        try:
+            yield page
+        finally:
+            context.close()
 
 
-def login(page: Page, email: str, password: str, debug_dir: Path) -> None:
-    log(f"Opening {LOGIN_URL}")
+def is_authenticated(page: Page) -> bool:
+    """Heuristic check: we're logged in if the current URL isn't /login
+    AND we can see the user's library / a file input somewhere."""
+    if "/login" in page.url.lower():
+        return False
+    # If anything on the page suggests an authenticated surface (file input,
+    # library link, user menu), treat as logged in.
+    if find_file_input(page):
+        return True
+    # Fall back to looking for common post-login nav hints.
+    for sel in [
+        'a[href*="library" i]',
+        'a[href*="videos" i]',
+        'button:has-text("Upload")',
+    ]:
+        if page.locator(sel).count() > 0:
+            return True
+    return False
+
+
+def ensure_logged_in(page: Page, email: str, debug_dir: Path) -> None:
+    """Start at pb.vision. If the persistent profile already has a valid
+    session, return immediately. Otherwise run the magic-link flow: fill in
+    the email, submit, then wait up to 15 min for the user to click the
+    magic-link URL (pasted into this Chromium window's address bar)."""
+
+    log("Opening https://pb.vision/")
+    page.goto("https://pb.vision/")
+    page.wait_for_load_state("networkidle", timeout=30_000)
+
+    if is_authenticated(page):
+        log("Already authenticated (reusing persistent profile).")
+        return
+
+    log(f"Not authenticated — navigating to {LOGIN_URL}")
     page.goto(LOGIN_URL)
-    # Email field — try several common selectors.
+    page.wait_for_load_state("networkidle", timeout=30_000)
+
     email_sel_candidates = [
         'input[type="email"]',
         'input[name="email"]',
         'input[placeholder*="mail" i]',
     ]
-    password_sel_candidates = [
-        'input[type="password"]',
-        'input[name="password"]',
-    ]
-
     email_input = None
     for sel in email_sel_candidates:
         if page.locator(sel).count() > 0:
@@ -100,22 +145,17 @@ def login(page: Page, email: str, password: str, debug_dir: Path) -> None:
             break
     if not email_input:
         page.screenshot(path=str(debug_dir / "pbvision-login-no-email.png"), full_page=True)
-        raise RuntimeError("Could not find email input on login page — see debug/pbvision-login-no-email.png")
+        raise RuntimeError(
+            "Could not find email input on pb.vision login page — see debug/pbvision-login-no-email.png",
+        )
 
-    password_input = None
-    for sel in password_sel_candidates:
-        if page.locator(sel).count() > 0:
-            password_input = sel
-            break
-    if not password_input:
-        page.screenshot(path=str(debug_dir / "pbvision-login-no-password.png"), full_page=True)
-        raise RuntimeError("Could not find password input on login page")
-
+    log(f"Filling email ({email}) and submitting the magic-link request...")
     page.fill(email_input, email)
-    page.fill(password_input, password)
 
-    # Submit — try common patterns.
+    # Submit — try explicit buttons, then fall back to Enter.
     for sel in [
+        'button:has-text("Continue")',
+        'button:has-text("Send")',
         'button:has-text("Sign in")',
         'button:has-text("Log in")',
         'button:has-text("Login")',
@@ -127,13 +167,36 @@ def login(page: Page, email: str, password: str, debug_dir: Path) -> None:
     else:
         page.keyboard.press("Enter")
 
-    # Wait for the post-login landing — URL no longer contains /login.
-    try:
-        page.wait_for_url(lambda u: "/login" not in u.lower(), timeout=45_000)
-    except Exception:
-        page.screenshot(path=str(debug_dir / "pbvision-login-failed.png"), full_page=True)
-        raise RuntimeError("Login did not redirect away from /login — check credentials / see debug/pbvision-login-failed.png")
-    log(f"Logged in, now at {page.url}")
+    log("")
+    log("  ┌─────────────────────────────────────────────────────────────────┐")
+    log("  │  ACTION REQUIRED: check your email for a pb.vision login link. │")
+    log("  │                                                                 │")
+    log("  │  Copy the link URL and paste it into the Chromium address bar  │")
+    log("  │  of the window that just opened. This script will wait up to   │")
+    log("  │  15 minutes for you to complete it.                            │")
+    log("  │                                                                 │")
+    log("  │  After this one-time step, future uploads will reuse the       │")
+    log("  │  saved session and skip login automatically.                   │")
+    log("  └─────────────────────────────────────────────────────────────────┘")
+    log("")
+
+    deadline = time.time() + 15 * 60
+    last_log = 0.0
+    while time.time() < deadline:
+        if is_authenticated(page):
+            log(f"Authenticated — now at {page.url}")
+            return
+        if time.time() - last_log > 30:
+            last_log = time.time()
+            remaining = int(deadline - time.time())
+            log(f"  ...still waiting for magic-link auth ({remaining}s remaining, current URL: {page.url})")
+        page.wait_for_timeout(2_000)
+
+    page.screenshot(path=str(debug_dir / "pbvision-magic-link-timeout.png"), full_page=True)
+    raise RuntimeError(
+        "Timed out (15 min) waiting for magic-link authentication. "
+        "See debug/pbvision-magic-link-timeout.png.",
+    )
 
 
 def find_file_input(page: Page) -> str | None:
@@ -228,16 +291,15 @@ def main() -> int:
         return 2
 
     email = os.environ.get("PB_VISION_EMAIL")
-    password = os.environ.get("PB_VISION_PASSWORD")
-    if not email or not password:
-        log("PB_VISION_EMAIL and PB_VISION_PASSWORD must be set in .env")
+    if not email:
+        log("PB_VISION_EMAIL must be set in .env")
         return 2
 
     debug_dir = PROJECT_ROOT / "debug"
     debug_dir.mkdir(exist_ok=True)
 
     with browser(headless=not headed) as page:
-        login(page, email, password, debug_dir)
+        ensure_logged_in(page, email, debug_dir)
         vid = upload(page, video_path, debug_dir)
 
     print(json.dumps({"vid": vid}))
