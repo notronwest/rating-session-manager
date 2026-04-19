@@ -204,14 +204,14 @@ export default function SessionDetail() {
     await doExport();
   };
 
-  const runPbVisionUpload = async () => {
+  const runPbVisionUpload = async (clipIndex: number | null = null) => {
     setLogs([]);
     setRunning(true);
     try {
       const res = await fetch(`/api/sessions/${id}/pbvision-upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(clipIndex !== null ? { clip_index: clipIndex } : {}),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -379,7 +379,12 @@ export default function SessionDetail() {
 
       {session.error && (
         <div style={{ background: "#fce8e6", border: "1px solid #f5c6cb", borderRadius: 8, padding: 12, marginBottom: 16, color: "#d93025", fontSize: 13 }}>
-          {session.error}
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+            Last run failed ({session.status})
+          </div>
+          <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "monospace", fontSize: 12 }}>
+            {session.error.replace(/\x1b\[[0-9;]*m/g, "")}
+          </pre>
         </div>
       )}
 
@@ -733,7 +738,7 @@ export default function SessionDetail() {
               </div>
             </div>
             <button
-              onClick={runPbVisionUpload}
+              onClick={() => runPbVisionUpload()}
               disabled={running || allDone}
               style={
                 running || allDone
@@ -754,13 +759,35 @@ export default function SessionDetail() {
                   key={i}
                   style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 0", fontSize: 13, borderBottom: "1px solid #f0f0f0",
+                    padding: "8px 0", fontSize: 13, borderBottom: "1px solid #f0f0f0", gap: 12,
                   }}
                 >
                   <span style={{ fontFamily: "monospace", color: "#444" }}>{name}</span>
-                  <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
-                    {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
+                      {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
+                    </span>
+                    {!alreadyUploaded && (
+                      <button
+                        onClick={() => runPbVisionUpload(i)}
+                        disabled={running}
+                        style={{
+                          background: "none",
+                          border: "1px solid #1a73e8",
+                          color: "#1a73e8",
+                          borderRadius: 4,
+                          padding: "2px 10px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          cursor: running ? "not-allowed" : "pointer",
+                          opacity: running ? 0.5 : 1,
+                        }}
+                        title="Upload just this clip; already-uploaded clips are skipped"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -769,12 +796,17 @@ export default function SessionDetail() {
         );
       })()}
 
-      {/* Logs — only visible while processing */}
-      {running && (
+      {/* Logs — sticks around after a run so failures stay visible */}
+      {(running || logs.length > 0) && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <h2 style={{ fontSize: 16, fontWeight: 600 }}>Logs</h2>
             {running && <ProcessingSpinner />}
+            {!running && logs.length > 0 && (
+              <span style={{ fontSize: 11, color: "#999", marginLeft: 4 }}>
+                (last run — refresh session or start a new action to clear)
+              </span>
+            )}
           </div>
           <div
             ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
@@ -793,16 +825,19 @@ export default function SessionDetail() {
             {logs.length === 0 && running && (
               <div style={{ color: "#888" }}>Starting...</div>
             )}
-            {logs.map((log) => (
-              <div key={log.id}>
-                <span style={{ color: "#666" }}>
-                  {new Date(log.timestamp).toLocaleTimeString()}
-                </span>{" "}
-                <span style={{ color: log.message.includes("failed") || log.message.includes("error") ? "#f28b82" : "#d4d4d4" }}>
-                  {log.message}
-                </span>
-              </div>
-            ))}
+            {logs.map((log) => {
+              const clean = log.message.replace(/\x1b\[[0-9;]*m/g, "");
+              return (
+                <div key={log.id}>
+                  <span style={{ color: "#666" }}>
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </span>{" "}
+                  <span style={{ color: clean.includes("failed") || clean.includes("error") ? "#f28b82" : "#d4d4d4" }}>
+                    {clean}
+                  </span>
+                </div>
+              );
+            })}
             {running && (
               <div style={{ color: "#888", marginTop: 4 }}>
                 <span style={{ animation: "none" }}>...</span>

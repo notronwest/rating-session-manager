@@ -242,6 +242,11 @@ router.post("/:id/pbvision-upload", async (req, res) => {
 
   uploadsInFlight.add(session.id);
   const headed = req.body?.headed !== false; // default true — pb.vision likely has CF too
+  // Optional — upload only a single clip by its 0-based index
+  const onlyIndex =
+    typeof req.body?.clip_index === "number" && Number.isInteger(req.body.clip_index)
+      ? (req.body.clip_index as number)
+      : null;
 
   const addLog = (msg: string) => {
     db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
@@ -254,10 +259,15 @@ router.post("/:id/pbvision-upload", async (req, res) => {
   db.prepare(
     "UPDATE sessions SET status = 'uploading', error = NULL, updated_at = datetime('now') WHERE id = ?",
   ).run(session.id);
-  addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
+  if (onlyIndex !== null) {
+    addLog(`Retrying pb.vision upload for clip ${onlyIndex + 1}/${session.clip_paths.length}...`);
+  } else {
+    addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
+  }
 
   try {
     for (let i = 0; i < session.clip_paths.length; i++) {
+      if (onlyIndex !== null && i !== onlyIndex) continue;
       if (vids[i]) {
         addLog(`Clip ${i + 1}/${session.clip_paths.length}: already uploaded (${vids[i]}), skipping`);
         continue;
