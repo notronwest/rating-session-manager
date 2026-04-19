@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 
-type Inserted = { display_name: string; cr_member_id: string; slug: string };
+type Inserted = { display_name: string; cr_member_id: string; slug: string; email: string | null };
 
 type SyncResult = {
   scraped: number;
   existing: number;
   skipped: number;
+  updated: number;
   inserted: Inserted[];
+  errors: { displayName: string; error: string }[];
   dryRun: boolean;
 };
 
@@ -91,7 +93,7 @@ export default function Members() {
           </div>
         </div>
         <div style={{ fontSize: 12, color: "#999" }}>
-          Runs the CourtReserve Members Report (up to ~2 minutes) and inserts any new players into Supabase. A Chromium window briefly opens on the server's desktop — CourtReserve's Cloudflare check blocks fully-headless scraping. Existing players are never modified.
+          Runs the CourtReserve Members Report (up to ~2 minutes), inserts new players into Supabase, and updates existing players with any missing email or CourtReserve member ID. Matches are made on email → cr_member_id → display name, in that order. A Chromium window briefly opens on the server's desktop — CourtReserve's Cloudflare check blocks fully-headless scraping.
         </div>
       </div>
 
@@ -113,13 +115,19 @@ export default function Members() {
           <div style={{ fontWeight: 600, marginBottom: 12 }}>
             {result.dryRun ? "Dry run complete" : "Sync complete"}
           </div>
-          <div style={{ display: "flex", gap: 24, fontSize: 14, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 24, fontSize: 14, marginBottom: 12, flexWrap: "wrap" }}>
             <div>Scraped: <strong>{result.scraped}</strong></div>
             <div>Existing in Supabase: <strong>{result.existing}</strong></div>
             <div>Skipped (already present): <strong>{result.skipped}</strong></div>
+            <div>Updated: <strong>{result.updated}</strong></div>
             <div style={{ color: "#137333" }}>
               {result.dryRun ? "Would insert" : "Inserted"}: <strong>{result.inserted.length}</strong>
             </div>
+            {result.errors.length > 0 && (
+              <div style={{ color: "#b00020" }}>
+                Errors: <strong>{result.errors.length}</strong>
+              </div>
+            )}
           </div>
 
           {result.inserted.length > 0 && (
@@ -130,7 +138,22 @@ export default function Members() {
               <ul style={{ marginTop: 8, fontSize: 13, maxHeight: 300, overflowY: "auto" }}>
                 {result.inserted.map((p) => (
                   <li key={p.cr_member_id}>
-                    {p.display_name} <span style={{ color: "#999" }}>#{p.cr_member_id} → {p.slug}</span>
+                    {p.display_name} <span style={{ color: "#999" }}>#{p.cr_member_id} → {p.slug}{p.email ? ` · ${p.email}` : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {result.errors.length > 0 && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", fontSize: 13, color: "#b00020" }}>
+                Errors ({result.errors.length})
+              </summary>
+              <ul style={{ marginTop: 8, fontSize: 13, maxHeight: 300, overflowY: "auto", color: "#b00020" }}>
+                {result.errors.map((e, i) => (
+                  <li key={i}>
+                    {e.displayName}: <span style={{ color: "#999" }}>{e.error}</span>
                   </li>
                 ))}
               </ul>
