@@ -223,6 +223,41 @@ export default function SessionDetail() {
     }
   };
 
+  const [pastingIndex, setPastingIndex] = useState<number | null>(null);
+  const [pasteValue, setPasteValue] = useState("");
+  const [pasteSaving, setPasteSaving] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+
+  const confirmPbVisionId = async () => {
+    if (pastingIndex === null) return;
+    const videoId = pasteValue.trim();
+    if (!videoId) return;
+    setPasteSaving(true);
+    setPasteError(null);
+    try {
+      const res = await fetch(`/api/sessions/${id}/pbvision-confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clip_index: pastingIndex, video_id: videoId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasteError(data.error || res.statusText);
+      } else {
+        if (data.webhookError) {
+          setPasteError(`Saved, but rating-hub webhook failed: ${data.webhookError}`);
+        }
+        setPastingIndex(null);
+        setPasteValue("");
+        await fetchSession();
+      }
+    } catch (e) {
+      setPasteError((e as Error).message);
+    } finally {
+      setPasteSaving(false);
+    }
+  };
+
   const clearResults = () => {
     const hasClips = session?.clip_paths && session.clip_paths.length > 0;
     const segCount = session?.segments?.length || 0;
@@ -754,40 +789,97 @@ export default function SessionDetail() {
             {session.clip_paths.map((cp, i) => {
               const name = cp.split("/").pop() || cp;
               const alreadyUploaded = !!(session.pbvision_video_ids && session.pbvision_video_ids[i]);
+              const pasting = pastingIndex === i;
               return (
                 <li
                   key={i}
                   style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 0", fontSize: 13, borderBottom: "1px solid #f0f0f0", gap: 12,
+                    display: "flex", flexDirection: "column",
+                    padding: "8px 0", fontSize: 13, borderBottom: "1px solid #f0f0f0", gap: 6,
                   }}
                 >
-                  <span style={{ fontFamily: "monospace", color: "#444" }}>{name}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
-                      {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
-                    </span>
-                    {!alreadyUploaded && (
-                      <button
-                        onClick={() => runPbVisionUpload(i)}
-                        disabled={running}
-                        style={{
-                          background: "none",
-                          border: "1px solid #1a73e8",
-                          color: "#1a73e8",
-                          borderRadius: 4,
-                          padding: "2px 10px",
-                          fontSize: 11,
-                          fontWeight: 500,
-                          cursor: running ? "not-allowed" : "pointer",
-                          opacity: running ? 0.5 : 1,
-                        }}
-                        title="Upload just this clip; already-uploaded clips are skipped"
-                      >
-                        Retry
-                      </button>
-                    )}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontFamily: "monospace", color: "#444" }}>{name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
+                        {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
+                      </span>
+                      {!alreadyUploaded && !pasting && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setPastingIndex(i);
+                              setPasteValue("");
+                              setPasteError(null);
+                            }}
+                            disabled={running}
+                            style={{
+                              background: "none", border: "1px solid #999", color: "#444",
+                              borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 500,
+                              cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1,
+                            }}
+                            title="Paste a pb.vision video ID if you uploaded manually"
+                          >
+                            Paste ID
+                          </button>
+                          <button
+                            onClick={() => runPbVisionUpload(i)}
+                            disabled={running}
+                            style={{
+                              background: "none", border: "1px solid #1a73e8", color: "#1a73e8",
+                              borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 500,
+                              cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1,
+                            }}
+                            title="Upload just this clip via browser automation"
+                          >
+                            Retry
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  {pasting && (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="pb.vision video ID (e.g. 8q3f…)"
+                        value={pasteValue}
+                        onChange={(e) => setPasteValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") confirmPbVisionId(); }}
+                        disabled={pasteSaving}
+                        style={{
+                          flex: 1, padding: "6px 10px", fontSize: 13, borderRadius: 4,
+                          border: "1px solid #ddd", fontFamily: "monospace",
+                        }}
+                      />
+                      <button
+                        onClick={confirmPbVisionId}
+                        disabled={pasteSaving || !pasteValue.trim()}
+                        style={{
+                          background: pasteSaving || !pasteValue.trim() ? "#a5cda3" : "#137333",
+                          color: "#fff", border: "none", borderRadius: 4,
+                          padding: "6px 14px", fontSize: 12, fontWeight: 500,
+                          cursor: pasteSaving || !pasteValue.trim() ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {pasteSaving ? "Saving…" : "Save & notify"}
+                      </button>
+                      <button
+                        onClick={() => { setPastingIndex(null); setPasteValue(""); setPasteError(null); }}
+                        disabled={pasteSaving}
+                        style={{
+                          background: "none", border: "1px solid #ddd", color: "#666",
+                          borderRadius: 4, padding: "6px 12px", fontSize: 12, cursor: "pointer",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {pasting && pasteError && (
+                    <div style={{ fontSize: 11, color: "#b00020", marginTop: 2 }}>{pasteError}</div>
+                  )}
                 </li>
               );
             })}

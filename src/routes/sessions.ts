@@ -5,6 +5,7 @@ import path from "path";
 import { getDb } from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
+import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import type { Session, GameSegment } from "../types.js";
 
 const router = Router();
@@ -285,6 +286,14 @@ router.post("/:id/pbvision-upload", async (req, res) => {
       db.prepare(
         "UPDATE sessions SET pbvision_video_ids = ?, updated_at = datetime('now') WHERE id = ?",
       ).run(JSON.stringify(vids), session.id);
+
+      // Fire-and-warn: notify rating-hub so it can pick up insights.
+      try {
+        await notifyRatingHub({ sessionId: session.id, videoId: vid, onLog: addLog });
+      } catch (whErr) {
+        const whMsg = whErr instanceof Error ? whErr.message : String(whErr);
+        addLog(`Warning: rating-hub webhook failed for ${vid}: ${whMsg}`);
+      }
     }
 
     const allDone = vids.every((v) => !!v);
@@ -306,6 +315,69 @@ router.post("/:id/pbvision-upload", async (req, res) => {
   } finally {
     uploadsInFlight.delete(session.id);
   }
+});
+
+// POST /api/sessions/:id/pbvision-confirm — Manually attach a pb.vision video
+// ID to a specific clip (for when the user uploaded via pb.vision's own UI)
+// and immediately fire the rating-hub webhook for it.
+//
+// Body: { clip_index: number, video_id: string }
+router.post("/:id/pbvision-confirm", async (req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+  const clipIndex = req.body?.clip_index;
+  const videoId = typeof req.body?.video_id === "string" ? req.body.video_id.trim() : "";
+
+  if (!session.clip_paths || session.clip_paths.length === 0) {
+    return res.status(400).json({ error: "Session has no clips" });
+  }
+  if (typeof clipIndex !== "number" || !Number.isInteger(clipIndex) || clipIndex < 0 || clipIndex >= session.clip_paths.length) {
+    return res.status(400).json({ error: "clip_index out of range" });
+  }
+  if (!videoId) {
+    return res.status(400).json({ error: "video_id is required" });
+  }
+
+  const addLog = (msg: string) => {
+    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
+  };
+
+  const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
+  while (vids.length < session.clip_paths.length) vids.push(null);
+
+  if (vids[clipIndex] && vids[clipIndex] !== videoId) {
+    addLog(`Clip ${clipIndex + 1}: replacing existing video ID ${vids[clipIndex]} with ${videoId}`);
+  } else if (!vids[clipIndex]) {
+    addLog(`Clip ${clipIndex + 1}: attaching video ID ${videoId}`);
+  }
+
+  vids[clipIndex] = videoId;
+
+  const allDone = vids.every((v) => !!v);
+  db.prepare(
+    "UPDATE sessions SET pbvision_video_ids = ?, status = ?, error = NULL, updated_at = datetime('now') WHERE id = ?",
+  ).run(
+    JSON.stringify(vids),
+    allDone ? "processing" : "uploading",
+    session.id,
+  );
+
+  // Fire the webhook; never block the 200 — surface errors to logs.
+  let webhookError: string | null = null;
+  try {
+    await notifyRatingHub({ sessionId: session.id, videoId, onLog: addLog });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err instanceof WebhookError ? ` (${err.status ?? "n/a"})` : "";
+    webhookError = `${msg}${code}`;
+    addLog(`Warning: rating-hub webhook failed: ${webhookError}`);
+  }
+
+  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
+  res.json({ ...rowToSession(updated), webhookError });
 });
 
 function deleteClipFiles(session: Session) {
