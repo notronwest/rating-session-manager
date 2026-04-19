@@ -1,47 +1,47 @@
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MEMBERS_PATH = path.resolve(__dirname, "../../data/members.json");
+import { getSupabase, getOrgId } from "../supabase.js";
 
 const router = Router();
 
-// GET /api/members — Return cached member list
-router.get("/", (_req, res) => {
-  if (!fs.existsSync(MEMBERS_PATH)) {
-    return res.json({ members: [], error: "No member data. Run: python3 scripts/scrape-members.py --headed" });
-  }
-
+// GET /api/members — Return all active players for the org
+router.get("/", async (_req, res) => {
   try {
-    const raw = fs.readFileSync(MEMBERS_PATH, "utf-8");
-    const members = JSON.parse(raw);
-    res.json({ members, updated: fs.statSync(MEMBERS_PATH).mtime.toISOString() });
-  } catch (err: unknown) {
+    const orgId = await getOrgId();
+    const { data, error } = await getSupabase()
+      .from("players")
+      .select("id, slug, display_name, cr_member_id, is_active")
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .order("display_name");
+    if (error) throw error;
+    res.json({ members: data ?? [] });
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ members: [], error: msg });
   }
 });
 
-// GET /api/members/search?q=name — Search members by name
-router.get("/search", (req, res) => {
-  const q = (req.query.q as string || "").toLowerCase().trim();
+// GET /api/members/search?q=name — Case-insensitive partial match on display_name
+router.get("/search", async (req, res) => {
+  const q = ((req.query.q as string) || "").trim();
   if (!q) return res.json({ members: [] });
 
-  if (!fs.existsSync(MEMBERS_PATH)) {
-    return res.json({ members: [] });
+  try {
+    const orgId = await getOrgId();
+    const { data, error } = await getSupabase()
+      .from("players")
+      .select("id, slug, display_name, cr_member_id")
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .ilike("display_name", `%${q}%`)
+      .order("display_name")
+      .limit(50);
+    if (error) throw error;
+    res.json({ members: data ?? [] });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ members: [], error: msg });
   }
-
-  const raw = fs.readFileSync(MEMBERS_PATH, "utf-8");
-  const all = JSON.parse(raw) as Record<string, string>[];
-
-  const matches = all.filter((m) => {
-    const full = `${m["First Name"] || ""} ${m["Last Name"] || ""}`.toLowerCase();
-    return full.includes(q);
-  });
-
-  res.json({ members: matches });
 });
 
 export default router;

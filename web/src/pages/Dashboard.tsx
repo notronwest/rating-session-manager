@@ -26,10 +26,10 @@ interface RatingEvent {
 }
 
 interface Member {
-  "First Name": string;
-  "Last Name": string;
-  "Member #": string;
-  Email: string;
+  id: string;
+  slug: string;
+  display_name: string;
+  cr_member_id: string | null;
 }
 
 interface VideoFile {
@@ -102,9 +102,8 @@ export default function Dashboard() {
   }, [playerSearch]);
 
   const addPlayer = (member: Member) => {
-    const name = `${member["First Name"]} ${member["Last Name"]}`;
-    if (!selectedPlayers.some((p) => p.memberId === member["Member #"])) {
-      setSelectedPlayers([...selectedPlayers, { name, memberId: member["Member #"] }]);
+    if (!selectedPlayers.some((p) => p.memberId === member.id)) {
+      setSelectedPlayers([...selectedPlayers, { name: member.display_name, memberId: member.id }]);
     }
     setPlayerSearch("");
     setShowResults(false);
@@ -316,11 +315,10 @@ export default function Dashboard() {
                   }}
                 >
                   {searchResults.slice(0, 10).map((m) => {
-                    const name = `${m["First Name"]} ${m["Last Name"]}`;
-                    const already = selectedPlayers.some((p) => p.memberId === m["Member #"]);
+                    const already = selectedPlayers.some((p) => p.memberId === m.id);
                     return (
                       <div
-                        key={m["Member #"]}
+                        key={m.id}
                         onClick={() => !already && addPlayer(m)}
                         style={{
                           padding: "8px 12px", cursor: already ? "default" : "pointer",
@@ -331,8 +329,7 @@ export default function Dashboard() {
                         onMouseEnter={(e) => { if (!already) e.currentTarget.style.background = "#f8f9fa"; }}
                         onMouseLeave={(e) => { if (!already) e.currentTarget.style.background = "transparent"; }}
                       >
-                        <span style={{ fontWeight: 500 }}>{name}</span>
-                        <span style={{ color: "#999", marginLeft: 8 }}>{m.Email}</span>
+                        <span style={{ fontWeight: 500 }}>{m.display_name}</span>
                         {already && <span style={{ color: "#999", marginLeft: 8 }}>(added)</span>}
                       </div>
                     );

@@ -54,19 +54,43 @@ CR_EMAIL=your-email@example.com
 CR_PASSWORD=your-password
 CR_BASE_URL=https://app.courtreserve.com
 
+# Supabase (shared backend with wmpc_rating_hub) — required for member search
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ORG_SLUG=wmpc
+
 # Optional
 PORT=3001                    # Express API port
 APP_NAME=sessionmanager      # build output → ../../www/$APP_NAME
 ```
 
+Grab Supabase values from your rating-hub project's Supabase dashboard → Project Settings → API. Use the **service role** key (not anon) — it's used server-side only and needs write access for future session-import flows.
+
+**First-time setup only — apply rating-hub migration 005**: the `cr_member_id` column on `players` must exist. From the `wmpc_rating_hub` repo, apply `db/migrations/005_cr_member_id.sql` via `supabase db push` or paste it into the Supabase SQL editor.
+
 ### 5. Seed CourtReserve data (first run only)
 
 ```bash
-python3 scripts/scrape-members.py --headed   # member roster (opens Chrome for Cloudflare)
 python3 scripts/fetch-schedule.py --days 7   # upcoming schedule
 ```
 
-These cache results in `data/` (gitignored).
+The member roster comes from Supabase — no separate scrape needed.
+
+**If Supabase's `players.cr_member_id` isn't populated yet** (fresh setup), run the one-time backfill to map CourtReserve Member #s to Supabase players by display name:
+
+```bash
+python3 scripts/scrape-members.py --headed   # CR member export (one-time)
+```
+
+```bash
+tsx scripts/backfill-cr-member-id.ts --dry-run   # review matches
+```
+
+```bash
+tsx scripts/backfill-cr-member-id.ts             # apply
+```
+
+Cached data lives in `data/` (gitignored).
 
 ### 6. Start
 

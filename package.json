@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@playwright/test": "^1.59.1",
+    "@supabase/supabase-js": "^2.103.3",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
