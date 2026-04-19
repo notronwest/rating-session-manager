@@ -167,16 +167,22 @@ export function exportClips(
         return;
       }
 
-      // The python script writes clips as "Game NN.ext"; rename them to
-      // "<prefix>-gm-<index>.ext" if a prefix is provided.
+      // The python script writes clips as "Game NN.ext" where NN is the
+      // 1-based position in the SRT (not the segment's .index field — they
+      // differ after a segment is removed or merged). Rename to
+      // "<prefix>-gm-<position>.ext" when a prefix is provided.
       const ext = path.extname(opts.videoPath) || ".mp4";
-      const clips = opts.segments.map((seg) => {
-        const sourcePath = path.join(opts.outputDir, `Game ${String(seg.index).padStart(2, "0")}${ext}`);
+      const clips = opts.segments.map((_seg, i) => {
+        const position = i + 1;
+        const sourcePath = path.join(opts.outputDir, `Game ${String(position).padStart(2, "0")}${ext}`);
         if (!opts.namePrefix) return sourcePath;
-        const targetPath = path.join(opts.outputDir, `${opts.namePrefix}-gm-${seg.index}${ext}`);
+        const targetPath = path.join(opts.outputDir, `${opts.namePrefix}-gm-${position}${ext}`);
         try {
           if (sourcePath !== targetPath && fs.existsSync(sourcePath)) {
             fs.renameSync(sourcePath, targetPath);
+            onLog(`Renamed ${path.basename(sourcePath)} → ${path.basename(targetPath)}`);
+          } else if (!fs.existsSync(sourcePath)) {
+            onLog(`Warning: expected source clip not found: ${path.basename(sourcePath)}`);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
