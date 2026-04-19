@@ -79,6 +79,7 @@ export default function SessionDetail() {
   const [editSegments, setEditSegments] = useState<GameSegment[] | null>(null);
   const [videoPath, setVideoPath] = useState("");
   const [videoPathCustom, setVideoPathCustom] = useState(false);
+  const [splitExpandedOverride, setSplitExpandedOverride] = useState<boolean | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     title: string; message: string; confirmLabel: string; onConfirm: () => void;
   } | null>(null);
@@ -375,94 +376,129 @@ export default function SessionDetail() {
         </div>
       )}
 
-      {/* Video */}
-      <div style={cardStyle}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Video File</h2>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select
-            value={videoPathCustom ? "__custom__" : videoPath}
-            onChange={(e) => {
-              if (e.target.value === "__custom__") {
-                setVideoPathCustom(true);
-                setVideoPath("");
-              } else {
-                setVideoPathCustom(false);
-                setVideoPath(e.target.value);
-              }
-            }}
-            style={{
-              flex: 1, padding: "7px 12px", fontSize: 14, borderRadius: 6,
-              border: "1px solid #ddd", background: "#fff",
-            }}
-          >
-            <option value="">Select a video file…</option>
-            {videoFiles.length === 0 && (
-              <option value="" disabled>
-                (no videos in videos/ yet — drop files there or pick Other below)
-              </option>
-            )}
-            {videoFiles.map((vf) => {
-              const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
-              const date = new Date(vf.modified).toLocaleDateString([], {
-                month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-              });
-              return (
-                <option key={vf.path} value={vf.path}>
-                  {vf.name} ({sizeMB} MB — {date})
-                </option>
-              );
-            })}
-            <option value="__custom__">Other (enter path…)</option>
-          </select>
-          <button
-            onClick={updateVideoPath}
-            disabled={!videoPath}
-            style={!videoPath ? btnDisabledStyle : { ...btnStyle, fontSize: 13, padding: "7px 14px" }}
-          >
-            {session.video_path === videoPath ? "Saved" : "Save"}
-          </button>
-        </div>
-        {videoPathCustom && (
-          <input
-            type="text"
-            value={videoPath}
-            onChange={(e) => setVideoPath(e.target.value)}
-            placeholder="/absolute/path/to/recording.mp4"
-            style={{
-              width: "100%", marginTop: 6, padding: "7px 12px", fontSize: 14,
-              borderRadius: 6, border: "1px solid #ddd",
-            }}
-          />
-        )}
-        {session.video_path && (
-          <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#999", fontFamily: "monospace" }}>
-              {session.video_path}
-            </span>
-            <Link
-              to={`/roi?path=${encodeURIComponent(session.video_path)}`}
-              style={{ fontSize: 12, color: "#1a73e8", textDecoration: "none" }}
+      {/* Split Video (collapsible) — video file + detection + segments + editor + clips */}
+      {(() => {
+        const hasClips = !!(session.clip_paths && session.clip_paths.length > 0);
+        const splitExpanded = splitExpandedOverride ?? !hasClips;
+        const segCount = editSegments?.length ?? 0;
+        const clipCount = session.clip_paths?.length ?? 0;
+
+        const videoName = session.video_path ? session.video_path.split("/").pop() : null;
+        const summary = hasClips
+          ? `${clipCount} clips exported${segCount ? ` · ${segCount} segments` : ""}${videoName ? ` · ${videoName}` : ""}`
+          : segCount
+            ? `${segCount} segments detected — ready to export${videoName ? ` · ${videoName}` : ""}`
+            : videoName
+              ? `Ready to detect · ${videoName}`
+              : "Pick a video and detect game breaks";
+
+        return (
+          <div style={{ ...cardStyle, padding: 0, marginBottom: 16 }}>
+            <button
+              onClick={() => setSplitExpandedOverride(!splitExpanded)}
+              style={{
+                width: "100%", padding: "14px 20px", background: "transparent",
+                border: "none", cursor: "pointer", textAlign: "left",
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+              }}
             >
-              Configure Court ROI →
-            </Link>
-          </div>
-        )}
-      </div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 2 }}>Split Video</div>
+                <div style={{ fontSize: 12, color: "#666" }}>{summary}</div>
+              </div>
+              <span style={{ fontSize: 18, color: "#666", transform: splitExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+            </button>
 
-      {/* Video Player + Segment Editor */}
-      {session.video_path && editSegments && editSegments.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <VideoSegmentEditor
-            videoPath={session.video_path}
-            segments={editSegments}
-            onSegmentsChange={setEditSegments}
-          />
-        </div>
-      )}
+            {splitExpanded && (
+              <div style={{ padding: "0 20px 20px", borderTop: "1px solid #f0f0f0" }}>
+                {/* Video File */}
+                <div style={{ marginTop: 20 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: "#444" }}>Video File</h3>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <select
+                      value={videoPathCustom ? "__custom__" : videoPath}
+                      onChange={(e) => {
+                        if (e.target.value === "__custom__") {
+                          setVideoPathCustom(true);
+                          setVideoPath("");
+                        } else {
+                          setVideoPathCustom(false);
+                          setVideoPath(e.target.value);
+                        }
+                      }}
+                      style={{
+                        flex: 1, padding: "7px 12px", fontSize: 14, borderRadius: 6,
+                        border: "1px solid #ddd", background: "#fff",
+                      }}
+                    >
+                      <option value="">Select a video file…</option>
+                      {videoFiles.length === 0 && (
+                        <option value="" disabled>
+                          (no videos in videos/ yet — drop files there or pick Other below)
+                        </option>
+                      )}
+                      {videoFiles.map((vf) => {
+                        const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
+                        const date = new Date(vf.modified).toLocaleDateString([], {
+                          month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                        });
+                        return (
+                          <option key={vf.path} value={vf.path}>
+                            {vf.name} ({sizeMB} MB — {date})
+                          </option>
+                        );
+                      })}
+                      <option value="__custom__">Other (enter path…)</option>
+                    </select>
+                    <button
+                      onClick={updateVideoPath}
+                      disabled={!videoPath}
+                      style={!videoPath ? btnDisabledStyle : { ...btnStyle, fontSize: 13, padding: "7px 14px" }}
+                    >
+                      {session.video_path === videoPath ? "Saved" : "Save"}
+                    </button>
+                  </div>
+                  {videoPathCustom && (
+                    <input
+                      type="text"
+                      value={videoPath}
+                      onChange={(e) => setVideoPath(e.target.value)}
+                      placeholder="/absolute/path/to/recording.mp4"
+                      style={{
+                        width: "100%", marginTop: 6, padding: "7px 12px", fontSize: 14,
+                        borderRadius: 6, border: "1px solid #ddd",
+                      }}
+                    />
+                  )}
+                  {session.video_path && (
+                    <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: "#999", fontFamily: "monospace" }}>
+                        {session.video_path}
+                      </span>
+                      <Link
+                        to={`/roi?path=${encodeURIComponent(session.video_path)}`}
+                        style={{ fontSize: 12, color: "#1a73e8", textDecoration: "none" }}
+                      >
+                        Configure Court ROI →
+                      </Link>
+                    </div>
+                  )}
+                </div>
 
-      {/* Detection */}
-      <div style={cardStyle}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Game Detection</h2>
+                {/* Video Player + Segment Editor */}
+                {session.video_path && editSegments && editSegments.length > 0 && (
+                  <div style={{ marginTop: 20, marginBottom: 16 }}>
+                    <VideoSegmentEditor
+                      videoPath={session.video_path}
+                      segments={editSegments}
+                      onSegmentsChange={setEditSegments}
+                    />
+                  </div>
+                )}
+
+                {/* Detection */}
+                <div style={{ marginTop: 20 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#444" }}>Game Detection</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
           {[
             { label: "Warmup (sec)", value: warmup, set: setWarmup },
@@ -623,14 +659,60 @@ export default function SessionDetail() {
 
       {/* Clip Paths */}
       {session.clip_paths && session.clip_paths.length > 0 && (
-        <div style={cardStyle}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Exported Clips</h2>
-          <ul style={{ listStyle: "none", padding: 0 }}>
+        <div style={{ marginTop: 20 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: "#444" }}>Exported Clips</h3>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {session.clip_paths.map((cp, i) => (
               <li key={i} style={{ padding: "4px 0", fontSize: 13, color: "#666", fontFamily: "monospace" }}>
                 {cp}
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Upload to PB Vision — appears once clips are exported */}
+      {session.clip_paths && session.clip_paths.length > 0 && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Upload to PB Vision</h2>
+              <div style={{ fontSize: 13, color: "#666" }}>
+                {session.clip_paths.length} {session.clip_paths.length === 1 ? "clip" : "clips"} ready to upload · integration coming soon
+              </div>
+            </div>
+            <button
+              disabled
+              style={{ ...btnDisabledStyle, background: "#137333" }}
+              title="PB Vision upload integration is not wired up yet"
+            >
+              Upload to PB Vision
+            </button>
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, borderTop: "1px solid #f0f0f0" }}>
+            {session.clip_paths.map((cp, i) => {
+              const name = cp.split("/").pop() || cp;
+              const alreadyUploaded = !!(session.pbvision_video_ids && session.pbvision_video_ids[i]);
+              return (
+                <li
+                  key={i}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "8px 0", fontSize: 13, borderBottom: "1px solid #f0f0f0",
+                  }}
+                >
+                  <span style={{ fontFamily: "monospace", color: "#444" }}>{name}</span>
+                  <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
+                    {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
