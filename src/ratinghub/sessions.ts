@@ -14,6 +14,10 @@ export type CreateRatingHubSessionResult = {
   playerUuids: string[];
   unmatchedPlayerNames: string[];
   gamesLinked: number;
+  gamesDiagnostic: {
+    videoIdsChecked: string[];
+    gamesFound: { id: string; pbvision_video_id: string; session_id: string | null }[];
+  };
 };
 
 export class RatingHubError extends Error {
@@ -110,7 +114,20 @@ export async function createOrUpdateRatingHubSession(
   //    (they may have been imported before we created this session).
   const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
   let gamesLinked = 0;
+  let gamesFound: { id: string; pbvision_video_id: string; session_id: string | null }[] = [];
   if (vids.length > 0) {
+    // Pre-check so we can tell the user what was in the DB before we touched
+    // it. `games_linked = 0` ambiguity: is it "no games exist for these
+    // video IDs" (webhook hasn't imported them) or "games exist but already
+    // linked"? This diagnostic answers that.
+    const { data: preGames, error: preErr } = await supabase
+      .from("games")
+      .select("id, pbvision_video_id, session_id")
+      .eq("org_id", orgId)
+      .in("pbvision_video_id", vids);
+    if (preErr) throw new RatingHubError("games_fetch_failed", preErr.message);
+    gamesFound = (preGames as typeof gamesFound) ?? [];
+
     const { data: updatedGames, error: gamesErr } = await supabase
       .from("games")
       .update({ session_id: rhSessionId })
@@ -127,5 +144,9 @@ export async function createOrUpdateRatingHubSession(
     playerUuids: matchedUuids,
     unmatchedPlayerNames,
     gamesLinked,
+    gamesDiagnostic: {
+      videoIdsChecked: vids,
+      gamesFound,
+    },
   };
 }

@@ -235,6 +235,10 @@ export default function SessionDetail() {
     ok: boolean;
     message: string;
     url: string | null;
+    diagnostic?: {
+      videoIdsChecked: string[];
+      gamesFound: { id: string; pbvision_video_id: string; session_id: string | null }[];
+    };
   } | null>(null);
 
   const createRatingHubSession = async () => {
@@ -254,6 +258,7 @@ export default function SessionDetail() {
           ok: true,
           message: `Session upserted · ${data.gamesLinked} game${data.gamesLinked === 1 ? "" : "s"} linked`,
           url: data.ratingHubUrl,
+          diagnostic: data.gamesDiagnostic,
         });
       }
     } catch (e) {
@@ -1030,6 +1035,25 @@ export default function SessionDetail() {
                       View in Rating Hub →
                     </a>
                   </>
+                )}
+                {rhResult.diagnostic && rhResult.ok && (
+                  <details style={{ marginTop: 8, color: "#444" }}>
+                    <summary style={{ cursor: "pointer", fontSize: 12 }}>
+                      Diagnostic · {rhResult.diagnostic.gamesFound.length} game row(s) currently in rating-hub for these {rhResult.diagnostic.videoIdsChecked.length} video IDs
+                    </summary>
+                    <div style={{ fontSize: 12, marginTop: 6, fontFamily: "monospace" }}>
+                      {rhResult.diagnostic.videoIdsChecked.map((vid) => {
+                        const games = rhResult.diagnostic!.gamesFound.filter((g) => g.pbvision_video_id === vid);
+                        return (
+                          <div key={vid} style={{ marginBottom: 4 }}>
+                            {vid}: {games.length === 0
+                              ? <span style={{ color: "#b00020" }}>no games yet (pb.vision may still be processing, or webhook hasn't been re-fired)</span>
+                              : games.map((g) => `game ${g.id.slice(0, 8)} (session_id ${g.session_id ? g.session_id.slice(0, 8) : "null"})`).join(", ")}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
                 )}
               </div>
             )}
