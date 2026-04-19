@@ -7,6 +7,7 @@ import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
+import { createOrUpdateRatingHubSession, RatingHubError } from "../ratinghub/sessions.js";
 import type { Session, GameSegment } from "../types.js";
 
 const router = Router();
@@ -475,6 +476,45 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
     unmatchedVideos: unmatchedVideoList,
     webhookErrors,
   });
+});
+
+// POST /api/sessions/:id/create-rating-hub-session
+// Upsert a sessions row in the shared Supabase DB (rating-hub's schema) and
+// backfill games.session_id for any already-imported clips. Idempotent — safe
+// to click multiple times, and callable again after new games finish importing.
+router.post("/:id/create-rating-hub-session", async (req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+
+  const addLog = (msg: string) => {
+    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
+  };
+
+  addLog("Creating rating-hub session...");
+
+  try {
+    const result = await createOrUpdateRatingHubSession(session);
+    addLog(
+      `Rating-hub session upserted (id ${result.sessionId}, ${result.playerUuids.length} players, ` +
+        `${result.gamesLinked} game${result.gamesLinked === 1 ? "" : "s"} linked)`,
+    );
+
+    // Surface the base URL so the UI can link straight into rating-hub.
+    const baseUrl = process.env.RATING_HUB_BASE_URL || null;
+
+    res.json({
+      ...result,
+      ratingHubUrl: baseUrl ? `${baseUrl.replace(/\/$/, "")}/sessions/${result.sessionId}` : null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err instanceof RatingHubError ? err.code : "unknown";
+    addLog(`rating-hub session create failed: [${code}] ${msg}`);
+    res.status(400).json({ error: msg, code });
+  }
 });
 
 function deleteClipFiles(session: Session) {

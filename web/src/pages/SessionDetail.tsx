@@ -230,6 +230,40 @@ export default function SessionDetail() {
   const [fetching, setFetching] = useState(false);
   const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number } | null>(null);
 
+  const [creatingRhSession, setCreatingRhSession] = useState(false);
+  const [rhResult, setRhResult] = useState<{
+    ok: boolean;
+    message: string;
+    url: string | null;
+  } | null>(null);
+
+  const createRatingHubSession = async () => {
+    setCreatingRhSession(true);
+    setRhResult(null);
+    try {
+      const res = await fetch(`/api/sessions/${id}/create-rating-hub-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRhResult({ ok: false, message: data.error || res.statusText, url: null });
+      } else {
+        setRhResult({
+          ok: true,
+          message: `Session upserted · ${data.gamesLinked} game${data.gamesLinked === 1 ? "" : "s"} linked`,
+          url: data.ratingHubUrl,
+        });
+      }
+    } catch (e) {
+      setRhResult({ ok: false, message: (e as Error).message, url: null });
+    } finally {
+      setCreatingRhSession(false);
+      await fetchSession();
+    }
+  };
+
   const fetchPbVisionIds = async () => {
     setFetching(true);
     setFetchSummary(null);
@@ -950,6 +984,56 @@ export default function SessionDetail() {
             })}
           </ul>
         </div>
+        );
+      })()}
+
+      {/* Create Rating Hub session — visible once all clips have pb.vision IDs */}
+      {session.clip_paths && session.clip_paths.length > 0 && (() => {
+        const allUploaded =
+          (session.pbvision_video_ids || []).filter(Boolean).length === session.clip_paths.length;
+        if (!allUploaded) return null;
+        return (
+          <div style={cardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Push to Rating Hub</h2>
+                <div style={{ fontSize: 13, color: "#666" }}>
+                  Creates a session row in the rating-hub DB and links each game to it by pb.vision video ID. Safe to click again after pb.vision finishes processing more clips.
+                </div>
+              </div>
+              <button
+                onClick={createRatingHubSession}
+                disabled={creatingRhSession || running}
+                style={
+                  creatingRhSession || running
+                    ? { ...btnDisabledStyle, background: "#5f6368" }
+                    : { ...btnStyle, background: "#5f6368" }
+                }
+              >
+                {creatingRhSession ? "Creating…" : rhResult?.ok ? "Resync Games" : "Create Session in Rating Hub"}
+              </button>
+            </div>
+            {rhResult && (
+              <div
+                style={{
+                  padding: "8px 12px", borderRadius: 6, fontSize: 13,
+                  background: rhResult.ok ? "#e6f4ea" : "#fde7e7",
+                  color: rhResult.ok ? "#137333" : "#b00020",
+                  border: `1px solid ${rhResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+                }}
+              >
+                {rhResult.message}
+                {rhResult.url && (
+                  <>
+                    {" · "}
+                    <a href={rhResult.url} target="_blank" rel="noopener noreferrer" style={{ color: "#137333", fontWeight: 500 }}>
+                      View in Rating Hub →
+                    </a>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         );
       })()}
 
