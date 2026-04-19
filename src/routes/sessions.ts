@@ -4,9 +4,12 @@ import fs from "fs";
 import path from "path";
 import { getDb } from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
+import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
 import type { Session, GameSegment } from "../types.js";
 
 const router = Router();
+
+const uploadsInFlight = new Set<string>();
 
 // Helper to parse JSON columns from DB rows
 function rowToSession(row: Record<string, unknown>): Session {
@@ -179,6 +182,80 @@ router.post("/:id/export", async (req, res) => {
     db.prepare("UPDATE sessions SET status = 'failed', error = ?, updated_at = datetime('now') WHERE id = ?").run(msg, session.id);
     addLog(`Export failed: ${msg}`);
     res.status(500).json({ error: msg });
+  }
+});
+
+// POST /api/sessions/:id/pbvision-upload — Upload exported clips to pb.vision
+// Uploads are sequential (one browser session per clip). Clips that already
+// have a video ID in pbvision_video_ids are skipped, so this is safe to retry.
+router.post("/:id/pbvision-upload", async (req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  const session = rowToSession(row);
+  if (!session.clip_paths || session.clip_paths.length === 0) {
+    return res.status(400).json({ error: "No clips to upload" });
+  }
+  if (uploadsInFlight.has(session.id)) {
+    return res.status(409).json({ error: "An upload is already running for this session" });
+  }
+
+  uploadsInFlight.add(session.id);
+  const headed = req.body?.headed !== false; // default true — pb.vision likely has CF too
+
+  const addLog = (msg: string) => {
+    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
+  };
+
+  // Work off the existing vids array so retries skip already-uploaded clips
+  const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
+  while (vids.length < session.clip_paths.length) vids.push(null);
+
+  db.prepare(
+    "UPDATE sessions SET status = 'uploading', error = NULL, updated_at = datetime('now') WHERE id = ?",
+  ).run(session.id);
+  addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
+
+  try {
+    for (let i = 0; i < session.clip_paths.length; i++) {
+      if (vids[i]) {
+        addLog(`Clip ${i + 1}/${session.clip_paths.length}: already uploaded (${vids[i]}), skipping`);
+        continue;
+      }
+      const clipPath = session.clip_paths[i];
+      addLog(`Clip ${i + 1}/${session.clip_paths.length}: uploading ${path.basename(clipPath)}`);
+      const { vid } = await uploadClipToPbVision({
+        videoPath: clipPath,
+        headed,
+        onLog: (line) => addLog(`  ${line}`),
+      });
+      vids[i] = vid;
+      addLog(`Clip ${i + 1}/${session.clip_paths.length}: uploaded — ${vid}`);
+
+      db.prepare(
+        "UPDATE sessions SET pbvision_video_ids = ?, updated_at = datetime('now') WHERE id = ?",
+      ).run(JSON.stringify(vids), session.id);
+    }
+
+    const allDone = vids.every((v) => !!v);
+    db.prepare(
+      "UPDATE sessions SET status = ?, updated_at = datetime('now') WHERE id = ?",
+    ).run(allDone ? "processing" : "uploading", session.id);
+    addLog(allDone ? "All clips uploaded to pb.vision" : "Upload batch complete");
+
+    const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
+    res.json(rowToSession(updated));
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err instanceof UploadError ? err.code : "unknown";
+    db.prepare(
+      "UPDATE sessions SET status = 'failed', error = ?, pbvision_video_ids = ?, updated_at = datetime('now') WHERE id = ?",
+    ).run(msg, JSON.stringify(vids), session.id);
+    addLog(`Upload failed: [${code}] ${msg}`);
+    res.status(500).json({ error: msg, code });
+  } finally {
+    uploadsInFlight.delete(session.id);
   }
 });
 

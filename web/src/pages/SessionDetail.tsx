@@ -186,6 +186,25 @@ export default function SessionDetail() {
     }
   };
 
+  const runPbVisionUpload = async () => {
+    setLogs([]);
+    setRunning(true);
+    try {
+      const res = await fetch(`/api/sessions/${id}/pbvision-upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error("pb.vision upload failed:", data.error || res.statusText);
+      }
+    } finally {
+      setRunning(false);
+      await fetchSession();
+    }
+  };
+
   const clearResults = () => {
     const hasClips = session?.clip_paths && session.clip_paths.length > 0;
     const segCount = session?.segments?.length || 0;
@@ -677,21 +696,35 @@ export default function SessionDetail() {
       })()}
 
       {/* Upload to PB Vision — appears once clips are exported */}
-      {session.clip_paths && session.clip_paths.length > 0 && (
+      {session.clip_paths && session.clip_paths.length > 0 && (() => {
+        const uploadedCount = (session.pbvision_video_ids || []).filter(Boolean).length;
+        const totalCount = session.clip_paths.length;
+        const allDone = uploadedCount === totalCount;
+        return (
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
               <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Upload to PB Vision</h2>
               <div style={{ fontSize: 13, color: "#666" }}>
-                {session.clip_paths.length} {session.clip_paths.length === 1 ? "clip" : "clips"} ready to upload · integration coming soon
+                {allDone
+                  ? `All ${totalCount} clips uploaded`
+                  : uploadedCount > 0
+                    ? `${uploadedCount} of ${totalCount} uploaded — click to upload the rest`
+                    : `${totalCount} ${totalCount === 1 ? "clip" : "clips"} ready to upload`}
+                {" · browser-automation fallback (Partner API key pending)"}
               </div>
             </div>
             <button
-              disabled
-              style={{ ...btnDisabledStyle, background: "#137333" }}
-              title="PB Vision upload integration is not wired up yet"
+              onClick={runPbVisionUpload}
+              disabled={running || allDone}
+              style={
+                running || allDone
+                  ? { ...btnDisabledStyle, background: "#137333" }
+                  : { ...btnStyle, background: "#137333" }
+              }
+              title={allDone ? "All clips are uploaded" : "Uploads clips sequentially via a visible browser window"}
             >
-              Upload to PB Vision
+              {allDone ? "Uploaded" : running ? "Uploading…" : uploadedCount > 0 ? "Resume Upload" : "Upload to PB Vision"}
             </button>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, borderTop: "1px solid #f0f0f0" }}>
@@ -715,7 +748,8 @@ export default function SessionDetail() {
             })}
           </ul>
         </div>
-      )}
+        );
+      })()}
 
       {/* Logs — only visible while processing */}
       {running && (
