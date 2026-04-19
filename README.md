@@ -46,8 +46,8 @@ This installs npm packages, creates the Python venv at `scripts/videos/venv` wit
 Edit `.env` with your values:
 
 ```bash
-# Required
-VIDEO_DIR=/absolute/path/to/video/files   # where session recordings live
+# Optional
+# VIDEO_DIR=/absolute/path/to/videos       # defaults to <project>/videos if unset
 
 # CourtReserve scraping
 CR_EMAIL=your-email@example.com

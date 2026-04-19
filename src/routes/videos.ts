@@ -5,22 +5,30 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SCRIPTS_DIR = path.resolve(__dirname, "../../scripts/videos");
+const PROJECT_ROOT = path.resolve(__dirname, "../..");
+const SCRIPTS_DIR = path.resolve(PROJECT_ROOT, "scripts/videos");
 const ROI_PATH = path.join(SCRIPTS_DIR, "roi.json");
+const DEFAULT_VIDEO_DIR = path.join(PROJECT_ROOT, "videos");
+
+function getVideoDir(): string {
+  return process.env.VIDEO_DIR || DEFAULT_VIDEO_DIR;
+}
 
 const router = Router();
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mkv", ".m4v", ".avi"]);
 
-// GET /api/videos — List video files in VIDEO_DIR
+// GET /api/videos — List video files in VIDEO_DIR (default: <project>/videos)
 router.get("/", (_req, res) => {
-  const videoDir = process.env.VIDEO_DIR;
-  if (!videoDir) {
-    return res.json({ videos: [], error: "VIDEO_DIR not configured" });
-  }
+  const videoDir = getVideoDir();
 
+  // Auto-create the default directory so a fresh clone "just works"
   if (!fs.existsSync(videoDir)) {
-    return res.json({ videos: [], error: `VIDEO_DIR does not exist: ${videoDir}` });
+    if (videoDir === DEFAULT_VIDEO_DIR) {
+      fs.mkdirSync(videoDir, { recursive: true });
+    } else {
+      return res.json({ videos: [], videoDir, error: `VIDEO_DIR does not exist: ${videoDir}` });
+    }
   }
 
   try {
@@ -39,10 +47,10 @@ router.get("/", (_req, res) => {
       })
       .sort((a, b) => b.modified.localeCompare(a.modified));
 
-    res.json({ videos });
+    res.json({ videos, videoDir });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ videos: [], error: msg });
+    res.status(500).json({ videos: [], videoDir, error: msg });
   }
 });
 

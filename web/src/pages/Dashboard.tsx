@@ -67,6 +67,7 @@ export default function Dashboard() {
   const [showNew, setShowNew] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newVideoPath, setNewVideoPath] = useState("");
+  const [videoPathCustom, setVideoPathCustom] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<{ name: string; memberId: string }[]>([]);
   const [playerSearch, setPlayerSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Member[]>([]);
@@ -143,6 +144,7 @@ export default function Dashboard() {
     const session = await res.json();
     setNewLabel("");
     setNewVideoPath("");
+    setVideoPathCustom(false);
     setSelectedPlayers([]);
     setShowNew(false);
     navigate(`/sessions/${session.id}`);
@@ -238,32 +240,45 @@ export default function Dashboard() {
             </div>
             <div>
               <label style={labelStyle}>Video File (optional)</label>
-              {videoFiles.length > 0 ? (
-                <select
-                  value={newVideoPath}
-                  onChange={(e) => setNewVideoPath(e.target.value)}
-                  style={{ ...inputStyle, background: "#fff" }}
-                >
-                  <option value="">None — assign later</option>
-                  {videoFiles.map((vf) => {
-                    const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
-                    const date = new Date(vf.modified).toLocaleDateString([], {
-                      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-                    });
-                    return (
-                      <option key={vf.path} value={vf.path}>
-                        {vf.name} ({sizeMB} MB — {date})
-                      </option>
-                    );
-                  })}
-                </select>
-              ) : (
+              <select
+                value={videoPathCustom ? "__custom__" : newVideoPath}
+                onChange={(e) => {
+                  if (e.target.value === "__custom__") {
+                    setVideoPathCustom(true);
+                    setNewVideoPath("");
+                  } else {
+                    setVideoPathCustom(false);
+                    setNewVideoPath(e.target.value);
+                  }
+                }}
+                style={{ ...inputStyle, background: "#fff" }}
+              >
+                <option value="">None — assign later</option>
+                {videoFiles.length === 0 && (
+                  <option value="" disabled>
+                    (no videos in videos/ yet — drop files there or pick Other below)
+                  </option>
+                )}
+                {videoFiles.map((vf) => {
+                  const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
+                  const date = new Date(vf.modified).toLocaleDateString([], {
+                    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                  });
+                  return (
+                    <option key={vf.path} value={vf.path}>
+                      {vf.name} ({sizeMB} MB — {date})
+                    </option>
+                  );
+                })}
+                <option value="__custom__">Other (enter path…)</option>
+              </select>
+              {videoPathCustom && (
                 <input
                   type="text"
-                  placeholder="/path/to/session-recording.mp4"
+                  placeholder="/absolute/path/to/recording.mp4"
                   value={newVideoPath}
                   onChange={(e) => setNewVideoPath(e.target.value)}
-                  style={inputStyle}
+                  style={{ ...inputStyle, marginTop: 6 }}
                 />
               )}
             </div>
@@ -342,7 +357,7 @@ export default function Dashboard() {
 
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={createSession} style={btnPrimary}>Create</button>
-            <button onClick={() => { setShowNew(false); setSelectedPlayers([]); }} style={btnSecondary}>
+            <button onClick={() => { setShowNew(false); setSelectedPlayers([]); setVideoPathCustom(false); setNewVideoPath(""); }} style={btnSecondary}>
               Cancel
             </button>
           </div>

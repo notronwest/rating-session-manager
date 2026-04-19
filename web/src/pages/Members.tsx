@@ -43,7 +43,9 @@ export default function Members() {
       const res = await fetch("/api/members/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dryRun }),
+        // CourtReserve's Cloudflare check blocks headless browsers, so always
+        // run headed. A Chromium window briefly appears on the server's desktop.
+        body: JSON.stringify({ dryRun, headed: true }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -89,7 +91,7 @@ export default function Members() {
           </div>
         </div>
         <div style={{ fontSize: 12, color: "#999" }}>
-          Runs the CourtReserve Members Report (up to ~2 minutes) and inserts any new players into Supabase. Existing players are never modified.
+          Runs the CourtReserve Members Report (up to ~2 minutes) and inserts any new players into Supabase. A Chromium window briefly opens on the server's desktop — CourtReserve's Cloudflare check blocks fully-headless scraping. Existing players are never modified.
         </div>
       </div>
 

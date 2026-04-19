@@ -141,7 +141,7 @@ venv/bin/python scripts/fetch-schedule.py --days 7  # Next 7 days
 
 ```bash
 # Required
-VIDEO_DIR=/path/to/video/files        # Where session recordings live
+VIDEO_DIR=/path/to/video/files        # Optional — defaults to <project>/videos
 
 # CourtReserve (for scraping — reads from courtreserve-scheduler/.env too)
 CR_EMAIL=your-email@example.com
@@ -157,6 +157,6 @@ PORT=3001                              # Express API port (default 3001)
 1. Clone this repo and courtreserve-scheduler as siblings
 2. Run `./setup.sh`
 3. Copy `.env` from old machine (or create from `.env.template`) — set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ORG_SLUG`
-4. Set `VIDEO_DIR` to where videos are on the new machine
+4. Drop recordings into `videos/` (gitignored, auto-created) — or set `VIDEO_DIR` to an external directory
 5. Run `npm run sync:members` to pull members from CourtReserve into Supabase
 6. `npm run dev`
