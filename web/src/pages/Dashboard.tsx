@@ -72,6 +72,7 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState<Member[]>([]);
   const [showResults, setShowResults] = useState(false);
 
+
   const fetchData = async () => {
     const [sRes, eRes, vRes] = await Promise.all([
       fetch("/api/sessions"),

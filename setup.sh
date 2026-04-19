@@ -84,21 +84,23 @@ else
   echo "    cd $PARENT_DIR && git clone <repo-url> courtreserve-scheduler"
 fi
 
-# ─── Playwright (for CR scraping) ─────────────────────────
+# ─── Project venv for CR scraping ─────────────────────────
 echo ""
-echo "--- Playwright ---"
-if $PYTHON -c "import playwright" 2>/dev/null; then
-  echo "Playwright Python package found"
-else
-  echo "Installing Playwright..."
-  pip3 install playwright playwright-stealth
+echo "--- Python venv (project root) ---"
+ROOT_VENV="venv"
+if [ ! -d "$ROOT_VENV" ]; then
+  $PYTHON -m venv "$ROOT_VENV"
+  echo "Created venv at $ROOT_VENV"
 fi
+"$ROOT_VENV/bin/pip" install -q --upgrade pip
+"$ROOT_VENV/bin/pip" install -q playwright playwright-stealth python-dotenv openpyxl
+echo "Python deps installed into $ROOT_VENV"
 
 if [ -d "$HOME/Library/Caches/ms-playwright" ] || [ -d "$HOME/.cache/ms-playwright" ]; then
   echo "Playwright browsers found"
 else
   echo "Installing Playwright browsers..."
-  $PYTHON -m playwright install chromium
+  "$ROOT_VENV/bin/python" -m playwright install chromium
 fi
 
 # ─── .env file ─────────────────────────────────────────────

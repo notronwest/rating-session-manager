@@ -2,6 +2,7 @@ import { Routes, Route, Link } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import SessionDetail from "./pages/SessionDetail";
 import RoiConfigurator from "./pages/RoiConfigurator";
+import Members from "./pages/Members";
 
 export default function App() {
   return (
@@ -20,6 +21,9 @@ export default function App() {
           WMPC Session Manager
         </Link>
         <div style={{ flex: 1 }} />
+        <Link to="/members" style={{ color: "#fff", textDecoration: "none", fontSize: 13, opacity: 0.9 }}>
+          Members
+        </Link>
         <Link to="/roi" style={{ color: "#fff", textDecoration: "none", fontSize: 13, opacity: 0.9 }}>
           Court ROI
         </Link>
@@ -29,6 +33,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/sessions/:id" element={<SessionDetail />} />
           <Route path="/roi" element={<RoiConfigurator />} />
+          <Route path="/members" element={<Members />} />
         </Routes>
       </main>
     </div>

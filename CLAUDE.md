@@ -133,8 +133,8 @@ npm run build
 # Refresh CourtReserve data
 npm run sync:members                           # Scrape CR members → Supabase (inserts only)
 npm run sync:members -- --headed               # Headed mode if Cloudflare blocks headless
-python3 scripts/fetch-schedule.py              # Today's schedule
-python3 scripts/fetch-schedule.py --days 7     # Next 7 days
+venv/bin/python scripts/fetch-schedule.py      # Today's schedule
+venv/bin/python scripts/fetch-schedule.py --days 7  # Next 7 days
 ```
 
 ## Environment Variables
