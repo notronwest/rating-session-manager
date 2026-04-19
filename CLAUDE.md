@@ -100,7 +100,6 @@ web/
     components/
       StatusBadge.tsx        # Color-coded pipeline status indicator
 data/                        # Cached data (gitignored)
-  members.json               # CR member export (1393 members)
   schedule.json              # CR schedule cache
   rating_events.json         # Filtered rating events
 ```
@@ -132,7 +131,8 @@ npm run dev:web
 npm run build
 
 # Refresh CourtReserve data
-python3 scripts/scrape-members.py --headed     # Members (opens Chrome)
+npm run sync:members                           # Scrape CR members → Supabase (inserts only)
+npm run sync:members -- --headed               # Headed mode if Cloudflare blocks headless
 python3 scripts/fetch-schedule.py              # Today's schedule
 python3 scripts/fetch-schedule.py --days 7     # Next 7 days
 ```
@@ -156,7 +156,7 @@ PORT=3001                              # Express API port (default 3001)
 
 1. Clone this repo and courtreserve-scheduler as siblings
 2. Run `./setup.sh`
-3. Copy `.env` from old machine (or create from `.env.template`)
-4. Copy `data/members.json` from old machine (or re-scrape)
-5. Set `VIDEO_DIR` to where videos are on the new machine
+3. Copy `.env` from old machine (or create from `.env.template`) — set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ORG_SLUG`
+4. Set `VIDEO_DIR` to where videos are on the new machine
+5. Run `npm run sync:members` to pull members from CourtReserve into Supabase
 6. `npm run dev`

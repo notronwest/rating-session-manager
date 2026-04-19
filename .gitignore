@@ -12,3 +12,5 @@ debug/
 venv/
 scripts/videos/venv/
 logs/
+videos/
+.DS_Store

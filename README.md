@@ -74,23 +74,31 @@ Grab Supabase values from your rating-hub project's Supabase dashboard → Proje
 python3 scripts/fetch-schedule.py --days 7   # upcoming schedule
 ```
 
-The member roster comes from Supabase — no separate scrape needed.
+The member roster comes from Supabase — populate it with the sync command below.
 
-**If Supabase's `players.cr_member_id` isn't populated yet** (fresh setup), run the one-time backfill to map CourtReserve Member #s to Supabase players by display name:
+## Syncing CourtReserve members into Supabase
 
-```bash
-python3 scripts/scrape-members.py --headed   # CR member export (one-time)
-```
+Run this whenever you want to pull new members from CourtReserve. It scrapes the CR Members Report, compares against `players` in Supabase, and **inserts only new rows** (matched by `cr_member_id` first, then case-insensitive `display_name`). Existing players are never modified.
 
-```bash
-tsx scripts/backfill-cr-member-id.ts --dry-run   # review matches
-```
+Dry run first to see what would be inserted:
 
 ```bash
-tsx scripts/backfill-cr-member-id.ts             # apply
+npm run sync:members -- --dry-run
 ```
 
-Cached data lives in `data/` (gitignored).
+Apply:
+
+```bash
+npm run sync:members
+```
+
+Cloudflare sometimes blocks headless Playwright. If the scrape fails, run headed:
+
+```bash
+npm run sync:members -- --headed
+```
+
+The sync is safe to re-run on a schedule (cron, launchd) — re-runs just no-op on already-synced members.
 
 ### 6. Start
 
