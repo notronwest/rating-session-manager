@@ -15,3 +15,5 @@ logs/
 videos/
 .DS_Store
 .pbvision-profile/
+__pycache__/
+*.pyc
