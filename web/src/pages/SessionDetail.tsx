@@ -78,6 +78,7 @@ export default function SessionDetail() {
   const [running, setRunning] = useState(false);
   const [editSegments, setEditSegments] = useState<GameSegment[] | null>(null);
   const [videoPath, setVideoPath] = useState("");
+  const [videoPathCustom, setVideoPathCustom] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     title: string; message: string; confirmLabel: string; onConfirm: () => void;
   } | null>(null);
@@ -101,8 +102,15 @@ export default function SessionDetail() {
     const vData = await vRes.json();
     setSession(sData);
     setLogs(lData);
-    setVideoFiles(vData.videos || []);
-    if (sData.video_path && !videoPath) setVideoPath(sData.video_path);
+    const files = vData.videos || [];
+    setVideoFiles(files);
+    if (sData.video_path && !videoPath) {
+      setVideoPath(sData.video_path);
+      // If the saved path isn't one of the listed files, treat it as a custom path
+      if (!files.some((vf: VideoFile) => vf.path === sData.video_path)) {
+        setVideoPathCustom(true);
+      }
+    }
     if (sData.segments && !editSegments) setEditSegments(sData.segments);
     setLoading(false);
   }, [id]);
@@ -370,53 +378,61 @@ export default function SessionDetail() {
       {/* Video */}
       <div style={cardStyle}>
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Video File</h2>
-        {videoFiles.length > 0 ? (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select
-              value={videoPath}
-              onChange={(e) => setVideoPath(e.target.value)}
-              style={{
-                flex: 1, padding: "7px 12px", fontSize: 14, borderRadius: 6,
-                border: "1px solid #ddd", background: "#fff",
-              }}
-            >
-              <option value="">Select a video file...</option>
-              {videoFiles.map((vf) => {
-                const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
-                const date = new Date(vf.modified).toLocaleDateString([], {
-                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-                });
-                return (
-                  <option key={vf.path} value={vf.path}>
-                    {vf.name} ({sizeMB} MB — {date})
-                  </option>
-                );
-              })}
-            </select>
-            <button
-              onClick={updateVideoPath}
-              disabled={!videoPath}
-              style={!videoPath ? btnDisabledStyle : { ...btnStyle, fontSize: 13, padding: "7px 14px" }}
-            >
-              {session.video_path === videoPath ? "Saved" : "Save"}
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              type="text"
-              value={videoPath}
-              onChange={(e) => setVideoPath(e.target.value)}
-              placeholder="/path/to/session-recording.mp4"
-              style={{ flex: 1, padding: "7px 12px", fontSize: 14, borderRadius: 6, border: "1px solid #ddd" }}
-            />
-            <button
-              onClick={updateVideoPath}
-              style={{ ...btnStyle, background: "#5f6368", fontSize: 13, padding: "7px 14px" }}
-            >
-              Save
-            </button>
-          </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select
+            value={videoPathCustom ? "__custom__" : videoPath}
+            onChange={(e) => {
+              if (e.target.value === "__custom__") {
+                setVideoPathCustom(true);
+                setVideoPath("");
+              } else {
+                setVideoPathCustom(false);
+                setVideoPath(e.target.value);
+              }
+            }}
+            style={{
+              flex: 1, padding: "7px 12px", fontSize: 14, borderRadius: 6,
+              border: "1px solid #ddd", background: "#fff",
+            }}
+          >
+            <option value="">Select a video file…</option>
+            {videoFiles.length === 0 && (
+              <option value="" disabled>
+                (no videos in videos/ yet — drop files there or pick Other below)
+              </option>
+            )}
+            {videoFiles.map((vf) => {
+              const sizeMB = (vf.size_bytes / (1024 * 1024)).toFixed(0);
+              const date = new Date(vf.modified).toLocaleDateString([], {
+                month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+              });
+              return (
+                <option key={vf.path} value={vf.path}>
+                  {vf.name} ({sizeMB} MB — {date})
+                </option>
+              );
+            })}
+            <option value="__custom__">Other (enter path…)</option>
+          </select>
+          <button
+            onClick={updateVideoPath}
+            disabled={!videoPath}
+            style={!videoPath ? btnDisabledStyle : { ...btnStyle, fontSize: 13, padding: "7px 14px" }}
+          >
+            {session.video_path === videoPath ? "Saved" : "Save"}
+          </button>
+        </div>
+        {videoPathCustom && (
+          <input
+            type="text"
+            value={videoPath}
+            onChange={(e) => setVideoPath(e.target.value)}
+            placeholder="/absolute/path/to/recording.mp4"
+            style={{
+              width: "100%", marginTop: 6, padding: "7px 12px", fontSize: 14,
+              borderRadius: 6, border: "1px solid #ddd",
+            }}
+          />
         )}
         {session.video_path && (
           <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
