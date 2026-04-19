@@ -21,6 +21,11 @@ export interface ExportOptions {
   videoPath: string;
   segments: GameSegment[];
   outputDir: string;
+  /**
+   * Optional filename prefix — final clip names become
+   * `${namePrefix}-gm-${index}${ext}`. If omitted, falls back to "Game NN".
+   */
+  namePrefix?: string;
 }
 
 function findPython(): string {
@@ -162,11 +167,24 @@ export function exportClips(
         return;
       }
 
-      // List exported clip files
+      // The python script writes clips as "Game NN.ext"; rename them to
+      // "<prefix>-gm-<index>.ext" if a prefix is provided.
       const ext = path.extname(opts.videoPath) || ".mp4";
-      const clips = opts.segments.map(
-        (seg) => path.join(opts.outputDir, `Game ${String(seg.index).padStart(2, "0")}${ext}`)
-      );
+      const clips = opts.segments.map((seg) => {
+        const sourcePath = path.join(opts.outputDir, `Game ${String(seg.index).padStart(2, "0")}${ext}`);
+        if (!opts.namePrefix) return sourcePath;
+        const targetPath = path.join(opts.outputDir, `${opts.namePrefix}-gm-${seg.index}${ext}`);
+        try {
+          if (sourcePath !== targetPath && fs.existsSync(sourcePath)) {
+            fs.renameSync(sourcePath, targetPath);
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          onLog(`Warning: could not rename ${path.basename(sourcePath)} → ${path.basename(targetPath)}: ${msg}`);
+          return sourcePath;
+        }
+        return targetPath;
+      });
       const existing = clips.filter((c) => fs.existsSync(c));
       onLog(`Exported ${existing.length} clips to ${opts.outputDir}`);
       resolve(existing);

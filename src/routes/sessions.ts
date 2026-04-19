@@ -11,6 +11,31 @@ const router = Router();
 
 const uploadsInFlight = new Set<string>();
 
+// Build a filename-safe prefix from player names + booking date.
+// Produces e.g. "kr-do-pk-2026-04-15" for Kellie Rowell / Debbie O'Connor / Patricia Kraieski.
+function computeClipNamePrefix(session: Session): string | null {
+  const names = session.player_names || [];
+  const initials = names
+    .map((name) =>
+      name
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part[0])
+        .filter((c) => /[a-z]/i.test(c))
+        .join("")
+        .toLowerCase(),
+    )
+    .filter(Boolean)
+    .join("-");
+
+  const date = session.booking_time
+    ? session.booking_time.slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  if (!initials) return date;
+  return `${initials}-${date}`;
+}
+
 // Helper to parse JSON columns from DB rows
 function rowToSession(row: Record<string, unknown>): Session {
   return {
@@ -165,8 +190,11 @@ router.post("/:id/export", async (req, res) => {
   addLog("Starting clip export...");
 
   try {
+    const namePrefix = computeClipNamePrefix(session) ?? undefined;
+    if (namePrefix) addLog(`Naming clips as ${namePrefix}-gm-N`);
+
     const clipPaths = await exportClips(
-      { videoPath: session.video_path, segments, outputDir },
+      { videoPath: session.video_path, segments, outputDir, namePrefix },
       addLog
     );
 
