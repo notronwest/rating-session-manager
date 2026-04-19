@@ -16,6 +16,7 @@ Usage:
 """
 
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -75,15 +76,28 @@ def main() -> int:
         except Exception:
             pass
 
-        # Wait until the user closes the browser window themselves.
-        # `wait_for_event("close")` on the context blocks until the last page
-        # closes — i.e. the user quits Chromium.
+        # Wire a `closed` flag via the context's close event AND poll pages as
+        # a fallback — Chromium can exit without raising the context close
+        # event synchronously, and waiting forever on the event can hang.
+        closed = {"flag": False}
+
+        def mark_closed(*_):
+            closed["flag"] = True
+
+        context.on("close", mark_closed)
+
+        log("Waiting for the Chromium window to close...")
         try:
-            context.wait_for_event("close", timeout=0)
-        except Exception:
-            # If Playwright raises (e.g. the context already closed), that's
-            # fine — cookies are saved on context close anyway.
-            pass
+            while not closed["flag"]:
+                try:
+                    pages = context.pages
+                except Exception:
+                    break
+                if not pages or all(p.is_closed() for p in pages):
+                    break
+                time.sleep(1)
+        except KeyboardInterrupt:
+            log("Interrupted — saving session and exiting.")
 
     log("Browser closed. Session saved to the persistent profile.")
     log("Try an Upload to PB Vision action from the session page to verify.")
