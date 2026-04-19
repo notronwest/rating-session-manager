@@ -7,7 +7,7 @@ import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
-import { createOrUpdateRatingHubSession, RatingHubError } from "../ratinghub/sessions.js";
+import { syncRatingHub, SyncRatingHubError } from "../ratinghub/sync.js";
 import type { Session, GameSegment } from "../types.js";
 
 const router = Router();
@@ -478,49 +478,16 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
   });
 });
 
-// POST /api/sessions/:id/pbvision-renotify — Re-fire the rating-hub webhook
-// for every already-attached pb.vision video ID on this session. Useful when
-// the original notify attempts failed (wrong secret, network hiccup, etc).
-router.post("/:id/pbvision-renotify", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-  const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
-  if (vids.length === 0) {
-    return res.status(400).json({ error: "No pb.vision video IDs on this session yet" });
-  }
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  addLog(`Re-firing rating-hub webhook for ${vids.length} video IDs...`);
-
-  const results: { vid: string; ok: boolean; status?: string; error?: string }[] = [];
-  for (const vid of vids) {
-    try {
-      const r = await notifyRatingHub({ sessionId: session.id, videoId: vid, onLog: addLog });
-      results.push({ vid, ok: true, status: r.status });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const code = err instanceof WebhookError ? ` (HTTP ${err.status ?? "?"})` : "";
-      results.push({ vid, ok: false, error: `${msg}${code}` });
-      addLog(`Warning: rating-hub webhook failed for ${vid}: ${msg}`);
-    }
-  }
-
-  const ok = results.filter((r) => r.ok).length;
-  addLog(`Re-notify complete: ${ok}/${vids.length} OK`);
-  res.json({ results, ok, total: vids.length });
-});
-
-// POST /api/sessions/:id/create-rating-hub-session
-// Upsert a sessions row in the shared Supabase DB (rating-hub's schema) and
-// backfill games.session_id for any already-imported clips. Idempotent — safe
-// to click multiple times, and callable again after new games finish importing.
-router.post("/:id/create-rating-hub-session", async (req, res) => {
+// POST /api/sessions/:id/sync-rating-hub
+// One idempotent action that figures out what's missing on the rating-hub
+// side and does just that. Non-destructive — safe to click repeatedly as
+// pb.vision finishes processing clips. Does:
+//   - Resolve Supabase player UUIDs for session.player_names
+//   - Upsert the rating-hub sessions row
+//   - For each pb.vision video ID:
+//       * if rating-hub already has games → link them to the session
+//       * if not → fire the pbvision webhook so insights start importing
+router.post("/:id/sync-rating-hub", async (req, res) => {
   const db = getDb();
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
@@ -531,26 +498,19 @@ router.post("/:id/create-rating-hub-session", async (req, res) => {
     db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
   };
 
-  addLog("Creating rating-hub session...");
+  addLog("Syncing session with rating-hub...");
 
   try {
-    const result = await createOrUpdateRatingHubSession(session);
+    const result = await syncRatingHub(session, addLog);
     addLog(
-      `Rating-hub session upserted (id ${result.sessionId}, ${result.playerUuids.length} players, ` +
-        `${result.gamesLinked} game${result.gamesLinked === 1 ? "" : "s"} linked)`,
+      `Sync complete: ${result.totalGamesLinked} game(s) linked, ` +
+        `${result.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`,
     );
-
-    // Surface the base URL so the UI can link straight into rating-hub.
-    const baseUrl = process.env.RATING_HUB_BASE_URL || null;
-
-    res.json({
-      ...result,
-      ratingHubUrl: baseUrl ? `${baseUrl.replace(/\/$/, "")}/sessions/${result.sessionId}` : null,
-    });
+    res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const code = err instanceof RatingHubError ? err.code : "unknown";
-    addLog(`rating-hub session create failed: [${code}] ${msg}`);
+    const code = err instanceof SyncRatingHubError ? err.code : "unknown";
+    addLog(`Sync failed: [${code}] ${msg}`);
     res.status(400).json({ error: msg, code });
   }
 });

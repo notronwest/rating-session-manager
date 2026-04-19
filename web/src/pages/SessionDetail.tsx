@@ -230,70 +230,54 @@ export default function SessionDetail() {
   const [fetching, setFetching] = useState(false);
   const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number } | null>(null);
 
-  const [creatingRhSession, setCreatingRhSession] = useState(false);
-  const [rhResult, setRhResult] = useState<{
+  type PerVideoResult = {
+    vid: string;
+    games: number;
+    gamesLinkedBefore: number;
+    gamesLinkedAfter: number;
+    webhookFired: boolean;
+    webhookStatus?: string;
+    webhookError?: string;
+  };
+  type SyncResult = {
     ok: boolean;
-    message: string;
-    url: string | null;
-    diagnostic?: {
-      videoIdsChecked: string[];
-      gamesFound: { id: string; pbvision_video_id: string; session_id: string | null }[];
-    };
-  } | null>(null);
+    error?: string;
+    sessionId?: string;
+    totalGamesLinked?: number;
+    perVideo?: PerVideoResult[];
+    url?: string | null;
+    sessionWasUpserted?: boolean;
+  };
+  const [syncingRh, setSyncingRh] = useState(false);
+  const [syncRhResult, setSyncRhResult] = useState<SyncResult | null>(null);
 
-  const createRatingHubSession = async () => {
-    setCreatingRhSession(true);
-    setRhResult(null);
+  const syncRatingHub = async () => {
+    setSyncingRh(true);
+    setSyncRhResult(null);
+    setLogs([]);
     try {
-      const res = await fetch(`/api/sessions/${id}/create-rating-hub-session`, {
+      const res = await fetch(`/api/sessions/${id}/sync-rating-hub`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) {
-        setRhResult({ ok: false, message: data.error || res.statusText, url: null });
+        setSyncRhResult({ ok: false, error: data.error || res.statusText });
       } else {
-        setRhResult({
+        setSyncRhResult({
           ok: true,
-          message: `Session upserted · ${data.gamesLinked} game${data.gamesLinked === 1 ? "" : "s"} linked`,
+          sessionId: data.sessionId,
+          totalGamesLinked: data.totalGamesLinked,
+          perVideo: data.perVideo,
           url: data.ratingHubUrl,
-          diagnostic: data.gamesDiagnostic,
+          sessionWasUpserted: data.sessionWasUpserted,
         });
       }
     } catch (e) {
-      setRhResult({ ok: false, message: (e as Error).message, url: null });
+      setSyncRhResult({ ok: false, error: (e as Error).message });
     } finally {
-      setCreatingRhSession(false);
-      await fetchSession();
-    }
-  };
-
-  const [renotifying, setRenotifying] = useState(false);
-  const [renotifyResult, setRenotifyResult] = useState<{
-    ok: number;
-    total: number;
-    results: { vid: string; ok: boolean; status?: string; error?: string }[];
-  } | null>(null);
-
-  const renotifyRatingHub = async () => {
-    setRenotifying(true);
-    setRenotifyResult(null);
-    setLogs([]);
-    try {
-      const res = await fetch(`/api/sessions/${id}/pbvision-renotify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRenotifyResult({ ok: 0, total: 0, results: [{ vid: "", ok: false, error: data.error || res.statusText }] });
-      } else {
-        setRenotifyResult({ ok: data.ok, total: data.total, results: data.results });
-      }
-    } finally {
-      setRenotifying(false);
+      setSyncingRh(false);
       await fetchSession();
     }
   };
@@ -870,27 +854,7 @@ export default function SessionDetail() {
                 {" · browser-automation fallback (Partner API key pending)"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {uploadedCount > 0 && (
-                <button
-                  onClick={renotifyRatingHub}
-                  disabled={running || renotifying || fetching}
-                  style={{
-                    padding: "8px 14px",
-                    background: "none",
-                    border: "1px solid #5f6368",
-                    color: "#5f6368",
-                    borderRadius: 6,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: running || renotifying || fetching ? "not-allowed" : "pointer",
-                    opacity: running || renotifying || fetching ? 0.5 : 1,
-                  }}
-                  title="Re-POST to the rating-hub webhook for every attached video ID — safe to click after secret rotations or if earlier calls failed silently"
-                >
-                  {renotifying ? "Re-notifying…" : "Re-notify Rating Hub"}
-                </button>
-              )}
+            <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={fetchPbVisionIds}
                 disabled={running || fetching || allDone}
@@ -923,28 +887,6 @@ export default function SessionDetail() {
               </button>
             </div>
           </div>
-          {renotifyResult && (
-            <div
-              style={{
-                padding: "8px 12px", marginBottom: 10, borderRadius: 6, fontSize: 12,
-                background: renotifyResult.ok === renotifyResult.total ? "#e6f4ea" : "#fde7e7",
-                color: renotifyResult.ok === renotifyResult.total ? "#137333" : "#b00020",
-                border: `1px solid ${renotifyResult.ok === renotifyResult.total ? "#c8e6c9" : "#f5c6c6"}`,
-              }}
-            >
-              Re-notify: {renotifyResult.ok}/{renotifyResult.total} OK
-              <details style={{ marginTop: 6, color: "#444" }}>
-                <summary style={{ cursor: "pointer" }}>Per-video response</summary>
-                <ul style={{ fontSize: 11, fontFamily: "monospace", margin: "6px 0 0", padding: "0 0 0 20px" }}>
-                  {renotifyResult.results.map((r, i) => (
-                    <li key={i} style={{ color: r.ok ? "#137333" : "#b00020" }}>
-                      {r.vid || "(no vid)"}: {r.ok ? (r.status ?? "ok") : r.error}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </div>
-          )}
           {fetchSummary && (
             <div
               style={{
@@ -1063,74 +1005,91 @@ export default function SessionDetail() {
         );
       })()}
 
-      {/* Create Rating Hub session — visible once all clips have pb.vision IDs */}
-      {session.clip_paths && session.clip_paths.length > 0 && (() => {
-        const allUploaded =
-          (session.pbvision_video_ids || []).filter(Boolean).length === session.clip_paths.length;
-        if (!allUploaded) return null;
-        return (
-          <div style={cardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-              <div>
-                <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Push to Rating Hub</h2>
-                <div style={{ fontSize: 13, color: "#666" }}>
-                  Creates a session row in the rating-hub DB and links each game to it by pb.vision video ID. Safe to click again after pb.vision finishes processing more clips.
-                </div>
+      {/* Rating Hub sync — visible once any clip has a pb.vision ID */}
+      {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sync with Rating Hub</h2>
+              <div style={{ fontSize: 13, color: "#666" }}>
+                Figures out what's missing and fixes it — upserts the rating-hub session, links existing games, and fires the pb.vision webhook for any video that hasn't been imported yet. Idempotent; safe to click repeatedly.
               </div>
-              <button
-                onClick={createRatingHubSession}
-                disabled={creatingRhSession || running}
-                style={
-                  creatingRhSession || running
-                    ? { ...btnDisabledStyle, background: "#5f6368" }
-                    : { ...btnStyle, background: "#5f6368" }
-                }
-              >
-                {creatingRhSession ? "Creating…" : rhResult?.ok ? "Resync Games" : "Create Session in Rating Hub"}
-              </button>
             </div>
-            {rhResult && (
-              <div
-                style={{
-                  padding: "8px 12px", borderRadius: 6, fontSize: 13,
-                  background: rhResult.ok ? "#e6f4ea" : "#fde7e7",
-                  color: rhResult.ok ? "#137333" : "#b00020",
-                  border: `1px solid ${rhResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
-                }}
-              >
-                {rhResult.message}
-                {rhResult.url && (
-                  <>
-                    {" · "}
-                    <a href={rhResult.url} target="_blank" rel="noopener noreferrer" style={{ color: "#137333", fontWeight: 500 }}>
-                      View in Rating Hub →
-                    </a>
-                  </>
-                )}
-                {rhResult.diagnostic && rhResult.ok && (
-                  <details style={{ marginTop: 8, color: "#444" }}>
-                    <summary style={{ cursor: "pointer", fontSize: 12 }}>
-                      Diagnostic · {rhResult.diagnostic.gamesFound.length} game row(s) currently in rating-hub for these {rhResult.diagnostic.videoIdsChecked.length} video IDs
-                    </summary>
-                    <div style={{ fontSize: 12, marginTop: 6, fontFamily: "monospace" }}>
-                      {rhResult.diagnostic.videoIdsChecked.map((vid) => {
-                        const games = rhResult.diagnostic!.gamesFound.filter((g) => g.pbvision_video_id === vid);
-                        return (
-                          <div key={vid} style={{ marginBottom: 4 }}>
-                            {vid}: {games.length === 0
-                              ? <span style={{ color: "#b00020" }}>no games yet (pb.vision may still be processing, or webhook hasn't been re-fired)</span>
-                              : games.map((g) => `game ${g.id.slice(0, 8)} (session_id ${g.session_id ? g.session_id.slice(0, 8) : "null"})`).join(", ")}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </details>
-                )}
-              </div>
-            )}
+            <button
+              onClick={syncRatingHub}
+              disabled={syncingRh || running}
+              style={
+                syncingRh || running
+                  ? { ...btnDisabledStyle, background: "#5f6368" }
+                  : { ...btnStyle, background: "#5f6368" }
+              }
+            >
+              {syncingRh ? "Syncing…" : "Sync with Rating Hub"}
+            </button>
           </div>
-        );
-      })()}
+          {syncRhResult && (
+            <div
+              style={{
+                padding: "8px 12px", borderRadius: 6, fontSize: 13,
+                background: syncRhResult.ok ? "#e6f4ea" : "#fde7e7",
+                color: syncRhResult.ok ? "#137333" : "#b00020",
+                border: `1px solid ${syncRhResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+              }}
+            >
+              {syncRhResult.ok ? (
+                <>
+                  {syncRhResult.totalGamesLinked ?? 0} game(s) linked
+                  {syncRhResult.perVideo && syncRhResult.perVideo.some((v) => v.webhookFired) &&
+                    ` · ${syncRhResult.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`}
+                  {syncRhResult.url && (
+                    <>
+                      {" · "}
+                      <a href={syncRhResult.url} target="_blank" rel="noopener noreferrer" style={{ color: "#137333", fontWeight: 500 }}>
+                        View in Rating Hub →
+                      </a>
+                    </>
+                  )}
+                  {syncRhResult.perVideo && syncRhResult.perVideo.length > 0 && (
+                    <details style={{ marginTop: 8, color: "#444" }}>
+                      <summary style={{ cursor: "pointer", fontSize: 12 }}>
+                        Per-video status
+                      </summary>
+                      <table style={{ fontSize: 11, marginTop: 6, borderCollapse: "collapse", fontFamily: "monospace" }}>
+                        <thead>
+                          <tr style={{ color: "#666" }}>
+                            <th style={{ textAlign: "left", paddingRight: 12 }}>video_id</th>
+                            <th style={{ textAlign: "left", paddingRight: 12 }}>games</th>
+                            <th style={{ textAlign: "left" }}>action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {syncRhResult.perVideo.map((v) => (
+                            <tr key={v.vid}>
+                              <td style={{ paddingRight: 12 }}>{v.vid}</td>
+                              <td style={{ paddingRight: 12 }}>{v.games}</td>
+                              <td style={{ color: v.webhookError ? "#b00020" : "#444" }}>
+                                {v.webhookFired
+                                  ? v.webhookError
+                                    ? `webhook error: ${v.webhookError}`
+                                    : `webhook fired (${v.webhookStatus ?? "ok"}) — waiting on pb.vision`
+                                  : v.gamesLinkedAfter > v.gamesLinkedBefore
+                                    ? `linked ${v.gamesLinkedAfter - v.gamesLinkedBefore} game(s)`
+                                    : `${v.gamesLinkedAfter} game(s) already linked`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{syncRhResult.error}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Logs — sticks around after a run so failures stay visible */}
       {(running || logs.length > 0) && (
