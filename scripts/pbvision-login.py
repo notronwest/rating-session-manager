@@ -56,7 +56,15 @@ def browser():
         try:
             yield context, page
         finally:
-            context.close()
+            # cookies persist continuously to the profile dir, so even if
+            # close() bombs (e.g. Ctrl-C interrupts the cleanup RPC) the
+            # session is already saved. Swallow any shutdown errors.
+            try:
+                context.close()
+            except Exception:
+                pass
+            except KeyboardInterrupt:
+                pass
 
 
 def main() -> int:
