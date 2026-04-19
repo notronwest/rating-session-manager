@@ -181,12 +181,38 @@ export async function syncRatingHub(
       res.gamesLinkedAfter = games.length;
       totalGamesLinked += games.length;
     } else {
-      // No games — fire the webhook so rating-hub tries to import insights.
+      // No games yet — fire the webhook so rating-hub tries to import
+      // insights. If it returns "success" the webhook just imported rows,
+      // so re-query and link them on this same call (avoids requiring a
+      // second Sync click).
       try {
         const whRes = await notifyRatingHub({ sessionId: rhSessionId, videoId: vid, onLog });
         res.webhookFired = true;
         res.webhookStatus = whRes.status;
         onLog(`  ${vid}: webhook fired, status=${whRes.status ?? "ok"}`);
+
+        if (whRes.status === "success") {
+          const { data: newGames } = await supabase
+            .from("games")
+            .select("id, session_id")
+            .eq("org_id", orgId)
+            .eq("pbvision_video_id", vid);
+          const fresh = (newGames || []) as { id: string; session_id: string | null }[];
+          if (fresh.length > 0) {
+            const toLink = fresh.filter((g) => g.session_id !== rhSessionId).map((g) => g.id);
+            if (toLink.length > 0) {
+              const { error: updErr } = await supabase
+                .from("games")
+                .update({ session_id: rhSessionId })
+                .in("id", toLink);
+              if (updErr) res.webhookError = `post-webhook link failed: ${updErr.message}`;
+              else onLog(`  ${vid}: linked ${toLink.length} newly-imported game(s)`);
+            }
+            res.games = fresh.length;
+            res.gamesLinkedAfter = fresh.length;
+            totalGamesLinked += fresh.length;
+          }
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const code = err instanceof WebhookError ? ` (HTTP ${err.status ?? "?"})` : "";
