@@ -190,6 +190,17 @@ router.post("/:id/export", async (req, res) => {
   addLog("Starting clip export...");
 
   try {
+    // Remove any clip files from a prior export so re-runs don't leave stale
+    // files hanging around (e.g. when segment count shrinks, or when the
+    // prefix has changed since the last export).
+    if (session.clip_paths && session.clip_paths.length > 0) {
+      let removed = 0;
+      for (const oldClip of session.clip_paths) {
+        try { fs.unlinkSync(oldClip); removed++; } catch { /* already gone */ }
+      }
+      if (removed > 0) addLog(`Removed ${removed} existing clip file${removed !== 1 ? "s" : ""} before re-export`);
+    }
+
     const namePrefix = computeClipNamePrefix(session) ?? undefined;
     if (namePrefix) addLog(`Naming clips as ${namePrefix}-gm-N`);
 

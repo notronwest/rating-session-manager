@@ -172,18 +172,36 @@ export default function SessionDetail() {
 
   const runExport = async () => {
     if (!editSegments || editSegments.length === 0) return;
-    setLogs([]);
-    setRunning(true);
-    try {
-      await fetch(`/api/sessions/${id}/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segments: editSegments }),
+
+    const existingClipCount = session?.clip_paths?.length ?? 0;
+    const doExport = async () => {
+      setLogs([]);
+      setRunning(true);
+      try {
+        await fetch(`/api/sessions/${id}/export`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ segments: editSegments }),
+        });
+      } finally {
+        setRunning(false);
+        await fetchSession();
+      }
+    };
+
+    if (existingClipCount > 0) {
+      setConfirmAction({
+        title: "Overwrite existing clips?",
+        message: `This will delete the ${existingClipCount} existing clip file${existingClipCount !== 1 ? "s" : ""} and export fresh ones from the current segments. Your segments are kept. If clips were already uploaded to PB Vision, the upload references stay on the session and may point at the older versions.`,
+        confirmLabel: "Export clips",
+        onConfirm: () => {
+          setConfirmAction(null);
+          doExport();
+        },
       });
-    } finally {
-      setRunning(false);
-      await fetchSession();
+      return;
     }
+    await doExport();
   };
 
   const runPbVisionUpload = async () => {
