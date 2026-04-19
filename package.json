@@ -9,7 +9,8 @@
     "dev:web": "vite",
     "build": "tsc && vite build",
     "start": "node dist/server.js",
-    "sync:members": "tsx scripts/sync-members.ts"
+    "sync:members": "tsx scripts/sync-members.ts",
+    "pbvision:login": "venv/bin/python scripts/pbvision-login.py"
   },
   "dependencies": {
     "@playwright/test": "^1.59.1",
