@@ -68,15 +68,25 @@ export async function syncRatingHub(
 
   // --- 1. Resolve Supabase player UUIDs from display names.
   const normNames = session.player_names.map(normalize);
-  const { data: players, error: pErr } = await supabase
-    .from("players")
-    .select("id, display_name, pbvision_names")
-    .eq("org_id", orgId);
-  if (pErr || !players) {
-    throw new SyncRatingHubError("players_fetch_failed", pErr?.message || "Failed to fetch players");
-  }
 
   type PlayerRow = { id: string; display_name: string; pbvision_names: string[] | null };
+
+  // Supabase enforces a server-side max_rows cap (default 1000). Paginate with .range() to fetch the full roster.
+  const players: PlayerRow[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("players")
+      .select("id, display_name, pbvision_names")
+      .eq("org_id", orgId)
+      .range(from, from + PAGE - 1);
+    if (error) {
+      throw new SyncRatingHubError("players_fetch_failed", error.message);
+    }
+    if (!data || data.length === 0) break;
+    players.push(...(data as PlayerRow[]));
+    if (data.length < PAGE) break;
+  }
   const playerByName = new Map<string, PlayerRow>();
   for (const p of players as PlayerRow[]) {
     playerByName.set(normalize(p.display_name), p);
@@ -164,62 +174,47 @@ export async function syncRatingHub(
       webhookFired: false,
     };
 
-    if (games.length > 0) {
-      // Link any games that aren't already pointing at this session.
-      const toLink = games.filter((g) => g.session_id !== rhSessionId).map((g) => g.id);
+    // Always fire the webhook so tagged-name updates (and any other pb.vision
+    // changes) get pulled back into rating-hub. The webhook upserts games by
+    // (org_id, pbvision_video_id, session_index) and replaces game_players,
+    // so re-firing is idempotent.
+    try {
+      const whRes = await notifyRatingHub({ sessionId: rhSessionId, videoId: vid, onLog });
+      res.webhookFired = true;
+      res.webhookStatus = whRes.status;
+      onLog(`  ${vid}: webhook fired, status=${whRes.status ?? "ok"}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = err instanceof WebhookError ? ` (HTTP ${err.status ?? "?"})` : "";
+      res.webhookFired = true;
+      res.webhookError = `${msg}${code}`;
+      onLog(`  ${vid}: webhook failed — ${msg}`);
+    }
+
+    // Re-query games for this video (webhook may have just imported or
+    // refreshed them) and link any that aren't pointing at this session.
+    const { data: freshGames } = await supabase
+      .from("games")
+      .select("id, session_id")
+      .eq("org_id", orgId)
+      .eq("pbvision_video_id", vid);
+    const fresh = (freshGames || []) as { id: string; session_id: string | null }[];
+    if (fresh.length > 0) {
+      const toLink = fresh.filter((g) => g.session_id !== rhSessionId).map((g) => g.id);
       if (toLink.length > 0) {
         const { error: updErr } = await supabase
           .from("games")
           .update({ session_id: rhSessionId })
           .in("id", toLink);
         if (updErr) {
-          res.webhookError = `game update failed: ${updErr.message}`;
+          res.webhookError = `${res.webhookError ? res.webhookError + "; " : ""}game link failed: ${updErr.message}`;
         } else {
           onLog(`  ${vid}: linked ${toLink.length} game(s) to session`);
         }
       }
-      res.gamesLinkedAfter = games.length;
-      totalGamesLinked += games.length;
-    } else {
-      // No games yet — fire the webhook so rating-hub tries to import
-      // insights. If it returns "success" the webhook just imported rows,
-      // so re-query and link them on this same call (avoids requiring a
-      // second Sync click).
-      try {
-        const whRes = await notifyRatingHub({ sessionId: rhSessionId, videoId: vid, onLog });
-        res.webhookFired = true;
-        res.webhookStatus = whRes.status;
-        onLog(`  ${vid}: webhook fired, status=${whRes.status ?? "ok"}`);
-
-        if (whRes.status === "success") {
-          const { data: newGames } = await supabase
-            .from("games")
-            .select("id, session_id")
-            .eq("org_id", orgId)
-            .eq("pbvision_video_id", vid);
-          const fresh = (newGames || []) as { id: string; session_id: string | null }[];
-          if (fresh.length > 0) {
-            const toLink = fresh.filter((g) => g.session_id !== rhSessionId).map((g) => g.id);
-            if (toLink.length > 0) {
-              const { error: updErr } = await supabase
-                .from("games")
-                .update({ session_id: rhSessionId })
-                .in("id", toLink);
-              if (updErr) res.webhookError = `post-webhook link failed: ${updErr.message}`;
-              else onLog(`  ${vid}: linked ${toLink.length} newly-imported game(s)`);
-            }
-            res.games = fresh.length;
-            res.gamesLinkedAfter = fresh.length;
-            totalGamesLinked += fresh.length;
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const code = err instanceof WebhookError ? ` (HTTP ${err.status ?? "?"})` : "";
-        res.webhookFired = true;
-        res.webhookError = `${msg}${code}`;
-        onLog(`  ${vid}: webhook failed — ${msg}`);
-      }
+      res.games = fresh.length;
+      res.gamesLinkedAfter = fresh.length;
+      totalGamesLinked += fresh.length;
     }
 
     perVideo.push(res);
