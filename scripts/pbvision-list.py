@@ -29,6 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 from playwright.sync_api import sync_playwright, Page  # noqa: E402
+from playwright._impl._errors import TargetClosedError  # noqa: E402
 from playwright_stealth import Stealth  # noqa: E402
 
 
@@ -38,7 +39,7 @@ LIBRARY_CANDIDATE_URLS = [
     "https://pb.vision/videos",
     "https://pb.vision/",
 ]
-VIDEO_URL_RE = re.compile(r"/(?:videos|v)/([A-Za-z0-9_-]{6,})")
+VIDEO_URL_RE = re.compile(r"/(?:video|videos|v)/([A-Za-z0-9_-]{6,})")
 
 
 def log(msg: str) -> None:
@@ -59,44 +60,57 @@ def browser(headless: bool):
             launch_kwargs["channel"] = "chrome"
         context = p.chromium.launch_persistent_context(**launch_kwargs)
         context.set_default_timeout(60_000)
-        page = context.new_page()
-        Stealth().apply_stealth_sync(page)
         try:
-            yield page
+            yield context
         finally:
             context.close()
 
 
+def fresh_page(context) -> Page:
+    page = context.new_page()
+    Stealth().apply_stealth_sync(page)
+    return page
+
+
+EXTRACT_JS = """
+() => {
+  const out = [];
+  const anchors = Array.from(document.querySelectorAll('a[href]'));
+  for (const a of anchors) {
+    const m = a.href.match(/\\/(?:video|videos|v)\\/([A-Za-z0-9_-]{6,})/);
+    if (!m) continue;
+    let title = (a.innerText || a.textContent || '').trim();
+    if (!title || title.length < 2) {
+      const card = a.closest('li,article,div[role="row"],div');
+      title = card ? (card.innerText || '').trim().slice(0, 120) : '';
+    }
+    out.push({ vid: m[1], title });
+  }
+  return out;
+}
+"""
+
+
 def extract_videos(page: Page) -> list[dict]:
     """Look at every anchor/link on the page and harvest unique videoId + label pairs."""
-    # Wait briefly for client-rendered library to settle.
     try:
         page.wait_for_load_state("networkidle", timeout=20_000)
     except Exception:
         pass
     time.sleep(1.5)
 
-    raw = page.evaluate(
-        """
-        () => {
-          const out = [];
-          const anchors = Array.from(document.querySelectorAll('a[href]'));
-          for (const a of anchors) {
-            const m = a.href.match(/\\/(?:videos|v)\\/([A-Za-z0-9_-]{6,})/);
-            if (!m) continue;
-            // Best-effort title: prefer the anchor's own text, fall back to an
-            // ancestor card's text content (first 120 chars).
-            let title = (a.innerText || a.textContent || '').trim();
-            if (!title || title.length < 2) {
-              const card = a.closest('li,article,div[role="row"],div');
-              title = card ? (card.innerText || '').trim().slice(0, 120) : '';
-            }
-            out.push({ vid: m[1], title });
-          }
-          return out;
-        }
-        """
-    )
+    if page.is_closed():
+        log("  Page closed before evaluate — skipping URL")
+        return []
+
+    try:
+        raw = page.evaluate(EXTRACT_JS)
+    except TargetClosedError:
+        log("  Page closed during evaluate — skipping URL")
+        return []
+    except Exception as e:
+        log(f"  Evaluate failed: {e}")
+        return []
     # Dedupe by vid (keep the longest title for each).
     by_vid: dict[str, dict] = {}
     for row in raw:
@@ -106,15 +120,35 @@ def extract_videos(page: Page) -> list[dict]:
     return list(by_vid.values())
 
 
-def find_library(page: Page, debug_dir: Path) -> list[dict]:
+def find_library(context, debug_dir: Path) -> list[dict]:
+    page = fresh_page(context)
     for url in LIBRARY_CANDIDATE_URLS:
         log(f"Checking for videos at {url}")
-        page.goto(url)
+        if page.is_closed():
+            log("  Previous page closed — opening a fresh one")
+            page = fresh_page(context)
+        try:
+            page.goto(url)
+        except TargetClosedError:
+            log("  Page closed during navigation — opening a fresh one")
+            page = fresh_page(context)
+            try:
+                page.goto(url)
+            except Exception as e:
+                log(f"  Retry navigation failed: {e}")
+                continue
         videos = extract_videos(page)
         if videos:
             log(f"  Found {len(videos)} videos on {url}")
             return videos
-    page.screenshot(path=str(debug_dir / "pbvision-list-no-videos.png"), full_page=True)
+    if not page.is_closed():
+        try:
+            page.screenshot(path=str(debug_dir / "pbvision-list-no-videos.png"), full_page=True)
+            html = page.content()
+            (debug_dir / "pbvision-list-no-videos.html").write_text(html)
+            log(f"  Dumped HTML to {debug_dir / 'pbvision-list-no-videos.html'}")
+        except Exception as e:
+            log(f"  HTML dump failed: {e}")
     return []
 
 
@@ -125,8 +159,8 @@ def main() -> int:
     debug_dir = PROJECT_ROOT / "debug"
     debug_dir.mkdir(exist_ok=True)
 
-    with browser(headless=not headed) as page:
-        # Go to the root first to detect login state.
+    with browser(headless=not headed) as context:
+        page = fresh_page(context)
         page.goto("https://pb.vision/")
         try:
             page.wait_for_load_state("networkidle", timeout=20_000)
@@ -137,7 +171,7 @@ def main() -> int:
             log("to complete the magic-link login and seed the persistent profile.")
             return 3
 
-        videos = find_library(page, debug_dir)
+        videos = find_library(context, debug_dir)
 
     print(json.dumps(videos))
     return 0
