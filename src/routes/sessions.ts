@@ -570,4 +570,16 @@ router.post("/:id/cancel", (_req, res) => {
   res.json(rowToSession(updated));
 });
 
+// POST /api/sessions/:id/clear-error — Dismiss a stale error banner
+router.post("/:id/clear-error", (_req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+
+  db.prepare("UPDATE sessions SET error = NULL, updated_at = datetime('now') WHERE id = ?").run(_req.params.id);
+
+  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown>;
+  res.json(rowToSession(updated));
+});
+
 export default router;

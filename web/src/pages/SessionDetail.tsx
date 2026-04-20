@@ -496,8 +496,17 @@ export default function SessionDetail() {
 
       {session.error && (
         <div style={{ background: "#fce8e6", border: "1px solid #f5c6cb", borderRadius: 8, padding: 12, marginBottom: 16, color: "#d93025", fontSize: 13 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>
-            Last run failed ({session.status})
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={{ fontWeight: 600 }}>Last run failed ({session.status})</div>
+            <button
+              onClick={async () => {
+                await fetch(`/api/sessions/${id}/clear-error`, { method: "POST" });
+                await fetchSession();
+              }}
+              style={{ background: "transparent", border: "1px solid #d93025", color: "#d93025", padding: "2px 10px", borderRadius: 4, fontSize: 12, cursor: "pointer" }}
+            >
+              Dismiss
+            </button>
           </div>
           <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "monospace", fontSize: 12 }}>
             {session.error.replace(/\x1b\[[0-9;]*m/g, "")}
