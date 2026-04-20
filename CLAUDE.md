@@ -104,6 +104,99 @@ data/                        # Cached data (gitignored)
   rating_events.json         # Filtered rating events
 ```
 
+## Rating Hub Integration
+
+**End-to-end workflow across both projects is documented in**
+`../wmpc_rating_hub/CLAUDE.md` — that file is the single source of truth.
+Update it there first, then update summaries here.
+
+### Division of responsibilities
+
+This project owns everything from scheduling through pb.vision upload:
+
+1. Schedule — CourtReserve scraping, rating-event detection
+2. Record — coordinate camera capture
+3. Split — detect + export per-game clips from session recording
+4. Upload — push clips to pb.vision via their Partner API
+5. Wait for AI processing
+6. Wait for human tagging on pb.vision
+7. Fetch Mux playback ID from pb.vision Firestore
+8. Fire webhook to rating-hub
+
+rating-hub handles everything downstream (import, visualization, coach analysis).
+
+### What the public PB Vision API exposes (verified 2026-04-19)
+
+rating-hub fetches these directly without needing us:
+- Compact insights JSON
+- Augmented insights JSON
+- Tagged player names (come through insights after tagging)
+- Player avatar images (from GCS `pbv-pro` bucket)
+- Video poster image
+
+What's NOT public (session-manager must fetch and push):
+- **Mux playback ID** — in pb.vision's Firestore at `pbv-prod/videos/{vid}.mux.playbackId`
+- **stats.json format** — the public API returns HTTP 400
+- **Listing a user's videos** — no REST endpoint, only Firestore
+
+### Updated webhook contract (as of 2026-04-19)
+
+Only ONE call per game — fire it AFTER human tagging is complete on pb.vision:
+
+```
+POST https://cjtfhegtgbfwccnruood.supabase.co/functions/v1/pbvision-webhook
+Authorization: Bearer <WEBHOOK_SECRET>
+Content-Type: application/json
+{
+  "videoId": "abc123",
+  "sessionId": "optional-session-uuid",
+  "muxPlaybackId": "a00w01bJI01Ax..."   // optional but highly recommended
+}
+```
+
+rating-hub will:
+- Fetch compact + augmented insights from the public API
+- Import games, game_players, players (by real name), rallies, rally_shots, rating snapshots
+- Merge highlights + 119 advanced stats from augmented
+- Set `games.mux_playback_id` if provided
+- Derive player avatar URLs from `aiEngineVersion` + `avatar_id`
+
+Response:
+```json
+{
+  "status": "success",
+  "sessionsImported": 1,
+  "augmentedMerged": true,
+  "totalShots": 260,
+  "muxPlaybackIdSet": true,
+  "games": [{ "gameId": "...", "players": 4, "rallies": 48, "shots": 260 }]
+}
+```
+
+### Why the "delay until tagged" ordering matters
+
+If we fire the webhook before tagging, rating-hub imports players as "Player 0",
+"Player 1", etc. and creates placeholder `players` rows. When we later re-fire
+after tagging, the real names arrive and rating-hub's `findOrCreatePlayer` can
+match against existing real-name players — but the placeholder rows linger in
+the DB, polluting the leaderboard.
+
+To keep this clean: session-manager must poll pb.vision's Firestore for both
+"AI processing complete" AND "names are not 'Player N'" before firing the
+webhook.
+
+### Current status
+
+- ✅ session-manager calls rating-hub webhook (existing "Sync with Rating Hub"
+  button per session)
+- ⬜ session-manager does NOT yet poll for tagging completion — coach must
+  manually trigger sync after tagging
+- ⬜ session-manager does NOT yet fetch Mux playback ID from Firestore and
+  include it in the webhook payload — current workaround is the `📌 PBV Grab`
+  bookmarklet on rating-hub's analyze page
+- ⬜ session-manager may need to update its webhook caller to include
+  `muxPlaybackId` in the body once the Firestore fetch is built
+
 ## Session Pipeline States
 
 ```
