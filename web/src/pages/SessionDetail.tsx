@@ -1029,11 +1029,11 @@ export default function SessionDetail() {
               disabled={syncingRh || running}
               style={
                 syncingRh || running
-                  ? { ...btnDisabledStyle, background: "#5f6368" }
-                  : { ...btnStyle, background: "#5f6368" }
+                  ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                  : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
               }
             >
-              {syncingRh ? "Syncing…" : "Sync with Rating Hub"}
+              {syncingRh ? "Syncing…" : "Sync now"}
             </button>
           </div>
           {syncRhResult && (
