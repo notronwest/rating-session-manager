@@ -1021,20 +1021,25 @@ export default function SessionDetail() {
             <div>
               <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sync with Rating Hub</h2>
               <div style={{ fontSize: 13, color: "#666" }}>
-                Figures out what's missing and fixes it — upserts the rating-hub session, links existing games, and fires the pb.vision webhook for any video that hasn't been imported yet. Idempotent; safe to click repeatedly.
+                {syncRhResult?.ok && syncRhResult.totalGamesLinked
+                  ? `${syncRhResult.totalGamesLinked} game${syncRhResult.totalGamesLinked === 1 ? "" : "s"} linked`
+                  : "Upsert rating-hub session, link games, fire webhook for anything missing."}
+                {" · idempotent"}
               </div>
             </div>
-            <button
-              onClick={syncRatingHub}
-              disabled={syncingRh || running}
-              style={
-                syncingRh || running
-                  ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
-                  : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
-              }
-            >
-              {syncingRh ? "Syncing…" : "Sync now"}
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={syncRatingHub}
+                disabled={syncingRh || running}
+                style={
+                  syncingRh || running
+                    ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                    : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                }
+              >
+                {syncingRh ? "Syncing…" : "Sync now"}
+              </button>
+            </div>
           </div>
           {syncRhResult && (
             <div
