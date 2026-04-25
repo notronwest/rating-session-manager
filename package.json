@@ -11,7 +11,8 @@
     "start": "node dist/server.js",
     "sync:members": "tsx scripts/sync-members.ts",
     "pbvision:login": "venv/bin/python scripts/pbvision-login.py",
-    "pbvision:tag": "venv/bin/python scripts/pbvision-tag.py"
+    "pbvision:tag": "venv/bin/python scripts/pbvision-tag.py",
+    "ratinghub:backfill": "tsx scripts/ratinghub-backfill.ts"
   },
   "dependencies": {
     "@playwright/test": "^1.59.1",
