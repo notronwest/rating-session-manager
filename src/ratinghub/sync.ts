@@ -17,6 +17,7 @@
 
 import { getSupabase, getOrgId } from "../supabase.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
+import { getDb } from "../db/index.js";
 import type { Session } from "../types.js";
 
 export type PerVideoResult = {
@@ -221,9 +222,15 @@ export async function syncRatingHub(
   }
 
   // --- 4. Reflect status on our local session row.
+  // Once every clip has games linked on rating-hub, the session is done.
+  // Don't downgrade a `complete` session here (idempotent re-runs are fine).
   const allGamesLinked = vids.length > 0 && perVideo.every((r) => r.gamesLinkedAfter > 0);
-  // `processing` once every clip has games linked, `uploading` while we're
-  // still waiting on some. Don't downgrade a `complete` session here.
+  if (allGamesLinked && session.status !== "complete") {
+    getDb()
+      .prepare("UPDATE sessions SET status = 'complete', updated_at = datetime('now') WHERE id = ?")
+      .run(session.id);
+    onLog(`Marked session ${session.id} complete (all ${vids.length} clip(s) linked)`);
+  }
 
   return {
     sessionId: rhSessionId,
