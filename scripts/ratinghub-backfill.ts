@@ -21,9 +21,8 @@
 
 import "dotenv/config";
 import { getSupabase, getOrgId } from "../src/supabase.js";
-import { getDb } from "../src/db/index.js";
+import { listSessions, getSession, createSession } from "../src/db/index.js";
 import { syncRatingHub, SyncRatingHubError } from "../src/ratinghub/sync.js";
-import type { Session } from "../src/types.js";
 
 type RhSession = {
   id: string;
@@ -219,20 +218,13 @@ async function main() {
   }
   console.error(`Resolved ${playerMap.size}/${allPlayerUuids.size} player names.`);
 
-  // 4. Upsert into SQLite. Existing rows are left alone (status + any
-  //    local state preserved); only missing rows are created.
-  const db = getDb();
+  // 4. Upsert into the session_manager_sessions table on Supabase. Existing
+  //    rows are left alone (local state preserved); only missing rows are
+  //    created. The rh session UUID is reused as the PK so games.session_id
+  //    round-trips between rating-hub and session-manager.
   const existingIds = new Set<string>(
-    (db.prepare("SELECT id FROM sessions").all() as { id: string }[]).map((r) => r.id),
+    (await listSessions()).map((s) => s.id),
   );
-
-  const insertStmt = db.prepare(`
-    INSERT INTO sessions (
-      id, status, label, booking_time, player_names, pbvision_video_ids,
-      created_at, updated_at
-    )
-    VALUES (?, 'complete', ?, ?, ?, ?, datetime('now'), datetime('now'))
-  `);
 
   let created = 0;
   let existing = 0;
@@ -271,13 +263,14 @@ async function main() {
         continue;
       }
       if (!dryRun) {
-        insertStmt.run(
-          s.id,
-          s.label ?? null,
-          bookingTime,
-          JSON.stringify(playerNames),
-          JSON.stringify(vids),
-        );
+        await createSession({
+          id: s.id,
+          status: "complete",
+          label: s.label ?? null,
+          booking_time: bookingTime,
+          player_names: playerNames,
+          pbvision_video_ids: vids,
+        });
       }
       created++;
     } else {
@@ -305,13 +298,11 @@ async function main() {
 
   // 5. Re-sync each session (fires the webhook + relinks game.session_id).
   console.error(`\nRe-syncing ${toSync.length} session(s) to rating-hub...`);
-  const loadSession = db.prepare("SELECT * FROM sessions WHERE id = ?");
   let synced = 0;
   let failed = 0;
   for (const sid of toSync) {
-    const row = loadSession.get(sid) as Record<string, unknown> | undefined;
-    if (!row) continue;
-    const sess = rowToSession(row);
+    const sess = await getSession(sid);
+    if (!sess) continue;
     try {
       const res = await syncRatingHub(sess, (msg) => console.error(`  ${msg}`));
       console.error(`[ok] ${sid}: linked ${res.totalGamesLinked} game(s)`);
@@ -324,26 +315,6 @@ async function main() {
   }
 
   console.error(`\nDone: synced=${synced} failed=${failed}`);
-}
-
-function rowToSession(row: Record<string, unknown>): Session {
-  const parse = <T>(v: unknown): T | null =>
-    v && typeof v === "string" ? (JSON.parse(v) as T) : null;
-  return {
-    id: row.id as string,
-    status: row.status as Session["status"],
-    label: (row.label as string) ?? null,
-    booking_time: (row.booking_time as string) ?? null,
-    player_names: parse<string[]>(row.player_names),
-    video_path: (row.video_path as string) ?? null,
-    roi_path: (row.roi_path as string) ?? null,
-    segments: parse(row.segments),
-    clip_paths: parse<string[]>(row.clip_paths),
-    pbvision_video_ids: parse<string[]>(row.pbvision_video_ids),
-    error: (row.error as string) ?? null,
-    created_at: row.created_at as string,
-    updated_at: row.updated_at as string,
-  };
 }
 
 main().catch((e) => {

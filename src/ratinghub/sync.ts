@@ -17,7 +17,7 @@
 
 import { getSupabase, getOrgId } from "../supabase.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
-import { getDb } from "../db/index.js";
+import { updateSession } from "../db/index.js";
 import type { Session } from "../types.js";
 
 export type PerVideoResult = {
@@ -226,9 +226,7 @@ export async function syncRatingHub(
   // Don't downgrade a `complete` session here (idempotent re-runs are fine).
   const allGamesLinked = vids.length > 0 && perVideo.every((r) => r.gamesLinkedAfter > 0);
   if (allGamesLinked && session.status !== "complete") {
-    getDb()
-      .prepare("UPDATE sessions SET status = 'complete', updated_at = datetime('now') WHERE id = ?")
-      .run(session.id);
+    await updateSession(session.id, { status: "complete" });
     onLog(`Marked session ${session.id} complete (all ${vids.length} clip(s) linked)`);
   }
 

@@ -1,14 +1,22 @@
 import { Router } from "express";
-import { v4 as uuid } from "uuid";
 import fs from "fs";
 import path from "path";
-import { getDb } from "../db/index.js";
+import {
+  listSessions,
+  getSession,
+  createSession,
+  updateSession,
+  listLogs,
+  clearLogs,
+  makeAddLog,
+  type UpdateSessionInput,
+} from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, SyncRatingHubError } from "../ratinghub/sync.js";
-import type { Session, GameSegment } from "../types.js";
+import type { Session, GameSegment, SessionStatus } from "../types.js";
 
 const router = Router();
 
@@ -39,110 +47,101 @@ function computeClipNamePrefix(session: Session): string | null {
   return `${initials}-${date}`;
 }
 
-// Helper to parse JSON columns from DB rows
-function rowToSession(row: Record<string, unknown>): Session {
-  return {
-    ...row,
-    player_names: row.player_names ? JSON.parse(row.player_names as string) : null,
-    segments: row.segments ? JSON.parse(row.segments as string) : null,
-    clip_paths: row.clip_paths ? JSON.parse(row.clip_paths as string) : null,
-    pbvision_video_ids: row.pbvision_video_ids ? JSON.parse(row.pbvision_video_ids as string) : null,
-  } as Session;
+// Centralised error handling so route bodies stay tidy.
+function sendError(res: Parameters<typeof router.get>[1] extends never ? never : import("express").Response, err: unknown, status = 500) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(msg);
+  res.status(status).json({ error: msg });
 }
 
 // GET /api/sessions
-router.get("/", (_req, res) => {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM sessions ORDER BY created_at DESC").all() as Record<string, unknown>[];
-  res.json(rows.map(rowToSession));
+router.get("/", async (_req, res) => {
+  try {
+    res.json(await listSessions());
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // POST /api/sessions
-router.post("/", (req, res) => {
-  const db = getDb();
-  const id = uuid();
-  const { label, booking_time, player_names, video_path } = req.body;
-
-  db.prepare(`
-    INSERT INTO sessions (id, status, label, booking_time, player_names, video_path)
-    VALUES (?, 'scheduled', ?, ?, ?, ?)
-  `).run(
-    id,
-    label || null,
-    booking_time || null,
-    player_names ? JSON.stringify(player_names) : null,
-    video_path || null
-  );
-
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as Record<string, unknown>;
-  res.status(201).json(rowToSession(row));
+router.post("/", async (req, res) => {
+  try {
+    const { label, booking_time, player_names, video_path } = req.body;
+    const session = await createSession({
+      label: label || null,
+      booking_time: booking_time || null,
+      player_names: player_names || null,
+      video_path: video_path || null,
+    });
+    res.status(201).json(session);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // GET /api/sessions/:id
-router.get("/:id", (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-  res.json(rowToSession(row));
+router.get("/:id", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    res.json(session);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // GET /api/sessions/:id/logs
-router.get("/:id/logs", (req, res) => {
-  const db = getDb();
-  const logs = db.prepare(
-    "SELECT * FROM session_logs WHERE session_id = ? ORDER BY id ASC"
-  ).all(req.params.id);
-  res.json(logs);
+router.get("/:id/logs", async (req, res) => {
+  try {
+    res.json(await listLogs(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // PATCH /api/sessions/:id
-router.patch("/:id", (req, res) => {
-  const db = getDb();
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!session) return res.status(404).json({ error: "Session not found" });
+router.patch("/:id", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
 
-  const updates: string[] = [];
-  const values: unknown[] = [];
-
-  const allowedFields = ["status", "label", "booking_time", "player_names", "video_path", "roi_path", "segments", "error"];
-  for (const field of allowedFields) {
-    if (req.body[field] !== undefined) {
-      updates.push(`${field} = ?`);
-      const val = req.body[field];
-      values.push(Array.isArray(val) || (typeof val === "object" && val !== null) ? JSON.stringify(val) : val);
+    const allowedFields: (keyof UpdateSessionInput)[] = [
+      "status", "label", "booking_time", "player_names",
+      "video_path", "roi_path", "segments", "error",
+    ];
+    const updates: UpdateSessionInput = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        // Supabase JS handles jsonb-from-JS-object directly — no JSON.stringify.
+        (updates as Record<string, unknown>)[field] = req.body[field];
+      }
     }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    const updated = await updateSession(session.id, updates);
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err);
   }
-
-  if (updates.length === 0) return res.status(400).json({ error: "No fields to update" });
-
-  updates.push("updated_at = datetime('now')");
-  values.push(req.params.id);
-
-  db.prepare(`UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`).run(...values);
-
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown>;
-  res.json(rowToSession(row));
 });
 
 // POST /api/sessions/:id/detect — Run game detection
 router.post("/:id/detect", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-  if (!session.video_path) return res.status(400).json({ error: "No video path assigned" });
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  // Clear old logs and update status
-  db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
-  db.prepare("UPDATE sessions SET status = 'splitting', error = NULL, updated_at = datetime('now') WHERE id = ?").run(session.id);
-  addLog("Starting game detection...");
-
+  let session: Session | null = null;
   try {
+    session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!session.video_path) return res.status(400).json({ error: "No video path assigned" });
+
+    const addLog = makeAddLog(session.id);
+
+    // Clear old logs and update status
+    await clearLogs(session.id);
+    await updateSession(session.id, { status: "splitting", error: null });
+    addLog("Starting game detection...");
+
     const segments = await detectGames(
       {
         videoPath: session.video_path,
@@ -153,49 +152,46 @@ router.post("/:id/detect", async (req, res) => {
         restartLookahead: req.body.restart_lookahead,
         minGame: req.body.min_game,
       },
-      addLog
+      addLog,
     );
 
-    db.prepare(
-      "UPDATE sessions SET status = 'split', segments = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(JSON.stringify(segments), session.id);
+    const updated = await updateSession(session.id, { status: "split", segments });
     addLog(`Detection complete: ${segments.length} games found`);
-
-    const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-    res.json(rowToSession(updated));
-  } catch (err: unknown) {
+    res.json(updated);
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    db.prepare("UPDATE sessions SET status = 'failed', error = ?, updated_at = datetime('now') WHERE id = ?").run(msg, session.id);
-    addLog(`Detection failed: ${msg}`);
+    if (session) {
+      try {
+        await updateSession(session.id, { status: "failed", error: msg });
+        makeAddLog(session.id)(`Detection failed: ${msg}`);
+      } catch (innerErr) {
+        console.error("Failed to record detect error on session:", innerErr);
+      }
+    }
     res.status(500).json({ error: msg });
   }
 });
 
 // POST /api/sessions/:id/export — Export clips
 router.post("/:id/export", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-  if (!session.video_path) return res.status(400).json({ error: "No video path assigned" });
-
-  // Use segments from request body (edited) or from DB
-  const segments: GameSegment[] = req.body.segments || session.segments;
-  if (!segments || segments.length === 0) return res.status(400).json({ error: "No segments to export" });
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  const outputDir = req.body.output_dir || `${session.video_path}_clips`;
-
-  addLog("Starting clip export...");
-
+  let session: Session | null = null;
   try {
+    session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!session.video_path) return res.status(400).json({ error: "No video path assigned" });
+
+    const segments: GameSegment[] = req.body.segments || session.segments;
+    if (!segments || segments.length === 0) {
+      return res.status(400).json({ error: "No segments to export" });
+    }
+
+    const addLog = makeAddLog(session.id);
+    const outputDir = req.body.output_dir || `${session.video_path}_clips`;
+    addLog("Starting clip export...");
+
     // Remove any clip files from a prior export so re-runs don't leave stale
-    // files hanging around (e.g. when segment count shrinks, or when the
-    // prefix has changed since the last export).
+    // files around (e.g. when segment count shrinks, or when the prefix has
+    // changed since the last export).
     if (session.clip_paths && session.clip_paths.length > 0) {
       let removed = 0;
       for (const oldClip of session.clip_paths) {
@@ -209,66 +205,63 @@ router.post("/:id/export", async (req, res) => {
 
     const clipPaths = await exportClips(
       { videoPath: session.video_path, segments, outputDir, namePrefix },
-      addLog
+      addLog,
     );
 
-    db.prepare(
-      "UPDATE sessions SET clip_paths = ?, segments = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(JSON.stringify(clipPaths), JSON.stringify(segments), session.id);
+    const updated = await updateSession(session.id, { clip_paths: clipPaths, segments });
     addLog(`Export complete: ${clipPaths.length} clips`);
-
-    const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-    res.json(rowToSession(updated));
-  } catch (err: unknown) {
+    res.json(updated);
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    db.prepare("UPDATE sessions SET status = 'failed', error = ?, updated_at = datetime('now') WHERE id = ?").run(msg, session.id);
-    addLog(`Export failed: ${msg}`);
+    if (session) {
+      try {
+        await updateSession(session.id, { status: "failed", error: msg });
+        makeAddLog(session.id)(`Export failed: ${msg}`);
+      } catch (innerErr) {
+        console.error("Failed to record export error on session:", innerErr);
+      }
+    }
     res.status(500).json({ error: msg });
   }
 });
 
-// POST /api/sessions/:id/pbvision-upload — Upload exported clips to pb.vision
+// POST /api/sessions/:id/pbvision-upload — Upload exported clips to pb.vision.
 // Uploads are sequential (one browser session per clip). Clips that already
 // have a video ID in pbvision_video_ids are skipped, so this is safe to retry.
 router.post("/:id/pbvision-upload", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-  if (!session.clip_paths || session.clip_paths.length === 0) {
-    return res.status(400).json({ error: "No clips to upload" });
-  }
-  if (uploadsInFlight.has(session.id)) {
-    return res.status(409).json({ error: "An upload is already running for this session" });
-  }
-
-  uploadsInFlight.add(session.id);
-  const headed = req.body?.headed !== false; // default true — pb.vision likely has CF too
-  // Optional — upload only a single clip by its 0-based index
-  const onlyIndex =
-    typeof req.body?.clip_index === "number" && Number.isInteger(req.body.clip_index)
-      ? (req.body.clip_index as number)
-      : null;
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  // Work off the existing vids array so retries skip already-uploaded clips
-  const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
-  while (vids.length < session.clip_paths.length) vids.push(null);
-
-  db.prepare(
-    "UPDATE sessions SET status = 'uploading', error = NULL, updated_at = datetime('now') WHERE id = ?",
-  ).run(session.id);
-  if (onlyIndex !== null) {
-    addLog(`Retrying pb.vision upload for clip ${onlyIndex + 1}/${session.clip_paths.length}...`);
-  } else {
-    addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
-  }
-
+  let session: Session | null = null;
+  let vids: (string | null)[] = [];
   try {
+    session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!session.clip_paths || session.clip_paths.length === 0) {
+      return res.status(400).json({ error: "No clips to upload" });
+    }
+    if (uploadsInFlight.has(session.id)) {
+      return res.status(409).json({ error: "An upload is already running for this session" });
+    }
+
+    uploadsInFlight.add(session.id);
+    const headed = req.body?.headed !== false; // default true — pb.vision likely has CF too
+    // Optional — upload only a single clip by its 0-based index
+    const onlyIndex =
+      typeof req.body?.clip_index === "number" && Number.isInteger(req.body.clip_index)
+        ? (req.body.clip_index as number)
+        : null;
+
+    const addLog = makeAddLog(session.id);
+
+    // Work off the existing vids array so retries skip already-uploaded clips
+    vids = [...(session.pbvision_video_ids || [])];
+    while (vids.length < session.clip_paths.length) vids.push(null);
+
+    await updateSession(session.id, { status: "uploading", error: null });
+    if (onlyIndex !== null) {
+      addLog(`Retrying pb.vision upload for clip ${onlyIndex + 1}/${session.clip_paths.length}...`);
+    } else {
+      addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
+    }
+
     for (let i = 0; i < session.clip_paths.length; i++) {
       if (onlyIndex !== null && i !== onlyIndex) continue;
       if (vids[i]) {
@@ -285,9 +278,7 @@ router.post("/:id/pbvision-upload", async (req, res) => {
       vids[i] = vid;
       addLog(`Clip ${i + 1}/${session.clip_paths.length}: uploaded — ${vid}`);
 
-      db.prepare(
-        "UPDATE sessions SET pbvision_video_ids = ?, updated_at = datetime('now') WHERE id = ?",
-      ).run(JSON.stringify(vids), session.id);
+      await updateSession(session.id, { pbvision_video_ids: vids });
 
       // Fire-and-warn: notify rating-hub so it can pick up insights.
       try {
@@ -299,23 +290,29 @@ router.post("/:id/pbvision-upload", async (req, res) => {
     }
 
     const allDone = vids.every((v) => !!v);
-    db.prepare(
-      "UPDATE sessions SET status = ?, updated_at = datetime('now') WHERE id = ?",
-    ).run(allDone ? "processing" : "uploading", session.id);
+    const updated = await updateSession(session.id, {
+      status: allDone ? "processing" : "uploading",
+    });
     addLog(allDone ? "All clips uploaded to pb.vision" : "Upload batch complete");
-
-    const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-    res.json(rowToSession(updated));
-  } catch (err: unknown) {
+    res.json(updated);
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const code = err instanceof UploadError ? err.code : "unknown";
-    db.prepare(
-      "UPDATE sessions SET status = 'failed', error = ?, pbvision_video_ids = ?, updated_at = datetime('now') WHERE id = ?",
-    ).run(msg, JSON.stringify(vids), session.id);
-    addLog(`Upload failed: [${code}] ${msg}`);
+    if (session) {
+      try {
+        await updateSession(session.id, {
+          status: "failed",
+          error: msg,
+          pbvision_video_ids: vids,
+        });
+        makeAddLog(session.id)(`Upload failed: [${code}] ${msg}`);
+      } catch (innerErr) {
+        console.error("Failed to record upload error on session:", innerErr);
+      }
+    }
     res.status(500).json({ error: msg, code });
   } finally {
-    uploadsInFlight.delete(session.id);
+    if (session) uploadsInFlight.delete(session.id);
   }
 });
 
@@ -325,197 +322,188 @@ router.post("/:id/pbvision-upload", async (req, res) => {
 //
 // Body: { clip_index: number, video_id: string }
 router.post("/:id/pbvision-confirm", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-  const clipIndex = req.body?.clip_index;
-  const videoId = typeof req.body?.video_id === "string" ? req.body.video_id.trim() : "";
-
-  if (!session.clip_paths || session.clip_paths.length === 0) {
-    return res.status(400).json({ error: "Session has no clips" });
-  }
-  if (typeof clipIndex !== "number" || !Number.isInteger(clipIndex) || clipIndex < 0 || clipIndex >= session.clip_paths.length) {
-    return res.status(400).json({ error: "clip_index out of range" });
-  }
-  if (!videoId) {
-    return res.status(400).json({ error: "video_id is required" });
-  }
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
-  while (vids.length < session.clip_paths.length) vids.push(null);
-
-  if (vids[clipIndex] && vids[clipIndex] !== videoId) {
-    addLog(`Clip ${clipIndex + 1}: replacing existing video ID ${vids[clipIndex]} with ${videoId}`);
-  } else if (!vids[clipIndex]) {
-    addLog(`Clip ${clipIndex + 1}: attaching video ID ${videoId}`);
-  }
-
-  vids[clipIndex] = videoId;
-
-  const allDone = vids.every((v) => !!v);
-  db.prepare(
-    "UPDATE sessions SET pbvision_video_ids = ?, status = ?, error = NULL, updated_at = datetime('now') WHERE id = ?",
-  ).run(
-    JSON.stringify(vids),
-    allDone ? "processing" : "uploading",
-    session.id,
-  );
-
-  // Fire the webhook; never block the 200 — surface errors to logs.
-  let webhookError: string | null = null;
   try {
-    await notifyRatingHub({ sessionId: session.id, videoId, onLog: addLog });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const code = err instanceof WebhookError ? ` (${err.status ?? "n/a"})` : "";
-    webhookError = `${msg}${code}`;
-    addLog(`Warning: rating-hub webhook failed: ${webhookError}`);
-  }
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
 
-  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-  res.json({ ...rowToSession(updated), webhookError });
+    const clipIndex = req.body?.clip_index;
+    const videoId = typeof req.body?.video_id === "string" ? req.body.video_id.trim() : "";
+
+    if (!session.clip_paths || session.clip_paths.length === 0) {
+      return res.status(400).json({ error: "Session has no clips" });
+    }
+    if (typeof clipIndex !== "number" || !Number.isInteger(clipIndex) || clipIndex < 0 || clipIndex >= session.clip_paths.length) {
+      return res.status(400).json({ error: "clip_index out of range" });
+    }
+    if (!videoId) {
+      return res.status(400).json({ error: "video_id is required" });
+    }
+
+    const addLog = makeAddLog(session.id);
+
+    const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
+    while (vids.length < session.clip_paths.length) vids.push(null);
+
+    if (vids[clipIndex] && vids[clipIndex] !== videoId) {
+      addLog(`Clip ${clipIndex + 1}: replacing existing video ID ${vids[clipIndex]} with ${videoId}`);
+    } else if (!vids[clipIndex]) {
+      addLog(`Clip ${clipIndex + 1}: attaching video ID ${videoId}`);
+    }
+
+    vids[clipIndex] = videoId;
+
+    const allDone = vids.every((v) => !!v);
+    await updateSession(session.id, {
+      pbvision_video_ids: vids,
+      status: allDone ? "processing" : "uploading",
+      error: null,
+    });
+
+    // Fire the webhook; never block the 200 — surface errors to logs.
+    let webhookError: string | null = null;
+    try {
+      await notifyRatingHub({ sessionId: session.id, videoId, onLog: addLog });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = err instanceof WebhookError ? ` (${err.status ?? "n/a"})` : "";
+      webhookError = `${msg}${code}`;
+      addLog(`Warning: rating-hub webhook failed: ${webhookError}`);
+    }
+
+    const updated = await getSession(session.id);
+    res.json({ ...(updated as Session), webhookError });
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // POST /api/sessions/:id/pbvision-fetch-ids — Scrape the user's pb.vision
 // library, auto-match videos to this session's clips by filename, populate
 // pbvision_video_ids for the matches, and fire the rating-hub webhook.
-// Returns the updated session + any unmatched clips + any unmatched library
-// videos so the UI can ask the user to pair them.
 router.post("/:id/pbvision-fetch-ids", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-  if (!session.clip_paths || session.clip_paths.length === 0) {
-    return res.status(400).json({ error: "Session has no clips" });
-  }
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  let videos;
   try {
-    videos = await listPbVisionVideos({
-      headed: req.body?.headed !== false,
-      onLog: (line) => addLog(`  ${line}`),
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!session.clip_paths || session.clip_paths.length === 0) {
+      return res.status(400).json({ error: "Session has no clips" });
+    }
+
+    const addLog = makeAddLog(session.id);
+
+    let videos;
+    try {
+      videos = await listPbVisionVideos({
+        headed: req.body?.headed !== false,
+        onLog: (line) => addLog(`  ${line}`),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = err instanceof ListError ? err.code : "unknown";
+      addLog(`Fetch failed: [${code}] ${msg}`);
+      return res.status(500).json({ error: msg, code });
+    }
+
+    addLog(`Fetched ${videos.length} videos from pb.vision library`);
+
+    const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
+    while (vids.length < session.clip_paths.length) vids.push(null);
+
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const stem = (p: string) => path.basename(p, path.extname(p));
+
+    const unmatchedVideos = new Set(videos.map((v) => v.vid));
+    const matches: { clipIndex: number; clipName: string; vid: string; title: string }[] = [];
+
+    for (let i = 0; i < session.clip_paths.length; i++) {
+      if (vids[i]) continue;
+      const basename = path.basename(session.clip_paths[i]);
+      const stemName = norm(stem(basename));
+      const hit = videos.find((v) => {
+        if (!unmatchedVideos.has(v.vid)) return false;
+        const title = norm(v.title || "");
+        return title.includes(stemName) || stemName.includes(title) || title.includes(norm(basename));
+      });
+      if (hit) {
+        vids[i] = hit.vid;
+        unmatchedVideos.delete(hit.vid);
+        matches.push({ clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title });
+        addLog(`  Matched ${basename} → ${hit.vid}`);
+      }
+    }
+
+    const allDone = vids.every((v) => !!v);
+    const nextStatus: SessionStatus = allDone
+      ? "processing"
+      : session.status === "failed"
+        ? "uploading"
+        : (session.status || "uploading");
+
+    await updateSession(session.id, {
+      pbvision_video_ids: vids,
+      status: nextStatus,
+    });
+
+    // Fire webhooks for any newly-matched vids
+    const webhookErrors: { vid: string; error: string }[] = [];
+    for (const m of matches) {
+      try {
+        await notifyRatingHub({ sessionId: session.id, videoId: m.vid, onLog: addLog });
+      } catch (whErr) {
+        const msg = whErr instanceof Error ? whErr.message : String(whErr);
+        webhookErrors.push({ vid: m.vid, error: msg });
+        addLog(`Warning: rating-hub webhook failed for ${m.vid}: ${msg}`);
+      }
+    }
+
+    const updated = await getSession(session.id);
+    const unmatchedClips = session.clip_paths
+      .map((cp, i) => ({ clipIndex: i, clipName: path.basename(cp) }))
+      .filter((c) => !vids[c.clipIndex]);
+    const unmatchedVideoList = videos.filter((v) => unmatchedVideos.has(v.vid));
+
+    res.json({
+      session: updated,
+      matched: matches,
+      unmatchedClips,
+      unmatchedVideos: unmatchedVideoList,
+      webhookErrors,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const code = err instanceof ListError ? err.code : "unknown";
-    addLog(`Fetch failed: [${code}] ${msg}`);
-    return res.status(500).json({ error: msg, code });
+    sendError(res, err);
   }
-
-  addLog(`Fetched ${videos.length} videos from pb.vision library`);
-
-  const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
-  while (vids.length < session.clip_paths.length) vids.push(null);
-
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  const stem = (p: string) => path.basename(p, path.extname(p));
-
-  const unmatchedVideos = new Set(videos.map((v) => v.vid));
-  const matches: { clipIndex: number; clipName: string; vid: string; title: string }[] = [];
-
-  for (let i = 0; i < session.clip_paths.length; i++) {
-    if (vids[i]) continue;
-    const basename = path.basename(session.clip_paths[i]);
-    const stemName = norm(stem(basename));
-    const hit = videos.find((v) => {
-      if (!unmatchedVideos.has(v.vid)) return false;
-      const title = norm(v.title || "");
-      return title.includes(stemName) || stemName.includes(title) || title.includes(norm(basename));
-    });
-    if (hit) {
-      vids[i] = hit.vid;
-      unmatchedVideos.delete(hit.vid);
-      matches.push({ clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title });
-      addLog(`  Matched ${basename} → ${hit.vid}`);
-    }
-  }
-
-  const allDone = vids.every((v) => !!v);
-  db.prepare(
-    "UPDATE sessions SET pbvision_video_ids = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
-  ).run(
-    JSON.stringify(vids),
-    allDone ? "processing" : session.status === "failed" ? "uploading" : session.status || "uploading",
-    session.id,
-  );
-
-  // Fire webhooks for any newly-matched vids
-  const webhookErrors: { vid: string; error: string }[] = [];
-  for (const m of matches) {
-    try {
-      await notifyRatingHub({ sessionId: session.id, videoId: m.vid, onLog: addLog });
-    } catch (whErr) {
-      const msg = whErr instanceof Error ? whErr.message : String(whErr);
-      webhookErrors.push({ vid: m.vid, error: msg });
-      addLog(`Warning: rating-hub webhook failed for ${m.vid}: ${msg}`);
-    }
-  }
-
-  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-  const unmatchedClips = session.clip_paths
-    .map((cp, i) => ({ clipIndex: i, clipName: path.basename(cp) }))
-    .filter((c) => !vids[c.clipIndex]);
-  const unmatchedVideoList = videos.filter((v) => unmatchedVideos.has(v.vid));
-
-  res.json({
-    session: rowToSession(updated),
-    matched: matches,
-    unmatchedClips,
-    unmatchedVideos: unmatchedVideoList,
-    webhookErrors,
-  });
 });
 
 // POST /api/sessions/:id/sync-rating-hub
 // One idempotent action that figures out what's missing on the rating-hub
 // side and does just that. Non-destructive — safe to click repeatedly as
-// pb.vision finishes processing clips. Does:
-//   - Resolve Supabase player UUIDs for session.player_names
-//   - Upsert the rating-hub sessions row
-//   - For each pb.vision video ID:
-//       * if rating-hub already has games → link them to the session
-//       * if not → fire the pbvision webhook so insights start importing
+// pb.vision finishes processing clips.
 router.post("/:id/sync-rating-hub", async (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-
-  const session = rowToSession(row);
-
-  const addLog = (msg: string) => {
-    db.prepare("INSERT INTO session_logs (session_id, message) VALUES (?, ?)").run(session.id, msg);
-  };
-
-  addLog("Syncing session with rating-hub...");
-
   try {
-    const result = await syncRatingHub(session, addLog);
-    addLog(
-      `Sync complete: ${result.totalGamesLinked} game(s) linked, ` +
-        `${result.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`,
-    );
-    res.json(result);
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const addLog = makeAddLog(session.id);
+    addLog("Syncing session with rating-hub...");
+
+    try {
+      const result = await syncRatingHub(session, addLog);
+      addLog(
+        `Sync complete: ${result.totalGamesLinked} game(s) linked, ` +
+          `${result.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`,
+      );
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = err instanceof SyncRatingHubError ? err.code : "unknown";
+      addLog(`Sync failed: [${code}] ${msg}`);
+      res.status(400).json({ error: msg, code });
+    }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const code = err instanceof SyncRatingHubError ? err.code : "unknown";
-    addLog(`Sync failed: [${code}] ${msg}`);
-    res.status(400).json({ error: msg, code });
+    sendError(res, err);
   }
 });
 
-function deleteClipFiles(session: Session) {
+function deleteClipFiles(session: Session): number {
   if (!session.clip_paths || session.clip_paths.length === 0) return 0;
   let deleted = 0;
   for (const clipPath of session.clip_paths) {
@@ -530,56 +518,62 @@ function deleteClipFiles(session: Session) {
 }
 
 // POST /api/sessions/:id/start-over — Delete clips, keep session/segments/logs
-router.post("/:id/start-over", (_req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
+router.post("/:id/start-over", async (_req, res) => {
+  try {
+    const session = await getSession(_req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
 
-  const session = rowToSession(row);
-  const deleted = deleteClipFiles(session);
+    deleteClipFiles(session);
 
-  db.prepare(`
-    UPDATE sessions SET segments = NULL, clip_paths = NULL, error = NULL, updated_at = datetime('now') WHERE id = ?
-  `).run(session.id);
+    await updateSession(session.id, {
+      segments: null,
+      clip_paths: null,
+      error: null,
+    });
+    // Clear old logs so the next detection starts fresh
+    await clearLogs(session.id);
 
-  // Clear old logs so the next detection starts fresh
-  db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
-
-  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-  res.json(rowToSession(updated));
+    const updated = await getSession(session.id);
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // POST /api/sessions/:id/cancel — Full reset: delete clips, clear segments, logs, reset status
-router.post("/:id/cancel", (_req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
+router.post("/:id/cancel", async (_req, res) => {
+  try {
+    const session = await getSession(_req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
 
-  const session = rowToSession(row);
-  deleteClipFiles(session);
+    deleteClipFiles(session);
 
-  db.prepare(`
-    UPDATE sessions
-    SET status = 'scheduled', segments = NULL, clip_paths = NULL, error = NULL, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(session.id);
+    await updateSession(session.id, {
+      status: "scheduled",
+      segments: null,
+      clip_paths: null,
+      error: null,
+    });
+    await clearLogs(session.id);
 
-  db.prepare("DELETE FROM session_logs WHERE session_id = ?").run(session.id);
-
-  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(session.id) as Record<string, unknown>;
-  res.json(rowToSession(updated));
+    const updated = await getSession(session.id);
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // POST /api/sessions/:id/clear-error — Dismiss a stale error banner
-router.post("/:id/clear-error", (_req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown> | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
+router.post("/:id/clear-error", async (_req, res) => {
+  try {
+    const session = await getSession(_req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
 
-  db.prepare("UPDATE sessions SET error = NULL, updated_at = datetime('now') WHERE id = ?").run(_req.params.id);
-
-  const updated = db.prepare("SELECT * FROM sessions WHERE id = ?").get(_req.params.id) as Record<string, unknown>;
-  res.json(rowToSession(updated));
+    const updated = await updateSession(session.id, { error: null });
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 export default router;

@@ -10,7 +10,11 @@ This is a **local service** designed to run on the machine with access to video 
 
 - **Backend**: Node + Express + TypeScript (ESM)
 - **Frontend**: React 18 + TypeScript + Vite (SPA)
-- **Database**: SQLite via better-sqlite3 (local, no cloud DB needed)
+- **Database**: Supabase (Postgres) — tables `session_manager_sessions` and
+  `session_manager_session_logs` in the shared rating-hub project, scoped by
+  `org_id`. State persists across machines. (Was local SQLite via
+  better-sqlite3 before 2026-04-28; the old `session-manager.db` is kept as
+  a backup but no longer read by the app.)
 - **Video Processing**: Python 3.10+ scripts (detect_games.py, export_from_srt.py) called via child_process
 - **CR Scraping**: Python + Playwright (imports from sibling courtreserve-scheduler project)
 - **Package manager**: npm
@@ -59,7 +63,9 @@ If courtreserve-scheduler is not present, the video processing features still wo
 
 - Express API on port 3001 serves `/api/*` endpoints
 - Vite dev server on port 3000 proxies `/api` to Express
-- SQLite stores session state and logs locally
+- Supabase stores session state and logs (replaces the old local SQLite DB).
+  All session-manager state is tagged with `org_id`, so multiple coaches /
+  machines can collaborate against the same Supabase project.
 - Python scripts in `scripts/videos/` handle video analysis + clip extraction
 - Python scripts in `scripts/` handle CourtReserve scraping
 - Communicates with Rating Hub via its webhook endpoint when ready to import
@@ -73,8 +79,9 @@ src/
   server.ts                  # Express entry point
   types.ts                   # Shared TypeScript types
   db/
-    index.ts                 # SQLite connection singleton
-    schema.ts                # Table definitions
+    index.ts                 # Supabase-backed sessions + logs repository
+                             # (listSessions, getSession, createSession,
+                             # updateSession, listLogs, makeAddLog, …)
   routes/
     sessions.ts              # Session CRUD + pipeline actions + reset
     videos.ts                # Video file listing from VIDEO_DIR
@@ -253,3 +260,11 @@ PORT=3001                              # Express API port (default 3001)
 4. Drop recordings into `videos/` (gitignored, auto-created) — or set `VIDEO_DIR` to an external directory
 5. Run `npm run sync:members` to pull members from CourtReserve into Supabase
 6. `npm run dev`
+
+Sessions/logs come from Supabase automatically — no SQLite file to copy.
+
+Note: `video_path` and `clip_paths` are stored as absolute paths from
+whichever machine processed the video. On a second machine those paths
+won't resolve unless the same directory tree exists. For now the convention
+is that the recording machine "owns" the video files; other machines see
+the metadata but can't replay clips.
