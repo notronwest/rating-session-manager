@@ -153,31 +153,58 @@ def predict_games(times, scores, *, sample_fps, smooth_sec, thresh_mult, min_gap
             breaks.append((a, b))
 
     # --- Cut-point refinement ---------------------------------------------
-    # Find the first sustained motion burst at or after `start_idx` — that's
-    # the serve. Returns start_idx unchanged if nothing burst-like shows up
-    # within burst_lookahead_sec.
+    # Strategy: find the first SERVE peak after `start_idx`, then trace back
+    # to the brief stillness immediately before it (the "set" — all four
+    # players in starting position). The cut lands at the END of that
+    # stillness, i.e. the moment activity restarts.
+    #
+    # Why backward-trace instead of forward-burst-detect: walking-back-into-
+    # position generates sustained moderate motion that fools any simple
+    # forward threshold. The pre-serve STILLNESS is a much sharper signal.
     burst_look = max(1, int(round(burst_lookahead_sec * sample_fps)))
-    burst_window = max(1, int(round(1.0 * sample_fps)))  # 1s sustained
     burst_back_buffer = max(0, int(round(burst_back_buffer_sec * sample_fps)))
-    # A "burst" is well above the walking-back-into-position level. We use
-    # max(low_thr * 2.5, p75 of motion) so it scales with the session.
-    burst_thr = max(low_thr * 2.5, np.percentile(s, burst_percentile))
+    # A "burst" is rally-level motion: high enough that walking can't fake it.
+    # Defaults assume p90 of session motion is rally-level (raise burst_percentile
+    # if your sessions skew quiet).
+    burst_thr = max(low_thr * 4.0, np.percentile(s, burst_percentile))
+    # The "stillness" we trace back to: clearly below walking, near baseline.
+    settle_thr = low_thr * 1.5
 
-    def find_serve_cut(start_idx):
+    def find_serve_cut(start_idx, label=""):
+        """Find the moment the serve begins after start_idx."""
         end_k = min(start_idx + burst_look, len(s))
-        if end_k <= start_idx + burst_window:
+        if end_k <= start_idx + 1:
             return start_idx
-        # First k where the next 1-second window sustains motion >= burst_thr
-        for k in range(start_idx, end_k - burst_window + 1):
-            if np.mean(s[k:k + burst_window]) >= burst_thr:
-                # Back-buffer a touch so we don't clip the very start of the serve
-                return max(start_idx, k - burst_back_buffer)
-        return start_idx  # fallback: no clear burst
+
+        # Find the first sample at/above burst threshold — that's the serve peak.
+        burst_idx = None
+        for k in range(start_idx, end_k):
+            if s[k] >= burst_thr:
+                burst_idx = k
+                break
+        if burst_idx is None:
+            print(f"  cut@{times[start_idx]:.1f}s ({label}): no burst within {burst_lookahead_sec}s — using break end")
+            return start_idx
+
+        # Trace backward from the burst to find the most recent "settled" sample.
+        # The cut sits right after that — i.e. when motion starts rising into the serve.
+        j = burst_idx - 1
+        while j > start_idx and s[j] >= settle_thr:
+            j -= 1
+        cut_idx = min(j + 1, burst_idx)
+        # Tiny safety back-buffer (default 0.5s) so we never clip the serve's first frame.
+        cut_idx = max(start_idx, cut_idx - burst_back_buffer)
+        gap = times[cut_idx] - times[start_idx]
+        burst_t = times[burst_idx] - times[start_idx]
+        print(f"  cut@{times[start_idx]:.1f}s ({label}): "
+              f"burst at +{burst_t:.1f}s, settled-end at +{gap:.1f}s, "
+              f"shifted cut by +{gap:.1f}s")
+        return cut_idx
 
     # Cut points at break ENDS (not starts), then refined to the first serve
-    cut = [find_serve_cut(0)]
-    for _a, b in breaks:
-        cut.append(find_serve_cut(b))
+    cut = [find_serve_cut(0, "start")]
+    for idx, (_a, b) in enumerate(breaks):
+        cut.append(find_serve_cut(b, f"break{idx+1}-end"))
     cut.append(len(times) - 1)
     cut = sorted(set(cut))
 
@@ -185,7 +212,7 @@ def predict_games(times, scores, *, sample_fps, smooth_sec, thresh_mult, min_gap
     if warmup_ignore_sec and warmup_ignore_sec > 0:
         warm_idx = int(np.searchsorted(times, warmup_ignore_sec))
         cut = [c for c in cut if c >= warm_idx]
-        cut = [find_serve_cut(warm_idx)] + cut
+        cut = [find_serve_cut(warm_idx, "after-warmup")] + cut
         cut = sorted(set(cut))
 
     games = []
@@ -245,13 +272,15 @@ def main():
     p.add_argument("--pad-before", type=float, default=0.0, help="Seconds to pad before each game (default 0)")
     p.add_argument("--pad-after", type=float, default=0.0, help="Seconds to pad after each game (default 0)")
 
-    # Burst-detection tuning (cuts land on the first serve, not break-end)
-    p.add_argument("--burst-lookahead", type=float, default=15.0,
-                   help="Seconds to scan past a break for the first serve burst (default 15)")
-    p.add_argument("--burst-percentile", type=float, default=75.0,
-                   help="Motion percentile that counts as a 'burst' (default 75)")
-    p.add_argument("--burst-back-buffer", type=float, default=1.5,
-                   help="Seconds to back off from the detected burst so the clip never starts mid-serve (default 1.5)")
+    # Burst-detection tuning (cuts land on the moment the serve begins,
+    # found by tracing back from the first rally-level burst to the
+    # preceding stillness — the "set").
+    p.add_argument("--burst-lookahead", type=float, default=60.0,
+                   help="Seconds to scan past a break for the first serve burst (default 60)")
+    p.add_argument("--burst-percentile", type=float, default=90.0,
+                   help="Motion percentile that counts as a rally-level burst (default 90 — raise to 95 if too sensitive)")
+    p.add_argument("--burst-back-buffer", type=float, default=0.5,
+                   help="Tiny back-off from the detected serve start so we never clip the first frame (default 0.5)")
 
     args = p.parse_args()
 
