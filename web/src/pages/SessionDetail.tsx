@@ -688,20 +688,25 @@ export default function SessionDetail() {
             </div>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ marginTop: 8 }}>
           {session.segments ? (
-            <button
-              onClick={clearResults}
-              disabled={running}
-              style={{
-                padding: "8px 16px", background: "#fff", color: "#e37400",
-                border: "1px solid #e37400", borderRadius: 6, fontSize: 14,
-                fontWeight: 600, cursor: running ? "not-allowed" : "pointer",
-                opacity: running ? 0.5 : 1,
-              }}
-            >
-              Clear Segments & Clips
-            </button>
+            <>
+              <button
+                onClick={clearResults}
+                disabled={running}
+                style={{
+                  padding: "8px 16px", background: "#fff", color: "#e37400",
+                  border: "1px solid #e37400", borderRadius: 6, fontSize: 14,
+                  fontWeight: 600, cursor: running ? "not-allowed" : "pointer",
+                  opacity: running ? 0.5 : 1,
+                }}
+              >
+                Clear Segments & Clips
+              </button>
+              <div style={{ fontSize: 12, color: "#999", marginTop: 6 }}>
+                Deletes {session.clip_paths ? "exported clips and " : ""}detected segments so you can re-detect
+              </div>
+            </>
           ) : (
             <button
               onClick={runDetection}
@@ -710,11 +715,6 @@ export default function SessionDetail() {
             >
               {running ? "Detecting..." : "Detect Games"}
             </button>
-          )}
-          {session.segments && (
-            <span style={{ fontSize: 12, color: "#999" }}>
-              Deletes {session.clip_paths ? "exported clips and " : ""}detected segments so you can re-detect
-            </span>
           )}
         </div>
       </div>
