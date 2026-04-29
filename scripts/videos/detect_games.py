@@ -97,7 +97,8 @@ def motion_series(video_path, court_mask, court_area, out_size, sample_fps, diff
 
 
 def predict_games(times, scores, *, sample_fps, smooth_sec, thresh_mult, min_gap_sec, min_game_sec,
-                  warmup_ignore_sec, long_break_sec, restart_lookahead_sec):
+                  warmup_ignore_sec, long_break_sec, restart_lookahead_sec,
+                  burst_lookahead_sec=15.0, burst_percentile=75.0, burst_back_buffer_sec=1.5):
     """Detect games using sustained low-motion breaks.
 
     Core idea:
@@ -105,6 +106,12 @@ def predict_games(times, scores, *, sample_fps, smooth_sec, thresh_mult, min_gap
       - Find sustained LOW motion runs (candidate breaks).
       - Accept break runs, but for SHORT lulls apply a 'restart soon' guard.
       - Games are the segments between accepted breaks.
+
+      - Cut placement: each game-start cut lands on the first motion BURST
+        after the preceding break (i.e. the serve), not on the break-start.
+        That keeps clips from including the previous game's wind-down +
+        warmup time at the front. A small back-buffer ensures we never clip
+        the start of the actual serve.
 
     This is tuned for pickleball where mid-game pauses happen, but between-game breaks are longer.
     """
@@ -145,18 +152,40 @@ def predict_games(times, scores, *, sample_fps, smooth_sec, thresh_mult, min_gap
                     continue
             breaks.append((a, b))
 
-    # Cut points at START of breaks
-    cut = [0]
-    for a, _b in breaks:
-        cut.append(a)
+    # --- Cut-point refinement ---------------------------------------------
+    # Find the first sustained motion burst at or after `start_idx` — that's
+    # the serve. Returns start_idx unchanged if nothing burst-like shows up
+    # within burst_lookahead_sec.
+    burst_look = max(1, int(round(burst_lookahead_sec * sample_fps)))
+    burst_window = max(1, int(round(1.0 * sample_fps)))  # 1s sustained
+    burst_back_buffer = max(0, int(round(burst_back_buffer_sec * sample_fps)))
+    # A "burst" is well above the walking-back-into-position level. We use
+    # max(low_thr * 2.5, p75 of motion) so it scales with the session.
+    burst_thr = max(low_thr * 2.5, np.percentile(s, burst_percentile))
+
+    def find_serve_cut(start_idx):
+        end_k = min(start_idx + burst_look, len(s))
+        if end_k <= start_idx + burst_window:
+            return start_idx
+        # First k where the next 1-second window sustains motion >= burst_thr
+        for k in range(start_idx, end_k - burst_window + 1):
+            if np.mean(s[k:k + burst_window]) >= burst_thr:
+                # Back-buffer a touch so we don't clip the very start of the serve
+                return max(start_idx, k - burst_back_buffer)
+        return start_idx  # fallback: no clear burst
+
+    # Cut points at break ENDS (not starts), then refined to the first serve
+    cut = [find_serve_cut(0)]
+    for _a, b in breaks:
+        cut.append(find_serve_cut(b))
     cut.append(len(times) - 1)
     cut = sorted(set(cut))
 
-    # Warmup ignore: force first cut at/after warmup
+    # Warmup ignore: force first cut at/after warmup, then refine to first serve
     if warmup_ignore_sec and warmup_ignore_sec > 0:
         warm_idx = int(np.searchsorted(times, warmup_ignore_sec))
         cut = [c for c in cut if c >= warm_idx]
-        cut = [warm_idx] + cut
+        cut = [find_serve_cut(warm_idx)] + cut
         cut = sorted(set(cut))
 
     games = []
@@ -216,6 +245,14 @@ def main():
     p.add_argument("--pad-before", type=float, default=0.0, help="Seconds to pad before each game (default 0)")
     p.add_argument("--pad-after", type=float, default=0.0, help="Seconds to pad after each game (default 0)")
 
+    # Burst-detection tuning (cuts land on the first serve, not break-end)
+    p.add_argument("--burst-lookahead", type=float, default=15.0,
+                   help="Seconds to scan past a break for the first serve burst (default 15)")
+    p.add_argument("--burst-percentile", type=float, default=75.0,
+                   help="Motion percentile that counts as a 'burst' (default 75)")
+    p.add_argument("--burst-back-buffer", type=float, default=1.5,
+                   help="Seconds to back off from the detected burst so the clip never starts mid-serve (default 1.5)")
+
     args = p.parse_args()
 
     video_path = Path(args.video).expanduser().resolve()
@@ -262,6 +299,9 @@ def main():
         warmup_ignore_sec=args.warmup,
         long_break_sec=args.long_break,
         restart_lookahead_sec=args.restart_lookahead,
+        burst_lookahead_sec=args.burst_lookahead,
+        burst_percentile=args.burst_percentile,
+        burst_back_buffer_sec=args.burst_back_buffer,
     )
 
     write_srt(games, out_path, pad_before=args.pad_before, pad_after=args.pad_after)
