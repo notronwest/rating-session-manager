@@ -354,13 +354,27 @@ export default function SessionDetail() {
       onConfirm: async () => {
         setConfirmAction(null);
         const newVids = [...(session.pbvision_video_ids || [])];
-        newVids[index] = null as unknown as string; // PATCH accepts nulls; the type is widened on the server
-        await fetch(`/api/sessions/${id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pbvision_video_ids: newVids }),
-        });
-        fetchSession();
+        newVids[index] = null as unknown as string; // PATCH accepts nulls; widened type on the server
+        try {
+          const res = await fetch(`/api/sessions/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pbvision_video_ids: newVids }),
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            // Common cause: the API hasn't been restarted with the latest
+            // server code, so PATCH still rejects pbvision_video_ids.
+            alert(
+              `Failed to clear video ID (${res.status}): ${text}\n\n` +
+              `If this says "No fields to update", the API server is running pre-restart code — bounce the Node process.`,
+            );
+            return;
+          }
+          await fetchSession();
+        } catch (err) {
+          alert(`Network error clearing video ID: ${(err as Error).message}`);
+        }
       },
     });
   };
