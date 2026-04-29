@@ -47,7 +47,10 @@ export function listPbVisionVideos(
     proc.on("error", (err) => reject(new ListError("spawn_failed", err.message)));
     proc.on("close", (code) => {
       if (code === 3) {
-        return reject(new ListError("not_authenticated", "pb.vision profile is not logged in — run an Upload once to complete magic-link auth"));
+        return reject(new ListError(
+          "not_authenticated",
+          "pb.vision Playwright profile is logged out. Run `npm run pbvision:login` to re-authenticate, then click Fetch IDs again.",
+        ));
       }
       if (code !== 0) {
         return reject(new ListError("list_failed", `pbvision-list.py exited with code ${code}\n${stderrTail}`));

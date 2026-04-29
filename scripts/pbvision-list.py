@@ -153,8 +153,22 @@ def extract_videos(page: Page) -> list[dict]:
     return list(by_vid.values())
 
 
+MARKETING_PAGE_TITLES = (
+    "pb vision - pickleball analytics powered by ai",
+    "try pb vision",
+)
+
+
+def looks_like_marketing_page(title: str) -> bool:
+    if not title:
+        return False
+    t = title.lower().strip()
+    return any(frag in t for frag in MARKETING_PAGE_TITLES)
+
+
 def find_library(context, debug_dir: Path) -> list[dict]:
     page = fresh_page(context)
+    saw_only_marketing = True
     for url in LIBRARY_CANDIDATE_URLS:
         log(f"Checking for videos at {url}")
         if page.is_closed():
@@ -170,21 +184,38 @@ def find_library(context, debug_dir: Path) -> list[dict]:
             except Exception as e:
                 log(f"  Retry navigation failed: {e}")
                 continue
+
         # Surface where pb.vision actually landed us so silent redirects
         # (e.g. unauth → marketing page) are visible in the session log.
+        page_title = ""
         try:
             actual_url = page.url
-            page_title = page.title()
+            page_title = page.title() or ""
             if actual_url and actual_url != url:
                 log(f"  Redirected to {actual_url}")
             if page_title:
                 log(f"  Page title: {page_title}")
         except Exception:
             pass
+
+        if looks_like_marketing_page(page_title):
+            # Logged-out users get the marketing homepage regardless of path.
+            # Skip scraping it — its "videos" are demo / featured content
+            # tagged with promotional copy, not user library entries.
+            log("  This is pb.vision's marketing homepage — Playwright profile is not logged in.")
+            continue
+
+        saw_only_marketing = False
         videos = extract_videos(page)
         if videos:
             log(f"  Found {len(videos)} videos on {url}")
             return videos
+
+    if saw_only_marketing:
+        log("All candidate URLs landed on the marketing homepage — pb.vision profile is logged out.")
+        log("Run `npm run pbvision:login` to re-seed the profile.")
+        # Exit code 3 → list.ts surfaces ListError("not_authenticated", …) to the UI.
+        sys.exit(3)
     if not page.is_closed():
         try:
             page.screenshot(path=str(debug_dir / "pbvision-list-no-videos.png"), full_page=True)
