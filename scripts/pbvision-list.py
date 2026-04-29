@@ -79,23 +79,23 @@ EXTRACT_JS = """
     'a[href*="/video/"], a[href*="/videos/"], a[href*="/v/"]';
 
   // Walk up parents from `a`, keeping the deepest ancestor that still
-  // contains exactly ONE video link (this anchor itself). The moment a
-  // parent would include a sibling video, stop — we've reached the card
-  // boundary. This prevents a video's title from soaking up text from
-  // adjacent cards (or pb.vision's demo/explore section, which sits in
-  // the same flow as the user's library on the homepage).
+  // refers to exactly ONE unique video. pb.vision typically renders two
+  // anchors per card (thumbnail + title), both pointing at the same
+  // /video/{vid} — counting unique vids (rather than unique anchors)
+  // keeps both inside the card and includes the filename sibling.
   function findCard(a) {
     let card = a;
     let parent = a.parentElement;
     let depth = 0;
     while (parent && parent.tagName !== 'BODY' && depth < 12) {
       const linksInside = parent.querySelectorAll(VIDEO_LINK_SELECTOR);
-      let videoLinkCount = 0;
+      const seenVids = new Set();
       for (const l of linksInside) {
-        if (VIDEO_LINK_RE.test(l.getAttribute('href') || '')) videoLinkCount++;
-        if (videoLinkCount > 1) break;
+        const mm = (l.getAttribute('href') || '').match(VIDEO_LINK_RE);
+        if (mm) seenVids.add(mm[1]);
+        if (seenVids.size > 1) break;
       }
-      if (videoLinkCount > 1) break; // would include another video — back off
+      if (seenVids.size > 1) break; // would include a different video — stop
       card = parent;
       parent = parent.parentElement;
       depth++;
