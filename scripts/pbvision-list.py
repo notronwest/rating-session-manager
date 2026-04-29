@@ -79,11 +79,24 @@ EXTRACT_JS = """
   for (const a of anchors) {
     const m = a.href.match(/\\/(?:video|videos|v)\\/([A-Za-z0-9_-]{6,})/);
     if (!m) continue;
-    let title = (a.innerText || a.textContent || '').trim();
-    if (!title || title.length < 2) {
-      const card = a.closest('li,article,div[role="row"],div');
-      title = card ? (card.innerText || '').trim().slice(0, 120) : '';
+
+    // Always merge anchor text with the surrounding card's text. While a
+    // pb.vision video is AI Processing, the anchor's innerText is just
+    // "AI Processing… about 43m 34s remaining" — the filename only lives
+    // on a sibling element inside the card. Concatenating both makes the
+    // filename available for matching whether the video is processing,
+    // tagged, or fully processed.
+    const anchorText = (a.innerText || a.textContent || '').trim();
+    const card = a.closest('li,article,div[role="row"],div');
+    const cardText = card ? (card.innerText || '').trim() : '';
+
+    let title = '';
+    if (cardText && anchorText && !cardText.includes(anchorText)) {
+      title = (anchorText + '\\n' + cardText).slice(0, 300);
+    } else {
+      title = (cardText || anchorText).slice(0, 300);
     }
+
     out.push({ vid: m[1], title });
   }
   return out;
