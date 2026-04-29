@@ -170,6 +170,17 @@ def find_library(context, debug_dir: Path) -> list[dict]:
             except Exception as e:
                 log(f"  Retry navigation failed: {e}")
                 continue
+        # Surface where pb.vision actually landed us so silent redirects
+        # (e.g. unauth → marketing page) are visible in the session log.
+        try:
+            actual_url = page.url
+            page_title = page.title()
+            if actual_url and actual_url != url:
+                log(f"  Redirected to {actual_url}")
+            if page_title:
+                log(f"  Page title: {page_title}")
+        except Exception:
+            pass
         videos = extract_videos(page)
         if videos:
             log(f"  Found {len(videos)} videos on {url}")
