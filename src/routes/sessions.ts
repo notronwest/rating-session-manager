@@ -15,7 +15,7 @@ import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
-import { syncRatingHub, SyncRatingHubError } from "../ratinghub/sync.js";
+import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
 import type { Session, GameSegment, SessionStatus } from "../types.js";
 
 const router = Router();
@@ -108,6 +108,9 @@ router.patch("/:id", async (req, res) => {
     const allowedFields: (keyof UpdateSessionInput)[] = [
       "status", "label", "booking_time", "player_names",
       "video_path", "roi_path", "segments", "error",
+      // Permit clearing/editing per-slot vids so users can recover from
+      // duplicates or wrong auto-matches.
+      "pbvision_video_ids",
     ];
     const updates: UpdateSessionInput = {};
     for (const field of allowedFields) {
@@ -262,6 +265,19 @@ router.post("/:id/pbvision-upload", async (req, res) => {
       addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
     }
 
+    // Ensure rating-hub has a sessions row keyed correctly BEFORE we start
+    // firing per-clip webhooks. Without this, rating-hub's webhook fails
+    // games.session_id FK for any session that wasn't backfilled from
+    // rating-hub. ensureRatingHubSession is idempotent.
+    let rhSessionId = session.id;
+    try {
+      const r = await ensureRatingHubSession(session, addLog);
+      rhSessionId = r.rhSessionId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`Warning: couldn't pre-register rating-hub session — webhooks may fail: ${msg}`);
+    }
+
     for (let i = 0; i < session.clip_paths.length; i++) {
       if (onlyIndex !== null && i !== onlyIndex) continue;
       if (vids[i]) {
@@ -282,7 +298,7 @@ router.post("/:id/pbvision-upload", async (req, res) => {
 
       // Fire-and-warn: notify rating-hub so it can pick up insights.
       try {
-        await notifyRatingHub({ sessionId: session.id, videoId: vid, onLog: addLog });
+        await notifyRatingHub({ sessionId: rhSessionId, videoId: vid, onLog: addLog });
       } catch (whErr) {
         const whMsg = whErr instanceof Error ? whErr.message : String(whErr);
         addLog(`Warning: rating-hub webhook failed for ${vid}: ${whMsg}`);
@@ -344,6 +360,16 @@ router.post("/:id/pbvision-confirm", async (req, res) => {
     const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
     while (vids.length < session.clip_paths.length) vids.push(null);
 
+    // Refuse to attach a vid that's already on another slot — that's a sign
+    // the user pasted the same ID twice (or the auto-matcher previously
+    // duplicated). Force them to clear the other slot first via PATCH.
+    const dupSlot = vids.findIndex((v, idx) => v === videoId && idx !== clipIndex);
+    if (dupSlot !== -1) {
+      return res.status(409).json({
+        error: `Video ID ${videoId} is already attached to clip ${dupSlot + 1}. Clear that slot first if you really want to move it here.`,
+      });
+    }
+
     if (vids[clipIndex] && vids[clipIndex] !== videoId) {
       addLog(`Clip ${clipIndex + 1}: replacing existing video ID ${vids[clipIndex]} with ${videoId}`);
     } else if (!vids[clipIndex]) {
@@ -359,10 +385,21 @@ router.post("/:id/pbvision-confirm", async (req, res) => {
       error: null,
     });
 
+    // Ensure rating-hub has the matching sessions row first (fixes FK on
+    // games.session_id when this session was created in session-manager).
+    let rhSessionId = session.id;
+    try {
+      const r = await ensureRatingHubSession(session, addLog);
+      rhSessionId = r.rhSessionId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`Warning: couldn't pre-register rating-hub session — webhook may fail: ${msg}`);
+    }
+
     // Fire the webhook; never block the 200 — surface errors to logs.
     let webhookError: string | null = null;
     try {
-      await notifyRatingHub({ sessionId: session.id, videoId, onLog: addLog });
+      await notifyRatingHub({ sessionId: rhSessionId, videoId, onLog: addLog });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const code = err instanceof WebhookError ? ` (${err.status ?? "n/a"})` : "";
@@ -412,6 +449,12 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
     const stem = (p: string) => path.basename(p, path.extname(p));
 
     const unmatchedVideos = new Set(videos.map((v) => v.vid));
+    // Exclude vids already attached to this session — they aren't candidates
+    // for any open slot. This prevents the "same vid auto-matched into
+    // multiple slots across runs" bug.
+    for (const existing of vids) {
+      if (existing) unmatchedVideos.delete(existing);
+    }
     const matches: { clipIndex: number; clipName: string; vid: string; title: string }[] = [];
 
     for (let i = 0; i < session.clip_paths.length; i++) {
@@ -443,11 +486,23 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
       status: nextStatus,
     });
 
+    // Ensure rating-hub has the matching sessions row before firing webhooks.
+    let rhSessionId = session.id;
+    if (matches.length > 0) {
+      try {
+        const r = await ensureRatingHubSession(session, addLog);
+        rhSessionId = r.rhSessionId;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        addLog(`Warning: couldn't pre-register rating-hub session — webhooks may fail: ${msg}`);
+      }
+    }
+
     // Fire webhooks for any newly-matched vids
     const webhookErrors: { vid: string; error: string }[] = [];
     for (const m of matches) {
       try {
-        await notifyRatingHub({ sessionId: session.id, videoId: m.vid, onLog: addLog });
+        await notifyRatingHub({ sessionId: rhSessionId, videoId: m.vid, onLog: addLog });
       } catch (whErr) {
         const msg = whErr instanceof Error ? whErr.message : String(whErr);
         webhookErrors.push({ vid: m.vid, error: msg });

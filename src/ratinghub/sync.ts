@@ -53,15 +53,33 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-export async function syncRatingHub(
+export type EnsureRatingHubSessionResult = {
+  rhSessionId: string;
+  playedDate: string;
+  matchedUuids: string[];
+  playerGroupKey: string;
+  reused: boolean;
+};
+
+/**
+ * Make sure rating-hub has a `public.sessions` row that matches this
+ * session-manager session, and return the rating-hub session id we should
+ * pass to webhooks. Without this, any webhook that sets `games.session_id`
+ * will fail the FK constraint for sessions created in session-manager
+ * (rather than backfilled from rating-hub).
+ *
+ * Idempotent: re-uses an existing rating-hub row keyed by (org, date,
+ * player_group), or upserts one with our session.id as the PK.
+ *
+ * Throws SyncRatingHubError on any prerequisite gap (missing players,
+ * unmatched player names, etc.) — same error codes as syncRatingHub uses.
+ */
+export async function ensureRatingHubSession(
   session: Session,
   onLog: (msg: string) => void = () => {},
-): Promise<SyncRatingHubResult> {
+): Promise<EnsureRatingHubSessionResult> {
   if (!session.player_names || session.player_names.length === 0) {
     throw new SyncRatingHubError("no_players", "Session has no players — can't build a player group key");
-  }
-  if (!session.pbvision_video_ids || session.pbvision_video_ids.length === 0) {
-    throw new SyncRatingHubError("no_videos", "Session has no pb.vision video IDs attached yet");
   }
 
   const supabase = getSupabase();
@@ -142,6 +160,31 @@ export async function syncRatingHub(
       ? `Re-used existing rating-hub session ${rhSessionId}`
       : `Created rating-hub session ${rhSessionId}`,
   );
+
+  return {
+    rhSessionId,
+    playedDate,
+    matchedUuids,
+    playerGroupKey,
+    reused: !!existingByKey,
+  };
+}
+
+export async function syncRatingHub(
+  session: Session,
+  onLog: (msg: string) => void = () => {},
+): Promise<SyncRatingHubResult> {
+  if (!session.pbvision_video_ids || session.pbvision_video_ids.length === 0) {
+    throw new SyncRatingHubError("no_videos", "Session has no pb.vision video IDs attached yet");
+  }
+
+  const supabase = getSupabase();
+  const orgId = await getOrgId();
+
+  // Steps 1-2: ensure the rating-hub session row exists (resolves players,
+  // upserts the sessions row, returns the id we'll use for webhook calls).
+  const { rhSessionId, playedDate, matchedUuids, reused } =
+    await ensureRatingHubSession(session, onLog);
 
   // --- 3. Per-video: check for games in rating-hub, then either link or
   //       fire the webhook.
@@ -235,7 +278,7 @@ export async function syncRatingHub(
     playedDate,
     playerUuids: matchedUuids,
     label: session.label || null,
-    sessionWasUpserted: !existingByKey,
+    sessionWasUpserted: !reused,
     perVideo,
     totalGamesLinked,
     ratingHubUrl: process.env.RATING_HUB_BASE_URL
