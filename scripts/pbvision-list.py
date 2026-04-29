@@ -74,30 +74,50 @@ def fresh_page(context) -> Page:
 
 EXTRACT_JS = """
 () => {
+  const VIDEO_LINK_RE = /\\/(?:video|videos|v)\\/([A-Za-z0-9_-]{6,})/;
+  const VIDEO_LINK_SELECTOR =
+    'a[href*="/video/"], a[href*="/videos/"], a[href*="/v/"]';
+
+  // Walk up parents from `a`, keeping the deepest ancestor that still
+  // contains exactly ONE video link (this anchor itself). The moment a
+  // parent would include a sibling video, stop — we've reached the card
+  // boundary. This prevents a video's title from soaking up text from
+  // adjacent cards (or pb.vision's demo/explore section, which sits in
+  // the same flow as the user's library on the homepage).
+  function findCard(a) {
+    let card = a;
+    let parent = a.parentElement;
+    let depth = 0;
+    while (parent && parent.tagName !== 'BODY' && depth < 12) {
+      const linksInside = parent.querySelectorAll(VIDEO_LINK_SELECTOR);
+      let videoLinkCount = 0;
+      for (const l of linksInside) {
+        if (VIDEO_LINK_RE.test(l.getAttribute('href') || '')) videoLinkCount++;
+        if (videoLinkCount > 1) break;
+      }
+      if (videoLinkCount > 1) break; // would include another video — back off
+      card = parent;
+      parent = parent.parentElement;
+      depth++;
+    }
+    return card;
+  }
+
   const out = [];
-  const anchors = Array.from(document.querySelectorAll('a[href]'));
+  const anchors = Array.from(document.querySelectorAll(VIDEO_LINK_SELECTOR));
   for (const a of anchors) {
-    const m = a.href.match(/\\/(?:video|videos|v)\\/([A-Za-z0-9_-]{6,})/);
+    const m = (a.getAttribute('href') || '').match(VIDEO_LINK_RE);
     if (!m) continue;
 
-    // Always merge anchor text with the surrounding card's text. While a
-    // pb.vision video is AI Processing, the anchor's innerText is just
-    // "AI Processing… about 43m 34s remaining" — the filename only lives
-    // on a sibling element inside the card. Concatenating both makes the
-    // filename available for matching whether the video is processing,
-    // tagged, or fully processed.
+    const card = findCard(a);
+    const cardText = (card.innerText || card.textContent || '').trim();
     const anchorText = (a.innerText || a.textContent || '').trim();
-    const card = a.closest('li,article,div[role="row"],div');
-    const cardText = card ? (card.innerText || '').trim() : '';
 
-    let title = '';
-    if (cardText && anchorText && !cardText.includes(anchorText)) {
-      title = (anchorText + '\\n' + cardText).slice(0, 300);
-    } else {
-      title = (cardText || anchorText).slice(0, 300);
-    }
+    let title = cardText;
+    if (!title) title = anchorText;
+    else if (anchorText && !title.includes(anchorText)) title = anchorText + '\\n' + title;
 
-    out.push({ vid: m[1], title });
+    out.push({ vid: m[1], title: title.slice(0, 300) });
   }
   return out;
 }
