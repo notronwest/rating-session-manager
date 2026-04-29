@@ -340,6 +340,31 @@ export default function SessionDetail() {
     }
   };
 
+  const clearPbVisionId = (index: number) => {
+    if (!session?.clip_paths || !session.pbvision_video_ids) return;
+    const vid = session.pbvision_video_ids[index];
+    if (!vid) return;
+    const clipName = (session.clip_paths[index] || "").split("/").pop() || `clip ${index + 1}`;
+    setConfirmAction({
+      title: "Remove pb.vision video ID",
+      message:
+        `Detach ${vid} from ${clipName}? The clip will go back to "not uploaded" so you can re-fetch or paste a different ID. ` +
+        `This does not touch the video on pb.vision itself.`,
+      confirmLabel: "Detach",
+      onConfirm: async () => {
+        setConfirmAction(null);
+        const newVids = [...(session.pbvision_video_ids || [])];
+        newVids[index] = null as unknown as string; // PATCH accepts nulls; the type is widened on the server
+        await fetch(`/api/sessions/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pbvision_video_ids: newVids }),
+        });
+        fetchSession();
+      },
+    });
+  };
+
   const clearResults = () => {
     const hasClips = session?.clip_paths && session.clip_paths.length > 0;
     const segCount = session?.segments?.length || 0;
@@ -930,6 +955,20 @@ export default function SessionDetail() {
                       <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
                         {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
                       </span>
+                      {alreadyUploaded && !pasting && (
+                        <button
+                          onClick={() => clearPbVisionId(i)}
+                          disabled={running}
+                          style={{
+                            background: "none", border: "1px solid #ddd", color: "#999",
+                            borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 500,
+                            cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1,
+                          }}
+                          title="Detach this pb.vision video ID so the slot is empty again"
+                        >
+                          Clear
+                        </button>
+                      )}
                       {!alreadyUploaded && !pasting && (
                         <>
                           <button
