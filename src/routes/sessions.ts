@@ -441,12 +441,44 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
     }
 
     addLog(`Fetched ${videos.length} videos from pb.vision library`);
+    // Echo each scraped title so mis-matches are debuggable from the log.
+    for (const v of videos) {
+      const preview = (v.title || "").replace(/\s+/g, " ").slice(0, 80);
+      addLog(`  vid=${v.vid} title="${preview}${(v.title || "").length > 80 ? "…" : ""}"`);
+    }
 
     const vids: (string | null)[] = [...(session.pbvision_video_ids || [])];
     while (vids.length < session.clip_paths.length) vids.push(null);
 
-    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
     const stem = (p: string) => path.basename(p, path.extname(p));
+
+    /**
+     * Strict filename match: returns true if `needle` (a clip stem like
+     * "rs-hc-dw-2026-04-29-gm-1") appears in `haystack` as a complete token,
+     * not as a prefix of a longer name. So "gm-1" matches but "gm-10" doesn't
+     * accidentally satisfy a "gm-1" search.
+     *
+     * Implementation: case-insensitive indexOf, then verify the chars
+     * surrounding the match are non-alphanumeric (or string boundaries).
+     * This catches all common boundaries: whitespace, newlines, punctuation,
+     * and the leading dot before a file extension.
+     */
+    const isFilenameInTitle = (needle: string, haystack: string): boolean => {
+      if (!needle || !haystack) return false;
+      const h = haystack.toLowerCase();
+      const n = needle.toLowerCase();
+      let from = 0;
+      while (from <= h.length - n.length) {
+        const idx = h.indexOf(n, from);
+        if (idx < 0) return false;
+        const before = idx === 0 ? "" : h[idx - 1];
+        const after = idx + n.length >= h.length ? "" : h[idx + n.length];
+        const isWordChar = (c: string) => /[a-z0-9]/i.test(c);
+        if (!isWordChar(before) && !isWordChar(after)) return true;
+        from = idx + 1;
+      }
+      return false;
+    };
 
     const unmatchedVideos = new Set(videos.map((v) => v.vid));
     // Exclude vids already attached to this session — they aren't candidates
@@ -460,17 +492,21 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
     for (let i = 0; i < session.clip_paths.length; i++) {
       if (vids[i]) continue;
       const basename = path.basename(session.clip_paths[i]);
-      const stemName = norm(stem(basename));
+      const stemName = stem(basename);
       const hit = videos.find((v) => {
         if (!unmatchedVideos.has(v.vid)) return false;
-        const title = norm(v.title || "");
-        return title.includes(stemName) || stemName.includes(title) || title.includes(norm(basename));
+        const title = v.title || "";
+        // Match if either the bare stem ("rs-hc-…-gm-1") or the basename
+        // with extension ("rs-hc-…-gm-1.mov") appears as a complete token.
+        return isFilenameInTitle(stemName, title) || isFilenameInTitle(basename, title);
       });
       if (hit) {
         vids[i] = hit.vid;
         unmatchedVideos.delete(hit.vid);
         matches.push({ clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title });
         addLog(`  Matched ${basename} → ${hit.vid}`);
+      } else {
+        addLog(`  No pb.vision video matches ${basename}`);
       }
     }
 
