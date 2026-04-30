@@ -215,6 +215,14 @@ def predict_games(times, scores, *, sample_fps, smooth_sec, thresh_mult, min_gap
         cut = [find_serve_cut(warm_idx, "after-warmup")] + cut
         cut = sorted(set(cut))
 
+    # Clamp every cut to a valid index in `times`. Two paths can produce
+    # out-of-range cuts: a break that runs to the end of the video makes
+    # b == len(times), and find_serve_cut(b) returns it unchanged when
+    # there's no headroom to scan ahead. Either way, times[len(times)]
+    # would IndexError below.
+    max_idx = len(times) - 1
+    cut = sorted({min(c, max_idx) for c in cut})
+
     games = []
     for a, b in zip(cut[:-1], cut[1:]):
         if b <= a:
