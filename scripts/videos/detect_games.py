@@ -337,4 +337,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    import traceback
+    try:
+        main()
+    except SystemExit:
+        # Already-formatted exit (e.g. raise SystemExit("Video not found: ..."))
+        raise
+    except BaseException as e:
+        print(f"detect_games.py crashed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
