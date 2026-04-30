@@ -158,6 +158,22 @@ export async function clearLogs(sessionId: string): Promise<void> {
 }
 
 /**
+ * Permanently delete a session row. Cascades via FK to remove all
+ * session_manager_session_logs for this session as well. Does not
+ * touch clip files on disk — call deleteClipFiles() in the route
+ * handler before this.
+ */
+export async function deleteSession(id: string): Promise<void> {
+  const orgId = await getOrgId();
+  const { error } = await getSupabase()
+    .from(SESSIONS)
+    .delete()
+    .eq("org_id", orgId)
+    .eq("id", id);
+  if (error) throw new Error(`deleteSession(${id}): ${error.message}`);
+}
+
+/**
  * Build a fire-and-forget log callback for a session. Calls are serialized
  * per-session via an internal promise chain so log order is preserved even
  * though writes are async. Errors are logged to the server console but never

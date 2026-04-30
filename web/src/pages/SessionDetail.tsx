@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import VideoSegmentEditor from "../components/VideoSegmentEditor";
 
@@ -72,6 +72,7 @@ interface VideoFile {
 
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -414,6 +415,33 @@ export default function SessionDetail() {
     });
   };
 
+  const deleteSessionAction = () => {
+    if (!session) return;
+    const clipCount = session.clip_paths?.length || 0;
+    setConfirmAction({
+      title: "Delete this session permanently",
+      message:
+        `This deletes "${session.label || session.id.slice(0, 8)}" and its logs from session-manager` +
+        (clipCount > 0 ? `, plus ${clipCount} exported clip file${clipCount !== 1 ? "s" : ""} on disk` : "") +
+        ". Games already imported into rating-hub stay there — clean those up separately if needed. Cannot be undone.",
+      confirmLabel: "Delete forever",
+      onConfirm: async () => {
+        setConfirmAction(null);
+        try {
+          const res = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+          if (!res.ok && res.status !== 204) {
+            const text = await res.text();
+            alert(`Failed to delete session (${res.status}): ${text}`);
+            return;
+          }
+          navigate("/");
+        } catch (err) {
+          alert(`Network error deleting session: ${(err as Error).message}`);
+        }
+      },
+    });
+  };
+
   const mergeWithNext = (index: number) => {
     if (!editSegments) return;
     const idx = editSegments.findIndex((s) => s.index === index);
@@ -481,10 +509,24 @@ export default function SessionDetail() {
               fontWeight: 500, cursor: running ? "not-allowed" : "pointer",
               opacity: running ? 0.5 : 1,
             }}
+            title="Reset this session back to scheduled — keeps the row, drops segments/clips/logs"
           >
             Cancel Build
           </button>
         )}
+        <button
+          onClick={deleteSessionAction}
+          disabled={running}
+          style={{
+            padding: "6px 14px", background: "#d93025", color: "#fff",
+            border: "1px solid #d93025", borderRadius: 6, fontSize: 13,
+            fontWeight: 500, cursor: running ? "not-allowed" : "pointer",
+            opacity: running ? 0.5 : 1,
+          }}
+          title="Permanently delete this session, its logs, and any exported clips on disk"
+        >
+          Delete Session
+        </button>
       </div>
 
       {/* Confirmation modal */}

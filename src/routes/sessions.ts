@@ -6,6 +6,7 @@ import {
   getSession,
   createSession,
   updateSession,
+  deleteSession,
   listLogs,
   clearLogs,
   makeAddLog,
@@ -649,6 +650,23 @@ router.post("/:id/cancel", async (_req, res) => {
 
     const updated = await getSession(session.id);
     res.json(updated);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// DELETE /api/sessions/:id — Permanently remove the session, its logs,
+// and any exported clip files on disk. Does NOT touch rating-hub or
+// pb.vision — those have to be cleaned up separately if needed.
+router.delete("/:id", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    deleteClipFiles(session);
+    await deleteSession(session.id);
+
+    res.status(204).send();
   } catch (err) {
     sendError(res, err);
   }
