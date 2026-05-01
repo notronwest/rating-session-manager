@@ -13,7 +13,7 @@ import {
   type UpdateSessionInput,
 } from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
-import { uploadClipToPbVision, UploadError } from "../pbvision/upload.js";
+import { uploadClipViaApi, PbvisionApiError } from "../pbvision/api.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
@@ -229,9 +229,10 @@ router.post("/:id/export", async (req, res) => {
   }
 });
 
-// POST /api/sessions/:id/pbvision-upload — Upload exported clips to pb.vision.
-// Uploads are sequential (one browser session per clip). Clips that already
-// have a video ID in pbvision_video_ids are skipped, so this is safe to retry.
+// POST /api/sessions/:id/pbvision-upload — Upload exported clips to pb.vision
+// via the Partner API (no browser automation). Uploads are sequential.
+// Clips that already have a video ID in pbvision_video_ids are skipped, so
+// this is safe to retry.
 router.post("/:id/pbvision-upload", async (req, res) => {
   let session: Session | null = null;
   let vids: (string | null)[] = [];
@@ -246,7 +247,6 @@ router.post("/:id/pbvision-upload", async (req, res) => {
     }
 
     uploadsInFlight.add(session.id);
-    const headed = req.body?.headed !== false; // default true — pb.vision likely has CF too
     // Optional — upload only a single clip by its 0-based index
     const onlyIndex =
       typeof req.body?.clip_index === "number" && Number.isInteger(req.body.clip_index)
@@ -263,7 +263,7 @@ router.post("/:id/pbvision-upload", async (req, res) => {
     if (onlyIndex !== null) {
       addLog(`Retrying pb.vision upload for clip ${onlyIndex + 1}/${session.clip_paths.length}...`);
     } else {
-      addLog(`Starting pb.vision upload of ${session.clip_paths.length} clips...`);
+      addLog(`Starting pb.vision Partner-API upload of ${session.clip_paths.length} clips...`);
     }
 
     // Ensure rating-hub has a sessions row keyed correctly BEFORE we start
@@ -279,6 +279,13 @@ router.post("/:id/pbvision-upload", async (req, res) => {
       addLog(`Warning: couldn't pre-register rating-hub session — webhooks may fail: ${msg}`);
     }
 
+    // Build a per-session metadata template once. pb.vision shows `name`
+    // as the clip title; we postfix `-gm-N` per clip below.
+    const sessionLabel = session.label || `session ${session.id.slice(0, 8)}`;
+    const gameStartEpoch = session.booking_time
+      ? Math.floor(new Date(session.booking_time).getTime() / 1000)
+      : undefined;
+
     for (let i = 0; i < session.clip_paths.length; i++) {
       if (onlyIndex !== null && i !== onlyIndex) continue;
       if (vids[i]) {
@@ -287,9 +294,11 @@ router.post("/:id/pbvision-upload", async (req, res) => {
       }
       const clipPath = session.clip_paths[i];
       addLog(`Clip ${i + 1}/${session.clip_paths.length}: uploading ${path.basename(clipPath)}`);
-      const { vid } = await uploadClipToPbVision({
+      const { vid } = await uploadClipViaApi({
         videoPath: clipPath,
-        headed,
+        name: `${sessionLabel} – game ${i + 1}`,
+        gameStartEpoch,
+        facility: "WMPC",
         onLog: (line) => addLog(`  ${line}`),
       });
       vids[i] = vid;
@@ -314,7 +323,7 @@ router.post("/:id/pbvision-upload", async (req, res) => {
     res.json(updated);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const code = err instanceof UploadError ? err.code : "unknown";
+    const code = err instanceof PbvisionApiError ? err.code : "unknown";
     if (session) {
       try {
         await updateSession(session.id, {

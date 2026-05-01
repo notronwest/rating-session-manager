@@ -1003,7 +1003,7 @@ export default function SessionDetail() {
                   : uploadedCount > 0
                     ? `${uploadedCount} of ${totalCount} uploaded — click to upload the rest`
                     : `${totalCount} ${totalCount === 1 ? "clip" : "clips"} ready to upload`}
-                {" · browser-automation fallback (Partner API key pending)"}
+                {" · uploads via pb.vision Partner API"}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -1048,7 +1048,7 @@ export default function SessionDetail() {
                     ? { ...btnDisabledStyle, background: "#137333" }
                     : { ...btnStyle, background: "#137333" }
                 }
-                title={allDone ? "All clips are uploaded" : "Uploads clips sequentially via a visible browser window"}
+                title={allDone ? "All clips are uploaded" : "Uploads clips sequentially to pb.vision via the Partner API"}
               >
                 {allDone ? "Uploaded" : running ? "Uploading…" : uploadedCount > 0 ? "Resume Upload" : "Upload to PB Vision"}
               </button>
