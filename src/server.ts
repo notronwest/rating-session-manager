@@ -5,6 +5,7 @@ import sessionsRouter from "./routes/sessions.js";
 import videosRouter from "./routes/videos.js";
 import membersRouter from "./routes/members.js";
 import scheduleRouter from "./routes/schedule.js";
+import pbvisionRouter from "./routes/pbvision.js";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -16,6 +17,7 @@ app.use("/api/sessions", sessionsRouter);
 app.use("/api/videos", videosRouter);
 app.use("/api/members", membersRouter);
 app.use("/api/schedule", scheduleRouter);
+app.use("/api/pbvision", pbvisionRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, videoDir: process.env.VIDEO_DIR || null });

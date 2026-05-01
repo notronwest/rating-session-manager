@@ -230,6 +230,8 @@ export default function SessionDetail() {
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number } | null>(null);
+  const [needsPbvisionLogin, setNeedsPbvisionLogin] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
   type PerVideoResult = {
     vid: string;
@@ -287,6 +289,7 @@ export default function SessionDetail() {
     setFetching(true);
     setFetchSummary(null);
     setLogs([]);
+    setNeedsPbvisionLogin(false);
     try {
       const res = await fetch(`/api/sessions/${id}/pbvision-fetch-ids`, {
         method: "POST",
@@ -296,6 +299,9 @@ export default function SessionDetail() {
       const data = await res.json();
       if (!res.ok) {
         console.error("fetch-ids failed:", data.error || res.statusText);
+        if (data.code === "not_authenticated") {
+          setNeedsPbvisionLogin(true);
+        }
         setFetchSummary({ matched: 0, unmatchedClips: 0, unmatchedVideos: 0, webhookErrors: 0 });
       } else {
         setFetchSummary({
@@ -308,6 +314,62 @@ export default function SessionDetail() {
     } finally {
       setFetching(false);
       await fetchSession();
+    }
+  };
+
+  // Streams the pb.vision re-auth flow. Fires POST /api/pbvision/login,
+  // reads the response body line-by-line into the logs panel, and clears
+  // the "needs login" banner when the script reports completion.
+  const reauthenticatePbVision = async () => {
+    if (loggingIn) return;
+    setLoggingIn(true);
+    setLogs((prev) => [
+      ...prev,
+      { id: -Date.now(), timestamp: new Date().toISOString(), level: "info",
+        message: "Opening Chromium on the recording machine. Log in via magic link in that window — this screen will update when it's done." },
+    ]);
+    try {
+      const res = await fetch(`/api/pbvision/login`, { method: "POST" });
+      if (!res.ok && res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "A pb.vision login is already in progress.");
+        return;
+      }
+      if (!res.body) {
+        alert("Browser doesn't support streaming responses; login cannot be tracked.");
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let succeeded = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n");
+        buffer = parts.pop() ?? "";
+        for (const line of parts) {
+          if (!line) continue;
+          if (line.startsWith("[done]")) succeeded = true;
+          setLogs((prev) => [
+            ...prev,
+            { id: -Date.now() - prev.length, timestamp: new Date().toISOString(), level: "info", message: `pb.vision login: ${line}` },
+          ]);
+        }
+      }
+      if (succeeded) {
+        setNeedsPbvisionLogin(false);
+        setLogs((prev) => [
+          ...prev,
+          { id: -Date.now(), timestamp: new Date().toISOString(), level: "info",
+            message: "Login complete — click Fetch IDs again to retry." },
+        ]);
+      }
+    } catch (err) {
+      alert(`Network error during pb.vision login: ${(err as Error).message}`);
+    } finally {
+      setLoggingIn(false);
     }
   };
 
@@ -945,9 +1007,24 @@ export default function SessionDetail() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
+              {needsPbvisionLogin && (
+                <button
+                  onClick={reauthenticatePbVision}
+                  disabled={loggingIn}
+                  style={{
+                    padding: "8px 14px", background: "#fbbc04", color: "#3c4043",
+                    border: "1px solid #fbbc04", borderRadius: 6, fontSize: 13,
+                    fontWeight: 600, cursor: loggingIn ? "not-allowed" : "pointer",
+                    opacity: loggingIn ? 0.7 : 1,
+                  }}
+                  title="pb.vision profile is logged out. Click to pop a login window on the recording machine."
+                >
+                  {loggingIn ? "Logging in… (Chromium open on recording machine)" : "Re-authenticate pb.vision"}
+                </button>
+              )}
               <button
                 onClick={fetchPbVisionIds}
-                disabled={running || fetching || allDone}
+                disabled={running || fetching || allDone || loggingIn}
                 style={{
                   padding: "8px 14px",
                   background: "none",
@@ -956,8 +1033,8 @@ export default function SessionDetail() {
                   borderRadius: 6,
                   fontSize: 13,
                   fontWeight: 500,
-                  cursor: running || fetching || allDone ? "not-allowed" : "pointer",
-                  opacity: running || fetching || allDone ? 0.5 : 1,
+                  cursor: running || fetching || allDone || loggingIn ? "not-allowed" : "pointer",
+                  opacity: running || fetching || allDone || loggingIn ? 0.5 : 1,
                 }}
                 title="Scrape your pb.vision library and auto-match videos to this session's clips by filename"
               >

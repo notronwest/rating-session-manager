@@ -67,19 +67,30 @@ def browser():
                 pass
 
 
+MARKETING_TITLE_FRAGMENTS = (
+    "pb vision - pickleball analytics powered by ai",
+    "try pb vision",
+)
+
+
+def looks_like_marketing_page(title: str) -> bool:
+    if not title:
+        return False
+    t = title.lower().strip()
+    return any(frag in t for frag in MARKETING_TITLE_FRAGMENTS)
+
+
 def main() -> int:
     log("Opening Chromium with the persistent pb.vision profile.")
     log(f"Profile dir: {PROFILE_DIR}")
     log("")
     log("  ┌──────────────────────────────────────────────────────────────────┐")
-    log("  │  Log in to pb.vision however you like (magic link, etc.).      │")
+    log("  │  Log in to pb.vision in the Chromium window (magic link).       │")
     log("  │                                                                  │")
-    log("  │  When you're done, EITHER:                                      │")
-    log("  │    • Quit Chromium entirely (⌘Q), OR                             │")
-    log("  │    • Press Ctrl-C in THIS terminal                               │")
+    log("  │  This script will auto-detect when login succeeds and exit.     │")
+    log("  │  No need to manually close the window.                           │")
     log("  │                                                                  │")
-    log("  │  Closing just the window with the red X does NOT quit Chromium │")
-    log("  │  on macOS — the app stays in the dock and this script waits.   │")
+    log("  │  To abort: Ctrl-C in this terminal, or ⌘Q the Chromium app.     │")
     log("  └──────────────────────────────────────────────────────────────────┘")
     log("")
 
@@ -88,6 +99,15 @@ def main() -> int:
             page.goto("https://pb.vision/")
         except Exception:
             pass
+
+        # Open a separate background tab that quietly polls /library every
+        # few seconds. As soon as its page title is no longer the marketing
+        # homepage, we know auth is complete. This lets the user just log in
+        # naturally — no ⌘Q required.
+        try:
+            checker = context.new_page()
+        except Exception:
+            checker = None
 
         # Wire a `closed` flag via the context's close event AND poll pages as
         # a fallback — Chromium can exit without raising the context close
@@ -99,7 +119,10 @@ def main() -> int:
 
         context.on("close", mark_closed)
 
-        log("Waiting for the Chromium window to close...")
+        log("Waiting for login to complete (or for the window to close)...")
+        last_check = 0.0
+        CHECK_INTERVAL_SEC = 4.0
+        AUTH_GRACE_SEC = 2.0  # let any final cookies settle after auth detected
         try:
             while not closed["flag"]:
                 try:
@@ -108,7 +131,23 @@ def main() -> int:
                     break
                 if not pages or all(p.is_closed() for p in pages):
                     break
-                time.sleep(1)
+
+                now = time.monotonic()
+                if checker and not checker.is_closed() and now - last_check >= CHECK_INTERVAL_SEC:
+                    last_check = now
+                    try:
+                        checker.goto("https://pb.vision/library", timeout=12_000)
+                        title = checker.title() or ""
+                        if title and not looks_like_marketing_page(title):
+                            log(f"Auth detected — /library page title is {title!r}.")
+                            time.sleep(AUTH_GRACE_SEC)
+                            log("Closing Chromium automatically.")
+                            break
+                    except Exception:
+                        # Network blip or page closed mid-check — try again next tick.
+                        pass
+
+                time.sleep(0.5)
         except KeyboardInterrupt:
             log("Interrupted — saving session and exiting.")
 
