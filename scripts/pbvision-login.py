@@ -67,17 +67,27 @@ def browser():
                 pass
 
 
-MARKETING_TITLE_FRAGMENTS = (
-    "pb vision - pickleball analytics powered by ai",
-    "try pb vision",
+# Phrases that only appear on pb.vision's logged-out marketing hero.
+# Title-based detection doesn't work because pb.vision uses the same
+# <title> on both the marketing site and the authenticated app.
+MARKETING_BODY_MARKERS = (
+    "try pb vision for free",
+    "no credit card required",
+    "get started for free",
+    "sign in to pb vision",
 )
 
 
-def looks_like_marketing_page(title: str) -> bool:
-    if not title:
+def is_marketing_page(page: Page) -> bool:
+    """True if the rendered body text shows logged-out marketing CTAs."""
+    try:
+        body_text = page.evaluate(
+            "() => (document.body && document.body.innerText || '').slice(0, 12000)"
+        ) or ""
+    except Exception:
         return False
-    t = title.lower().strip()
-    return any(frag in t for frag in MARKETING_TITLE_FRAGMENTS)
+    body_lower = body_text.lower()
+    return any(marker in body_lower for marker in MARKETING_BODY_MARKERS)
 
 
 def main() -> int:
@@ -137,9 +147,12 @@ def main() -> int:
                     last_check = now
                     try:
                         checker.goto("https://pb.vision/library", timeout=12_000)
-                        title = checker.title() or ""
-                        if title and not looks_like_marketing_page(title):
-                            log(f"Auth detected — /library page title is {title!r}.")
+                        try:
+                            checker.wait_for_load_state("networkidle", timeout=8_000)
+                        except Exception:
+                            pass
+                        if not is_marketing_page(checker):
+                            log("Auth detected — /library no longer shows marketing CTAs.")
                             time.sleep(AUTH_GRACE_SEC)
                             log("Closing Chromium automatically.")
                             break

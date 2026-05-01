@@ -153,17 +153,29 @@ def extract_videos(page: Page) -> list[dict]:
     return list(by_vid.values())
 
 
-MARKETING_PAGE_TITLES = (
-    "pb vision - pickleball analytics powered by ai",
-    "try pb vision",
+# Phrases that only appear on pb.vision's logged-out marketing hero,
+# never on the authenticated /library view. We can't use the page <title>
+# because pb.vision serves the same title ("PB Vision - Pickleball
+# analytics powered by AI") for both the marketing site and every page
+# of the SPA — so title-based detection false-positives every auth'd page.
+MARKETING_BODY_MARKERS = (
+    "try pb vision for free",
+    "no credit card required",
+    "get started for free",
+    "sign in to pb vision",
 )
 
 
-def looks_like_marketing_page(title: str) -> bool:
-    if not title:
+def is_marketing_page(page: Page) -> bool:
+    """Inspect the rendered body text for marketing-only CTAs."""
+    try:
+        body_text = page.evaluate(
+            "() => (document.body && document.body.innerText || '').slice(0, 12000)"
+        ) or ""
+    except Exception:
         return False
-    t = title.lower().strip()
-    return any(frag in t for frag in MARKETING_PAGE_TITLES)
+    body_lower = body_text.lower()
+    return any(marker in body_lower for marker in MARKETING_BODY_MARKERS)
 
 
 def find_library(context, debug_dir: Path) -> list[dict]:
@@ -185,9 +197,9 @@ def find_library(context, debug_dir: Path) -> list[dict]:
                 log(f"  Retry navigation failed: {e}")
                 continue
 
-        # Surface where pb.vision actually landed us so silent redirects
-        # (e.g. unauth → marketing page) are visible in the session log.
-        page_title = ""
+        # Surface where pb.vision actually landed us. The page title is the
+        # same on the marketing site and the library, so it's only logged
+        # for diagnostic purposes — auth gating uses body content instead.
         try:
             actual_url = page.url
             page_title = page.title() or ""
@@ -198,11 +210,13 @@ def find_library(context, debug_dir: Path) -> list[dict]:
         except Exception:
             pass
 
-        if looks_like_marketing_page(page_title):
-            # Logged-out users get the marketing homepage regardless of path.
-            # Skip scraping it — its "videos" are demo / featured content
-            # tagged with promotional copy, not user library entries.
-            log("  This is pb.vision's marketing homepage — Playwright profile is not logged in.")
+        try:
+            page.wait_for_load_state("networkidle", timeout=10_000)
+        except Exception:
+            pass
+
+        if is_marketing_page(page):
+            log("  Body contains marketing CTAs — Playwright profile is not logged in.")
             continue
 
         saw_only_marketing = False
@@ -212,8 +226,8 @@ def find_library(context, debug_dir: Path) -> list[dict]:
             return videos
 
     if saw_only_marketing:
-        log("All candidate URLs landed on the marketing homepage — pb.vision profile is logged out.")
-        log("Run `npm run pbvision:login` to re-seed the profile.")
+        log("All candidate URLs showed marketing CTAs — pb.vision profile is logged out.")
+        log("Click the Re-authenticate pb.vision button (or run `npm run pbvision:login`).")
         # Exit code 3 → list.ts surfaces ListError("not_authenticated", …) to the UI.
         sys.exit(3)
     if not page.is_closed():
