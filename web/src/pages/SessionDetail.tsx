@@ -254,6 +254,49 @@ export default function SessionDetail() {
   const [syncingRh, setSyncingRh] = useState(false);
   const [syncRhResult, setSyncRhResult] = useState<SyncResult | null>(null);
 
+  const [tagging, setTagging] = useState(false);
+  const [tagResult, setTagResult] = useState<{
+    ok: boolean;
+    succeeded: number;
+    failed: number;
+    error?: string;
+    code?: string;
+  } | null>(null);
+
+  const tagAllOnPbVision = async () => {
+    setTagging(true);
+    setTagResult(null);
+    setLogs([]);
+    try {
+      const res = await fetch(`/api/sessions/${id}/pbvision-tag`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTagResult({
+          ok: false,
+          succeeded: 0,
+          failed: 0,
+          error: data.error || res.statusText,
+          code: data.code,
+        });
+      } else {
+        setTagResult({
+          ok: data.failed === 0,
+          succeeded: data.succeeded ?? 0,
+          failed: data.failed ?? 0,
+        });
+      }
+    } catch (e) {
+      setTagResult({ ok: false, succeeded: 0, failed: 0, error: (e as Error).message });
+    } finally {
+      setTagging(false);
+      await fetchSession();
+    }
+  };
+
   const syncRatingHub = async () => {
     setSyncingRh(true);
     setSyncRhResult(null);
@@ -1185,6 +1228,70 @@ export default function SessionDetail() {
         </div>
         );
       })()}
+
+      {/* Auto-tag on pb.vision — visible once any clip has a pb.vision ID */}
+      {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tag on PB Vision</h2>
+              <div style={{ fontSize: 13, color: "#666" }}>
+                Drives pb.vision's tagging UI to assign{" "}
+                <code style={{ background: "#f1f3f4", padding: "1px 5px", borderRadius: 3 }}>
+                  {(session.player_names || []).join(", ") || "(no player names set)"}
+                </code>
+                {" "}to slots 0–3 on every uploaded clip. Run after AI processing completes.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={tagAllOnPbVision}
+                disabled={
+                  tagging ||
+                  running ||
+                  !session.player_names ||
+                  session.player_names.length !== 4
+                }
+                style={
+                  tagging || running || !session.player_names || session.player_names.length !== 4
+                    ? { ...btnDisabledStyle, background: "#7c3aed", whiteSpace: "nowrap" }
+                    : { ...btnStyle, background: "#7c3aed", whiteSpace: "nowrap" }
+                }
+                title={
+                  !session.player_names || session.player_names.length !== 4
+                    ? `Tagging requires exactly 4 player names on the session (have ${session.player_names?.length ?? 0})`
+                    : "Open a Chromium window on the recording machine and auto-tag every uploaded clip"
+                }
+              >
+                {tagging ? "Tagging…" : "Auto-Tag All Clips"}
+              </button>
+            </div>
+          </div>
+          {tagResult && (
+            <div
+              style={{
+                padding: "8px 12px", borderRadius: 6, fontSize: 13,
+                background: tagResult.ok ? "#e6f4ea" : "#fde7e7",
+                color: tagResult.ok ? "#137333" : "#b00020",
+                border: `1px solid ${tagResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+              }}
+            >
+              {tagResult.ok ? (
+                <>Tagged {tagResult.succeeded} clip{tagResult.succeeded === 1 ? "" : "s"} on pb.vision.</>
+              ) : (
+                <>
+                  Tag run had {tagResult.failed} failure{tagResult.failed === 1 ? "" : "s"}
+                  {tagResult.code === "not_authenticated"
+                    ? " — pb.vision profile is logged out. Click Re-authenticate pb.vision (in the Fetch IDs panel) and try again."
+                    : tagResult.error
+                      ? `: ${tagResult.error}`
+                      : "."}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Rating Hub sync — visible once any clip has a pb.vision ID */}
       {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (

@@ -14,6 +14,7 @@ import {
 } from "../db/index.js";
 import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipViaApi, PbvisionApiError } from "../pbvision/api.js";
+import { tagPbVisionVideo, TagError } from "../pbvision/tag.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
@@ -569,6 +570,92 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
       unmatchedVideos: unmatchedVideoList,
       webhookErrors,
     });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/sessions/:id/pbvision-tag — Drive pb.vision's tagging UI for
+// each (or one) of this session's uploaded clips and assign the session's
+// player_names to slots 0-3. Body: { clip_index?: number } — omit to tag
+// every uploaded clip. Tag runs are sequential (single Chromium profile).
+router.post("/:id/pbvision-tag", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!session.pbvision_video_ids || session.pbvision_video_ids.length === 0) {
+      return res.status(400).json({ error: "No uploaded videos to tag" });
+    }
+    if (!session.player_names || session.player_names.length !== 4) {
+      return res.status(400).json({
+        error: `Tagging requires exactly 4 player names on the session (got ${session.player_names?.length ?? 0}).`,
+      });
+    }
+    const onlyIndex =
+      typeof req.body?.clip_index === "number" && Number.isInteger(req.body.clip_index)
+        ? (req.body.clip_index as number)
+        : null;
+
+    const addLog = makeAddLog(session.id);
+    const names = session.player_names;
+    const vids = session.pbvision_video_ids;
+
+    const targets: { i: number; vid: string }[] = [];
+    for (let i = 0; i < vids.length; i++) {
+      if (onlyIndex !== null && i !== onlyIndex) continue;
+      const vid = vids[i];
+      if (!vid) continue;
+      targets.push({ i, vid });
+    }
+    if (targets.length === 0) {
+      return res.status(400).json({ error: "No matching uploaded vid to tag" });
+    }
+
+    addLog(`Auto-tagging ${targets.length} pb.vision video(s) with: ${names.join(", ")}`);
+
+    type Outcome =
+      | { i: number; vid: string; ok: true; flow: string; tagged: number; skipped: number }
+      | { i: number; vid: string; ok: false; error: string; code: string };
+    const outcomes: Outcome[] = [];
+
+    for (const { i, vid } of targets) {
+      addLog(`Clip ${i + 1}/${vids.length}: tagging ${vid}…`);
+      try {
+        const result = await tagPbVisionVideo({
+          vid,
+          names,
+          headed: req.body?.headed !== false,
+          onLog: (line) => addLog(`  ${line}`),
+        });
+        outcomes.push({
+          i,
+          vid,
+          ok: true,
+          flow: result.flow,
+          tagged: result.tagged.length,
+          skipped: result.skipped.length,
+        });
+        addLog(
+          `Clip ${i + 1}: ${result.flow} flow — tagged ${result.tagged.length}/4, skipped ${result.skipped.length}.` +
+            (result.skipped.length > 0
+              ? ` Skipped: ${result.skipped.map((s) => `${s.name} (${s.reason})`).join("; ")}`
+              : ""),
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const code = err instanceof TagError ? err.code : "unknown";
+        outcomes.push({ i, vid, ok: false, error: msg, code });
+        addLog(`Clip ${i + 1}: tag failed [${code}] ${msg}`);
+        // If we lost auth, no point trying the rest of the clips.
+        if (code === "not_authenticated") break;
+      }
+    }
+
+    const succeeded = outcomes.filter((o): o is Extract<Outcome, { ok: true }> => o.ok).length;
+    const failed = outcomes.length - succeeded;
+    addLog(`Tag run complete: ${succeeded} succeeded, ${failed} failed.`);
+
+    res.json({ outcomes, succeeded, failed });
   } catch (err) {
     sendError(res, err);
   }
