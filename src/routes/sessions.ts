@@ -662,6 +662,64 @@ router.post("/:id/pbvision-tag", async (req, res) => {
   }
 });
 
+// GET /api/sessions/:id/pbvision-status — for each vid attached to this
+// session, hit pb.vision's public insights endpoint and infer whether AI
+// processing has completed. Used by the UI to show per-clip status while
+// waiting on pb.vision and to know when it's safe to fire Sync.
+//
+// pb.vision exposes insights at GET /video/{vid}/insights.json (no auth);
+// returns 200 + JSON once processing is done, 404 (or empty body) while
+// processing is still running.
+const PBVISION_API_BASE = "https://api-2o2klzx4pa-uc.a.run.app";
+router.get("/:id/pbvision-status", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
+    if (vids.length === 0) {
+      return res.json({ statuses: [], allReady: false });
+    }
+
+    const statuses = await Promise.all(
+      vids.map(async (vid) => {
+        try {
+          const r = await fetch(`${PBVISION_API_BASE}/video/${vid}/insights.json`);
+          if (!r.ok) {
+            return { vid, ready: false, reason: `HTTP ${r.status}` };
+          }
+          // Treat a meaningful JSON body as "ready". A missing video / still-
+          // processing video usually returns a stub or non-200; insights
+          // proper is several KB of dense JSON.
+          const text = await r.text();
+          if (!text || text.trim().length < 50) {
+            return { vid, ready: false, reason: "empty body" };
+          }
+          try {
+            const parsed = JSON.parse(text);
+            // Insights is a non-empty object/array. Arrays at top level or
+            // objects with shot/player data both count.
+            const meaningful =
+              (Array.isArray(parsed) && parsed.length > 0) ||
+              (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0);
+            return meaningful
+              ? { vid, ready: true }
+              : { vid, ready: false, reason: "empty insights structure" };
+          } catch {
+            return { vid, ready: false, reason: "non-JSON response" };
+          }
+        } catch (err) {
+          return { vid, ready: false, reason: (err as Error).message };
+        }
+      }),
+    );
+    const allReady = statuses.length > 0 && statuses.every((s) => s.ready);
+    res.json({ statuses, allReady });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // GET /api/sessions/:id/tagging — returns everything the in-app tagging UI
 // needs to let a coach map pb.vision player slots to real WMPC players:
 //   - Per game (one per uploaded vid that rating-hub has imported): the
