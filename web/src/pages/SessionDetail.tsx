@@ -254,46 +254,121 @@ export default function SessionDetail() {
   const [syncingRh, setSyncingRh] = useState(false);
   const [syncRhResult, setSyncRhResult] = useState<SyncResult | null>(null);
 
-  const [tagging, setTagging] = useState(false);
-  const [tagResult, setTagResult] = useState<{
-    ok: boolean;
-    succeeded: number;
-    failed: number;
-    error?: string;
-    code?: string;
-  } | null>(null);
+  // ---- In-app tagging (PB Vision avatars → WMPC players) -----------------
+  // Replaces the old Playwright-based pbvision-tag.py flow. We fetch
+  // thumbnail URLs + the current rating-hub state, the coach picks who
+  // each avatar is, save back to rating-hub's game_players.
+  interface TaggingSlot {
+    playerIndex: number;
+    currentPlayerId: string;
+    currentPlayerName: string | null;
+    isPlaceholder: boolean;
+    thumbnailUrl: string | null;
+  }
+  interface TaggingGame {
+    gameId: string;
+    vid: string;
+    aiEngineVersion: number | null;
+    playedAt: string | null;
+    slots: TaggingSlot[];
+  }
+  interface TaggingCandidate {
+    displayName: string;
+    id: string | null;
+  }
 
-  const tagAllOnPbVision = async () => {
-    setTagging(true);
-    setTagResult(null);
-    setLogs([]);
+  const [taggingGames, setTaggingGames] = useState<TaggingGame[] | null>(null);
+  const [taggingCandidates, setTaggingCandidates] = useState<TaggingCandidate[]>([]);
+  const [taggingLoading, setTaggingLoading] = useState(false);
+  /** Pending picks keyed as `${gameId}:${playerIndex}` → playerId. */
+  const [taggingPicks, setTaggingPicks] = useState<Record<string, string>>({});
+  const [taggingSaving, setTaggingSaving] = useState(false);
+  const [taggingResult, setTaggingResult] = useState<
+    { ok: true; updated: number } | { ok: false; error: string } | null
+  >(null);
+
+  const fetchTagging = useCallback(async () => {
+    if (!id) return;
+    setTaggingLoading(true);
     try {
-      const res = await fetch(`/api/sessions/${id}/pbvision-tag`, {
+      const res = await fetch(`/api/sessions/${id}/tagging`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setTaggingResult({ ok: false, error: data.error || res.statusText });
+        return;
+      }
+      const data = await res.json();
+      setTaggingGames(data.games || []);
+      setTaggingCandidates(data.candidates || []);
+      // Pre-fill picks with the current player_id IF that player is in
+      // the candidate roster (otherwise leave the dropdown empty so the
+      // coach has to pick).
+      const candidateIds = new Set(
+        (data.candidates || [])
+          .map((c: TaggingCandidate) => c.id)
+          .filter((x: string | null): x is string => !!x),
+      );
+      const picks: Record<string, string> = {};
+      for (const game of (data.games || []) as TaggingGame[]) {
+        for (const slot of game.slots) {
+          if (slot.currentPlayerId && candidateIds.has(slot.currentPlayerId)) {
+            picks[`${game.gameId}:${slot.playerIndex}`] = slot.currentPlayerId;
+          }
+        }
+      }
+      setTaggingPicks(picks);
+    } catch (err) {
+      setTaggingResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setTaggingLoading(false);
+    }
+  }, [id]);
+
+  // Load tagging data once session is loaded and has uploaded vids.
+  useEffect(() => {
+    if (!session?.pbvision_video_ids?.some(Boolean)) return;
+    void fetchTagging();
+  }, [session?.id, session?.pbvision_video_ids, fetchTagging]);
+
+  const setPick = (gameId: string, playerIndex: number, playerId: string) => {
+    setTaggingPicks((prev) => ({ ...prev, [`${gameId}:${playerIndex}`]: playerId }));
+  };
+
+  const applyTagging = async () => {
+    if (!taggingGames) return;
+    const mappings: { gameId: string; playerIndex: number; playerId: string }[] = [];
+    for (const game of taggingGames) {
+      for (const slot of game.slots) {
+        const key = `${game.gameId}:${slot.playerIndex}`;
+        const playerId = taggingPicks[key];
+        if (!playerId) continue;
+        if (playerId === slot.currentPlayerId) continue; // unchanged
+        mappings.push({ gameId: game.gameId, playerIndex: slot.playerIndex, playerId });
+      }
+    }
+    if (mappings.length === 0) {
+      setTaggingResult({ ok: false, error: "No changes to save." });
+      return;
+    }
+    setTaggingSaving(true);
+    setTaggingResult(null);
+    try {
+      const res = await fetch(`/api/sessions/${id}/tagging`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ mappings }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setTagResult({
-          ok: false,
-          succeeded: 0,
-          failed: 0,
-          error: data.error || res.statusText,
-          code: data.code,
-        });
+        setTaggingResult({ ok: false, error: data.error || res.statusText });
       } else {
-        setTagResult({
-          ok: data.failed === 0,
-          succeeded: data.succeeded ?? 0,
-          failed: data.failed ?? 0,
-        });
+        setTaggingResult({ ok: true, updated: data.updated ?? 0 });
+        await fetchTagging(); // refresh current state
       }
-    } catch (e) {
-      setTagResult({ ok: false, succeeded: 0, failed: 0, error: (e as Error).message });
+    } catch (err) {
+      setTaggingResult({ ok: false, error: (err as Error).message });
     } finally {
-      setTagging(false);
-      await fetchSession();
+      setTaggingSaving(false);
     }
   };
 
@@ -1229,65 +1304,140 @@ export default function SessionDetail() {
         );
       })()}
 
-      {/* Auto-tag on pb.vision — visible once any clip has a pb.vision ID */}
+      {/* In-app player tagging (PB Vision avatar → WMPC player). Visible
+          once any clip has a pb.vision ID; populates once rating-hub
+          imports have happened (which only completes after AI processing
+          finishes on pb.vision). */}
       {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tag on PB Vision</h2>
+              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tag Players</h2>
               <div style={{ fontSize: 13, color: "#666" }}>
-                Drives pb.vision's tagging UI to assign{" "}
+                Map each pb.vision avatar to one of:{" "}
                 <code style={{ background: "#f1f3f4", padding: "1px 5px", borderRadius: 3 }}>
                   {(session.player_names || []).join(", ") || "(no player names set)"}
                 </code>
-                {" "}to slots 0–3 on every uploaded clip. Run after AI processing completes.
+                . Avatar indices vary per clip, so pick separately for each game.
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button
-                onClick={tagAllOnPbVision}
-                disabled={
-                  tagging ||
-                  running ||
-                  !session.player_names ||
-                  session.player_names.length !== 4
-                }
+                onClick={fetchTagging}
+                disabled={taggingLoading || taggingSaving}
+                style={{
+                  padding: "6px 12px", background: "#fff", color: "#1a73e8",
+                  border: "1px solid #1a73e8", borderRadius: 6, fontSize: 13,
+                  fontWeight: 500, cursor: taggingLoading || taggingSaving ? "not-allowed" : "pointer",
+                  opacity: taggingLoading || taggingSaving ? 0.5 : 1, whiteSpace: "nowrap",
+                }}
+                title="Re-fetch the latest games + thumbnails from rating-hub"
+              >
+                {taggingLoading ? "Refreshing…" : "Refresh"}
+              </button>
+              <button
+                onClick={applyTagging}
+                disabled={taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0}
                 style={
-                  tagging || running || !session.player_names || session.player_names.length !== 4
+                  taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0
                     ? { ...btnDisabledStyle, background: "#7c3aed", whiteSpace: "nowrap" }
                     : { ...btnStyle, background: "#7c3aed", whiteSpace: "nowrap" }
                 }
-                title={
-                  !session.player_names || session.player_names.length !== 4
-                    ? `Tagging requires exactly 4 player names on the session (have ${session.player_names?.length ?? 0})`
-                    : "Open a Chromium window on the recording machine and auto-tag every uploaded clip"
-                }
+                title="Save the picked names to rating-hub. Only changed slots are written."
               >
-                {tagging ? "Tagging…" : "Auto-Tag All Clips"}
+                {taggingSaving ? "Saving…" : "Save Tagging"}
               </button>
             </div>
           </div>
-          {tagResult && (
+
+          {/* Empty state: no games imported yet (AI still processing). */}
+          {!taggingLoading && taggingGames && taggingGames.length === 0 && (
+            <div style={{ padding: 12, fontSize: 13, color: "#5f6368", background: "#f8f9fa", borderRadius: 6 }}>
+              Rating-hub hasn't imported any games for this session yet — pb.vision is probably still AI-processing.
+              Click Refresh once you see the videos as "Ready to tag" on pb.vision (usually ~30 minutes after upload).
+            </div>
+          )}
+
+          {/* Per-game thumbnails + picks */}
+          {taggingGames && taggingGames.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {taggingGames.map((game, gIdx) => (
+                <div key={game.gameId} style={{ borderTop: gIdx === 0 ? "none" : "1px solid #eee", paddingTop: gIdx === 0 ? 0 : 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#444", marginBottom: 8 }}>
+                    Game {gIdx + 1}{" "}
+                    <span style={{ fontWeight: 400, color: "#999", fontFamily: "monospace", fontSize: 11 }}>
+                      vid={game.vid}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+                    {game.slots.map((slot) => {
+                      const key = `${game.gameId}:${slot.playerIndex}`;
+                      const pickedId = taggingPicks[key] ?? "";
+                      return (
+                        <div key={slot.playerIndex} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {slot.thumbnailUrl ? (
+                            <img
+                              src={slot.thumbnailUrl}
+                              alt={`Player ${slot.playerIndex}`}
+                              style={{
+                                width: "100%", aspectRatio: "1 / 1", objectFit: "cover",
+                                borderRadius: 6, background: "#f1f3f4", border: "1px solid #e0e0e0",
+                              }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                              }}
+                            />
+                          ) : (
+                            <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#f1f3f4", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 11 }}>
+                              no thumbnail
+                            </div>
+                          )}
+                          <div style={{ fontSize: 11, color: "#5f6368" }}>
+                            Slot {slot.playerIndex}
+                            {slot.isPlaceholder && (
+                              <span style={{ color: "#d93025", fontWeight: 500 }}> · untagged</span>
+                            )}
+                          </div>
+                          <select
+                            value={pickedId}
+                            onChange={(e) => setPick(game.gameId, slot.playerIndex, e.target.value)}
+                            style={{
+                              padding: "5px 6px", fontSize: 12, borderRadius: 4,
+                              border: "1px solid #ddd", background: "#fff",
+                            }}
+                          >
+                            <option value="">— pick a player —</option>
+                            {taggingCandidates.map((c) => (
+                              <option
+                                key={c.displayName}
+                                value={c.id ?? ""}
+                                disabled={!c.id}
+                              >
+                                {c.displayName}{!c.id ? " (not in roster)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {taggingResult && (
             <div
               style={{
-                padding: "8px 12px", borderRadius: 6, fontSize: 13,
-                background: tagResult.ok ? "#e6f4ea" : "#fde7e7",
-                color: tagResult.ok ? "#137333" : "#b00020",
-                border: `1px solid ${tagResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+                marginTop: 12, padding: "8px 12px", borderRadius: 6, fontSize: 13,
+                background: taggingResult.ok ? "#e6f4ea" : "#fde7e7",
+                color: taggingResult.ok ? "#137333" : "#b00020",
+                border: `1px solid ${taggingResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
               }}
             >
-              {tagResult.ok ? (
-                <>Tagged {tagResult.succeeded} clip{tagResult.succeeded === 1 ? "" : "s"} on pb.vision.</>
-              ) : (
-                <>
-                  Tag run had {tagResult.failed} failure{tagResult.failed === 1 ? "" : "s"}
-                  {tagResult.code === "not_authenticated"
-                    ? " — pb.vision profile is logged out. Click Re-authenticate pb.vision (in the Fetch IDs panel) and try again."
-                    : tagResult.error
-                      ? `: ${tagResult.error}`
-                      : "."}
-                </>
-              )}
+              {taggingResult.ok
+                ? `Saved ${taggingResult.updated} slot${taggingResult.updated === 1 ? "" : "s"} to rating-hub.`
+                : taggingResult.error}
             </div>
           )}
         </div>

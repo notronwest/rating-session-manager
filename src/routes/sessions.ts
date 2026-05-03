@@ -18,6 +18,7 @@ import { tagPbVisionVideo, TagError } from "../pbvision/tag.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
+import { getSupabase, getOrgId } from "../supabase.js";
 import type { Session, GameSegment, SessionStatus } from "../types.js";
 
 const router = Router();
@@ -656,6 +657,278 @@ router.post("/:id/pbvision-tag", async (req, res) => {
     addLog(`Tag run complete: ${succeeded} succeeded, ${failed} failed.`);
 
     res.json({ outcomes, succeeded, failed });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// GET /api/sessions/:id/tagging — returns everything the in-app tagging UI
+// needs to let a coach map pb.vision player slots to real WMPC players:
+//   - Per game (one per uploaded vid that rating-hub has imported): the
+//     four slot thumbnails (URLs into PBV's GCS), each slot's CURRENT
+//     player_id and display_name, and a flag for whether that current
+//     player is a "Player N" placeholder.
+//   - The candidate roster: session.player_names resolved to real player
+//     UUIDs (via the same display_name / pbvision_names lookup the
+//     rating-hub-sync helper uses).
+//
+// PB Vision recommends this in-app flow over their UI tagging since
+// (a) tagging isn't in their API, (b) avatar_id is consistent within a
+// video but not across videos, so per-game mapping is required anyway.
+router.get("/:id/tagging", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const supabase = getSupabase();
+    const orgId = await getOrgId();
+
+    const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
+    if (vids.length === 0) {
+      return res.json({ candidates: [], games: [] });
+    }
+
+    // Pull the games + their game_players for this session's vids.
+    const { data: gamesData, error: gErr } = await supabase
+      .from("games")
+      .select("id, pbvision_video_id, ai_engine_version, played_at")
+      .eq("org_id", orgId)
+      .eq("session_id", session.id)
+      .in("pbvision_video_id", vids);
+    if (gErr) throw new Error(`games fetch: ${gErr.message}`);
+    const games = (gamesData || []) as {
+      id: string;
+      pbvision_video_id: string;
+      ai_engine_version: number | null;
+      played_at: string | null;
+    }[];
+
+    if (games.length === 0) {
+      return res.json({ candidates: [], games: [] });
+    }
+
+    const gameIds = games.map((g) => g.id);
+    const { data: gpData, error: gpErr } = await supabase
+      .from("game_players")
+      .select("game_id, player_id, player_index")
+      .in("game_id", gameIds);
+    if (gpErr) throw new Error(`game_players fetch: ${gpErr.message}`);
+    const gp = (gpData || []) as { game_id: string; player_id: string; player_index: number }[];
+
+    const playerIds = Array.from(new Set(gp.map((row) => row.player_id)));
+    const { data: pData, error: pErr } = await supabase
+      .from("players")
+      .select("id, display_name")
+      .in("id", playerIds);
+    if (pErr) throw new Error(`players fetch: ${pErr.message}`);
+    const playersById = new Map<string, string>();
+    for (const p of (pData || []) as { id: string; display_name: string }[]) {
+      playersById.set(p.id, p.display_name);
+    }
+
+    // Resolve the session's player_names to candidate player UUIDs.
+    // Same fuzzy match as ensureRatingHubSession: try display_name and
+    // pbvision_names. Anything that fails to resolve is returned as a
+    // candidate without an id so the UI can warn the coach.
+    type Candidate = { displayName: string; id: string | null };
+    const candidates: Candidate[] = [];
+    if (session.player_names && session.player_names.length > 0) {
+      const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+      type RosterRow = { id: string; display_name: string; pbvision_names: string[] | null };
+      const roster: RosterRow[] = [];
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from("players")
+          .select("id, display_name, pbvision_names")
+          .eq("org_id", orgId)
+          .range(from, from + PAGE - 1);
+        if (error) throw new Error(`roster fetch: ${error.message}`);
+        if (!data || data.length === 0) break;
+        roster.push(...(data as RosterRow[]));
+        if (data.length < PAGE) break;
+      }
+      const byName = new Map<string, RosterRow>();
+      for (const r of roster) {
+        byName.set(normalize(r.display_name), r);
+        for (const alt of r.pbvision_names || []) byName.set(normalize(alt), r);
+      }
+      for (const name of session.player_names) {
+        const hit = byName.get(normalize(name));
+        candidates.push({ displayName: name, id: hit?.id ?? null });
+      }
+    }
+
+    // Heuristic for "is this a placeholder?" — rating-hub creates rows
+    // named exactly "Player 0", "Player 1", "Player 2", "Player 3" when
+    // pb.vision returns un-tagged data.
+    const placeholderRe = /^Player [0-9]$/;
+
+    const gpByGame = new Map<string, typeof gp>();
+    for (const row of gp) {
+      const arr = gpByGame.get(row.game_id) || [];
+      arr.push(row);
+      gpByGame.set(row.game_id, arr);
+    }
+
+    const responseGames = games
+      .sort((a, b) => (a.played_at || "").localeCompare(b.played_at || ""))
+      .map((g) => {
+        const slots = (gpByGame.get(g.id) || [])
+          .sort((a, b) => a.player_index - b.player_index)
+          .map((row) => {
+            const currentName = playersById.get(row.player_id) || null;
+            const isPlaceholder = !!currentName && placeholderRe.test(currentName);
+            const aiv = g.ai_engine_version ?? 0;
+            const thumbnailUrl = aiv
+              ? `https://storage.googleapis.com/pbv-pro/${g.pbvision_video_id}/${aiv}/player${row.player_index}-0.jpg`
+              : null;
+            return {
+              playerIndex: row.player_index,
+              currentPlayerId: row.player_id,
+              currentPlayerName: currentName,
+              isPlaceholder,
+              thumbnailUrl,
+            };
+          });
+        return {
+          gameId: g.id,
+          vid: g.pbvision_video_id,
+          aiEngineVersion: g.ai_engine_version,
+          playedAt: g.played_at,
+          slots,
+        };
+      });
+
+    res.json({ candidates, games: responseGames });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/sessions/:id/tagging — applies a list of (gameId, playerIndex,
+// playerId) mappings to rating-hub's game_players. Body shape:
+//
+//   { mappings: [{ gameId, playerIndex, playerId }, ...] }
+//
+// Each mapping must reference a game on THIS session and a player who is
+// in the candidate roster (i.e. one of session.player_names) — guards
+// keep arbitrary cross-org writes off the table.
+router.post("/:id/tagging", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : null;
+    if (!mappings || mappings.length === 0) {
+      return res.status(400).json({ error: "mappings array is required" });
+    }
+    for (const m of mappings) {
+      if (
+        typeof m?.gameId !== "string" ||
+        typeof m?.playerId !== "string" ||
+        !Number.isInteger(m?.playerIndex) ||
+        m.playerIndex < 0 ||
+        m.playerIndex > 3
+      ) {
+        return res
+          .status(400)
+          .json({ error: `invalid mapping: ${JSON.stringify(m)}` });
+      }
+    }
+
+    const supabase = getSupabase();
+    const orgId = await getOrgId();
+    const addLog = makeAddLog(session.id);
+
+    // Validate: every gameId in the request actually belongs to THIS session.
+    const gameIds: string[] = Array.from(
+      new Set(mappings.map((m: { gameId: string }) => m.gameId)),
+    );
+    const { data: gameRows, error: gErr } = await supabase
+      .from("games")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("session_id", session.id)
+      .in("id", gameIds);
+    if (gErr) throw new Error(`games validation: ${gErr.message}`);
+    const validGameIds = new Set(
+      (gameRows || []).map((g: { id: string }) => g.id),
+    );
+    for (const id of gameIds) {
+      if (!validGameIds.has(id)) {
+        return res
+          .status(400)
+          .json({ error: `gameId ${id} is not on this session` });
+      }
+    }
+
+    // Validate: every playerId is in this session's roster.
+    if (!session.player_names || session.player_names.length === 0) {
+      return res.status(400).json({ error: "Session has no player_names" });
+    }
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    type RosterRow = { id: string; display_name: string; pbvision_names: string[] | null };
+    const roster: RosterRow[] = [];
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("players")
+        .select("id, display_name, pbvision_names")
+        .eq("org_id", orgId)
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(`roster fetch: ${error.message}`);
+      if (!data || data.length === 0) break;
+      roster.push(...(data as RosterRow[]));
+      if (data.length < PAGE) break;
+    }
+    const rosterById = new Map<string, RosterRow>();
+    for (const r of roster) rosterById.set(r.id, r);
+    const sessionPlayerIds = new Set<string>();
+    for (const name of session.player_names) {
+      const hit = roster.find((r) => {
+        if (normalize(r.display_name) === normalize(name)) return true;
+        return (r.pbvision_names || []).some((alt) => normalize(alt) === normalize(name));
+      });
+      if (hit) sessionPlayerIds.add(hit.id);
+    }
+    for (const m of mappings) {
+      if (!rosterById.has(m.playerId)) {
+        return res
+          .status(400)
+          .json({ error: `playerId ${m.playerId} doesn't exist in this org` });
+      }
+      if (!sessionPlayerIds.has(m.playerId)) {
+        return res.status(400).json({
+          error: `playerId ${m.playerId} (${rosterById.get(m.playerId)?.display_name}) isn't in this session's player_names roster`,
+        });
+      }
+    }
+
+    // Apply each mapping. Supabase doesn't support multi-row updates with
+    // different values in a single call, so we issue one update per mapping.
+    // We've already validated game/player constraints above, so each update
+    // should hit exactly one row; count mappings as the success metric.
+    let updated = 0;
+    for (const m of mappings) {
+      const { error: upErr, data } = await supabase
+        .from("game_players")
+        .update({ player_id: m.playerId })
+        .eq("game_id", m.gameId)
+        .eq("player_index", m.playerIndex)
+        .select("id");
+      if (upErr) throw new Error(`update game_players: ${upErr.message}`);
+      updated += (data || []).length;
+    }
+
+    // Same idea for player_rating_snapshots if rating-hub indexes them by
+    // (game_id, player_index) — but the schema keys snapshots on player_id,
+    // not player_index. Walk by (game_id, old player_id we just replaced)?
+    // Skip for v1; the rating snapshot row stays attached to the *old*
+    // player. The user can re-import via Sync with Rating Hub if needed.
+
+    addLog(`Applied ${updated} player tagging mapping(s) to rating-hub.`);
+    res.json({ ok: true, updated });
   } catch (err) {
     sendError(res, err);
   }
