@@ -1480,7 +1480,7 @@ export default function SessionDetail() {
                               src={slot.thumbnailUrl}
                               alt={`Player ${slot.playerIndex}`}
                               style={{
-                                width: "100%", aspectRatio: "1 / 1", objectFit: "cover",
+                                width: "100%", aspectRatio: "3 / 4", objectFit: "contain",
                                 borderRadius: 6, background: "#f1f3f4", border: "1px solid #e0e0e0",
                               }}
                               onError={(e) => {
@@ -1488,7 +1488,7 @@ export default function SessionDetail() {
                               }}
                             />
                           ) : (
-                            <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#f1f3f4", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 11 }}>
+                            <div style={{ width: "100%", aspectRatio: "3 / 4", background: "#f1f3f4", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 11 }}>
                               no thumbnail
                             </div>
                           )}
