@@ -159,15 +159,69 @@ export default function Dashboard() {
     return `${date} ${st} – ${et}`;
   };
 
+  const [archiving, setArchiving] = useState(false);
+  const [archiveResult, setArchiveResult] = useState<
+    | { ok: true; sessions_inspected: number; sessions_archived: number; files_moved: number; files_skipped: number }
+    | { ok: false; error: string }
+    | null
+  >(null);
+
+  const archiveCompleted = async () => {
+    setArchiving(true);
+    setArchiveResult(null);
+    try {
+      const res = await fetch("/api/sessions/archive-completed", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setArchiveResult({ ok: false, error: data.error || res.statusText });
+      } else {
+        setArchiveResult({ ok: true, ...data.summary });
+      }
+    } catch (err) {
+      setArchiveResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   if (loading) return <div style={{ padding: 24, color: "#999" }}>Loading...</div>;
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Rating Sessions</h1>
-        <button onClick={() => setShowNew(!showNew)} style={btnPrimary}>
-          + New Session
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {archiveResult && (
+            <span
+              style={{
+                fontSize: 12, padding: "4px 8px", borderRadius: 4,
+                background: archiveResult.ok ? "#e6f4ea" : "#fde7e7",
+                color: archiveResult.ok ? "#137333" : "#b00020",
+                border: `1px solid ${archiveResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+              }}
+            >
+              {archiveResult.ok
+                ? `Archived ${archiveResult.sessions_archived} session${archiveResult.sessions_archived === 1 ? "" : "s"} · ${archiveResult.files_moved} file${archiveResult.files_moved === 1 ? "" : "s"} moved`
+                : archiveResult.error}
+            </span>
+          )}
+          <button
+            onClick={archiveCompleted}
+            disabled={archiving}
+            style={{
+              padding: "6px 12px", background: "#fff", color: "#5f6368",
+              border: "1px solid #dadce0", borderRadius: 6, fontSize: 13,
+              fontWeight: 500, cursor: archiving ? "not-allowed" : "pointer",
+              opacity: archiving ? 0.6 : 1,
+            }}
+            title="Move source recordings and clip directories of completed sessions into videos/processed/"
+          >
+            {archiving ? "Archiving…" : "Archive Completed"}
+          </button>
+          <button onClick={() => setShowNew(!showNew)} style={btnPrimary}>
+            + New Session
+          </button>
+        </div>
       </div>
 
       {/* Upcoming Rating Events */}

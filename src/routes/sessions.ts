@@ -18,6 +18,7 @@ import { tagPbVisionVideo, TagError } from "../pbvision/tag.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
+import { archiveAllCompletedSessions } from "../services/archive.js";
 import { getSupabase, getOrgId } from "../supabase.js";
 import type { Session, GameSegment, SessionStatus } from "../types.js";
 
@@ -56,6 +57,33 @@ function sendError(res: Parameters<typeof router.get>[1] extends never ? never :
   console.error(msg);
   res.status(status).json({ error: msg });
 }
+
+// POST /api/sessions/archive-completed — sweeps every status=complete
+// session whose source video still lives outside videos/processed/ and
+// moves it (plus its clips dir) into processed/. Updates session paths
+// so the UI keeps linking correctly. Returns per-session results.
+//
+// Defined BEFORE /:id routes so Express doesn't try to match
+// "archive-completed" as an :id segment.
+router.post("/archive-completed", async (_req, res) => {
+  try {
+    const results = await archiveAllCompletedSessions();
+    const totalMoved = results.reduce((n, r) => n + r.moved.length, 0);
+    const totalSkipped = results.reduce((n, r) => n + r.skipped.length, 0);
+    const sessionsArchived = results.filter((r) => r.moved.length > 0).length;
+    res.json({
+      results,
+      summary: {
+        sessions_inspected: results.length,
+        sessions_archived: sessionsArchived,
+        files_moved: totalMoved,
+        files_skipped: totalSkipped,
+      },
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
 
 // GET /api/sessions
 router.get("/", async (_req, res) => {

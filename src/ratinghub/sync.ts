@@ -17,7 +17,8 @@
 
 import { getSupabase, getOrgId } from "../supabase.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
-import { updateSession } from "../db/index.js";
+import { updateSession, getSession } from "../db/index.js";
+import { archiveSessionVideo } from "../services/archive.js";
 import type { Session } from "../types.js";
 
 export type PerVideoResult = {
@@ -271,6 +272,21 @@ export async function syncRatingHub(
   if (allGamesLinked && session.status !== "complete") {
     await updateSession(session.id, { status: "complete" });
     onLog(`Marked session ${session.id} complete (all ${vids.length} clip(s) linked)`);
+
+    // Archive the source recording + clips dir into videos/processed/
+    // now that the pipeline is done. Non-fatal — if anything fails the
+    // session is still marked complete and the user can re-run the
+    // batch archive from the dashboard.
+    try {
+      const fresh = await getSession(session.id);
+      if (fresh) {
+        const r = await archiveSessionVideo(fresh);
+        for (const m of r.moved) onLog(`Archived: ${m}`);
+        for (const s of r.skipped) onLog(`Archive skipped: ${s}`);
+      }
+    } catch (err) {
+      onLog(`Archive failed (non-fatal): ${(err as Error).message}`);
+    }
   }
 
   return {
