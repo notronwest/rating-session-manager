@@ -19,6 +19,7 @@ import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
 import { archiveAllCompletedSessions } from "../services/archive.js";
+import { sendDiscordAlert } from "../services/discord-alert.js";
 import { getSupabase, getOrgId } from "../supabase.js";
 import type { Session, GameSegment, SessionStatus } from "../types.js";
 
@@ -202,6 +203,18 @@ router.post("/:id/detect", async (req, res) => {
         console.error("Failed to record detect error on session:", innerErr);
       }
     }
+    void sendDiscordAlert({
+      title: "Game detection crashed",
+      level: "error",
+      message:
+        "`detect_games.py` exited non-zero. The session is now in `failed` state and won't auto-recover. Likely causes: Python traceback (look at the session log for full stack), corrupt or missing source video, or an algorithm edge case.",
+      fields: [
+        { name: "Session", value: "`" + (session?.id ?? "unknown") + "`" + (session?.label ? ` — ${session.label}` : "") },
+        { name: "Error", value: "```\n" + msg.slice(0, 900) + "\n```" },
+        { name: "Fix", value: "Check the session log for the Python traceback. If parameter tuning is the issue, the session detail page has the 5 detection knobs. If it's a code bug, file a follow-up." },
+      ],
+      dedupeKey: `detect-failed:${session?.id ?? "unknown"}`,
+    });
     res.status(500).json({ error: msg });
   }
 });
@@ -366,6 +379,20 @@ router.post("/:id/pbvision-upload", async (req, res) => {
         console.error("Failed to record upload error on session:", innerErr);
       }
     }
+    void sendDiscordAlert({
+      title: code === "no_credits" ? "PB Vision: out of credits" : "PB Vision upload failed",
+      level: "error",
+      message:
+        code === "no_credits"
+          ? "The PB Vision Partner account has no credits available. Uploads will keep failing until credits are topped up — contact `support@pb.vision`."
+          : "An upload to PB Vision via the Partner API failed mid-session. The session is in `failed` state — re-running the upload action will resume from where it left off.",
+      fields: [
+        { name: "Session", value: "`" + (session?.id ?? "unknown") + "`" + (session?.label ? ` — ${session.label}` : "") },
+        { name: "Error code", value: "`" + code + "`" },
+        { name: "Details", value: msg.slice(0, 900) },
+      ],
+      dedupeKey: `pbvision-upload-failed:${code}:${session?.id ?? "unknown"}`,
+    });
     res.status(500).json({ error: msg, code });
   } finally {
     if (session) uploadsInFlight.delete(session.id);
@@ -477,6 +504,18 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
       const msg = err instanceof Error ? err.message : String(err);
       const code = err instanceof ListError ? err.code : "unknown";
       addLog(`Fetch failed: [${code}] ${msg}`);
+      if (code === "not_authenticated") {
+        void sendDiscordAlert({
+          title: "PB Vision profile is logged out",
+          level: "warning",
+          message:
+            "The Playwright profile lost its PB Vision session. Fetch IDs and tagging won't work until re-auth. The UI surfaces a Re-authenticate button on the affected session, or run `npm run pbvision:login` directly on the recording machine.",
+          fields: [
+            { name: "Session", value: "`" + session.id + "`" + (session.label ? ` — ${session.label}` : "") },
+          ],
+          dedupeKey: "pbvision-logged-out",
+        });
+      }
       return res.status(500).json({ error: msg, code });
     }
 
