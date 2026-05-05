@@ -159,6 +159,42 @@ export default function Dashboard() {
     return `${date} ${st} – ${et}`;
   };
 
+  const [crSyncing, setCrSyncing] = useState(false);
+  const [crSyncResult, setCrSyncResult] = useState<
+    | { ok: true; refreshed: boolean; created: number; skipped: number }
+    | { ok: false; error: string; code?: string }
+    | null
+  >(null);
+
+  const syncFromCourtReserve = async () => {
+    setCrSyncing(true);
+    setCrSyncResult(null);
+    try {
+      const res = await fetch("/api/schedule/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCrSyncResult({ ok: false, error: data.error || res.statusText, code: data.code });
+      } else {
+        setCrSyncResult({
+          ok: true,
+          refreshed: !!data.refreshed,
+          created: (data.created || []).length,
+          skipped: (data.skipped || []).length,
+        });
+        // Refresh dashboard data so the new sessions appear immediately.
+        await fetchData();
+      }
+    } catch (err) {
+      setCrSyncResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setCrSyncing(false);
+    }
+  };
+
   const [archiving, setArchiving] = useState(false);
   const [archiveResult, setArchiveResult] = useState<
     | { ok: true; sessions_inspected: number; sessions_archived: number; files_moved: number; files_skipped: number }
@@ -191,7 +227,21 @@ export default function Dashboard() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Rating Sessions</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {archiveResult && (
+          {crSyncResult && (
+            <span
+              style={{
+                fontSize: 12, padding: "4px 8px", borderRadius: 4,
+                background: crSyncResult.ok ? "#e6f4ea" : "#fde7e7",
+                color: crSyncResult.ok ? "#137333" : "#b00020",
+                border: `1px solid ${crSyncResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+              }}
+            >
+              {crSyncResult.ok
+                ? `${crSyncResult.refreshed ? "Refreshed CR · " : ""}Created ${crSyncResult.created} session${crSyncResult.created === 1 ? "" : "s"}${crSyncResult.skipped ? ` · ${crSyncResult.skipped} skipped` : ""}`
+                : crSyncResult.error}
+            </span>
+          )}
+          {archiveResult && !crSyncResult && (
             <span
               style={{
                 fontSize: 12, padding: "4px 8px", borderRadius: 4,
@@ -205,6 +255,19 @@ export default function Dashboard() {
                 : archiveResult.error}
             </span>
           )}
+          <button
+            onClick={syncFromCourtReserve}
+            disabled={crSyncing}
+            style={{
+              padding: "6px 12px", background: "#1a73e8", color: "#fff",
+              border: "1px solid #1a73e8", borderRadius: 6, fontSize: 13,
+              fontWeight: 500, cursor: crSyncing ? "not-allowed" : "pointer",
+              opacity: crSyncing ? 0.7 : 1,
+            }}
+            title="Pull today's CourtReserve schedule and create sessions for any rating events that don't exist yet"
+          >
+            {crSyncing ? "Syncing CR…" : "Sync from CourtReserve"}
+          </button>
           <button
             onClick={archiveCompleted}
             disabled={archiving}

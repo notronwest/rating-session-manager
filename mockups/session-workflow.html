@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Session workflow mockup</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; padding: 24px; background: #f5f5f5; color: #202124;
+  }
+  header.tabs {
+    display: flex; gap: 4px; margin-bottom: 24px;
+    border-bottom: 1px solid #dadce0;
+  }
+  header.tabs button {
+    background: none; border: none; padding: 10px 18px; font-size: 14px;
+    color: #5f6368; cursor: pointer; border-bottom: 3px solid transparent;
+    margin-bottom: -1px; font-weight: 500;
+  }
+  header.tabs button.active { color: #1a73e8; border-color: #1a73e8; }
+
+  .scenario { display: none; }
+  .scenario.active { display: block; }
+
+  .container { max-width: 960px; margin: 0 auto; }
+  .crumb {
+    color: #1a73e8; font-size: 13px; text-decoration: none;
+    margin-bottom: 12px; display: inline-block;
+  }
+
+  /* Cards */
+  .card {
+    background: #fff; border-radius: 8px; padding: 16px 20px;
+    margin-bottom: 12px; border: 1px solid #e8eaed;
+  }
+  .card h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .card .subtitle { font-size: 13px; color: #5f6368; margin: 0; }
+
+  /* Buttons */
+  button.btn {
+    padding: 8px 16px; border-radius: 6px; border: none; font-size: 13px;
+    font-weight: 500; cursor: pointer;
+  }
+  button.btn-primary { background: #1a73e8; color: #fff; }
+  button.btn-secondary { background: #fff; color: #1a73e8; border: 1px solid #1a73e8; }
+  button.btn-purple { background: #7c3aed; color: #fff; }
+  button.btn-grey { background: #5f6368; color: #fff; }
+  button.btn-ghost { background: none; color: #5f6368; border: 1px solid #dadce0; }
+  button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  input[type=text], input[type=number], select, textarea {
+    padding: 8px 10px; font-size: 13px; border-radius: 4px;
+    border: 1px solid #dadce0; width: 100%; font-family: inherit;
+  }
+  label.field { display: block; margin-bottom: 12px; }
+  label.field .label-text {
+    display: block; font-size: 11px; font-weight: 600; color: #5f6368;
+    margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+
+  /* Source picker tiles */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile {
+    padding: 16px; border: 1px solid #e8eaed; border-radius: 8px;
+    background: #fff; cursor: pointer; transition: all 0.1s;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .tile:hover { border-color: #1a73e8; box-shadow: 0 1px 6px rgba(26,115,232,0.15); }
+  .tile.selected { border-color: #1a73e8; background: #f3f8ff; }
+  .tile .icon { font-size: 22px; }
+  .tile .tile-title { font-size: 14px; font-weight: 600; }
+  .tile .tile-sub { font-size: 12px; color: #5f6368; }
+
+  /* Stepper */
+  .stepper { position: relative; }
+  .stepper::before {
+    content: ""; position: absolute; left: 16px; top: 16px; bottom: 16px;
+    width: 2px; background: #e8eaed;
+  }
+  .step {
+    display: flex; gap: 16px; padding-bottom: 12px;
+    position: relative;
+  }
+  .step .marker {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600; color: #fff;
+    flex-shrink: 0; z-index: 1; background: #fff;
+    border: 2px solid #e8eaed; color: #9aa0a6;
+  }
+  .step.done .marker { background: #137333; color: #fff; border-color: #137333; }
+  .step.current .marker { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  .step .body {
+    flex: 1; background: #fff; border-radius: 8px;
+    border: 1px solid #e8eaed; padding: 12px 16px;
+    margin-bottom: 4px;
+  }
+  .step.current .body {
+    border-color: #1a73e8; box-shadow: 0 1px 6px rgba(26,115,232,0.1);
+  }
+  .step.pending .body { opacity: 0.55; }
+  .step .step-title {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .step .step-title h3 { font-size: 14px; font-weight: 600; margin: 0; }
+  .step .step-title .meta { font-size: 11px; color: #9aa0a6; }
+  .step .step-summary { font-size: 12px; color: #5f6368; margin: 2px 0; }
+  .step .step-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .step.pending .step-summary { color: #9aa0a6; }
+
+  /* Roster pills (player picker) */
+  .roster-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;
+  }
+  .pill {
+    padding: 4px 10px 4px 12px; border-radius: 999px;
+    background: #e8f0fe; color: #1a73e8; font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .pill button {
+    background: none; border: none; color: #5f6368; cursor: pointer;
+    font-size: 14px; padding: 0; margin-left: 4px;
+  }
+  .roster-search {
+    position: relative; max-width: 360px;
+  }
+  .roster-suggestions {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #fff; border: 1px solid #dadce0; border-top: none;
+    border-radius: 0 0 6px 6px; max-height: 180px; overflow: auto;
+    z-index: 10;
+  }
+  .roster-suggestions div {
+    padding: 8px 10px; font-size: 13px; cursor: pointer;
+  }
+  .roster-suggestions div:hover { background: #f8f9fa; }
+
+  /* Thumbnails (tagging) */
+  .thumb-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .thumb { display: flex; flex-direction: column; gap: 6px; }
+  .thumb .img {
+    width: 100%; aspect-ratio: 3/4; background: #e8eaed; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #9aa0a6; font-size: 11px; font-style: italic;
+  }
+  .thumb .slot-label { font-size: 11px; color: #5f6368; }
+
+  /* Status pills + badges */
+  .status-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 500;
+  }
+  .pending-pill { background: #f1f3f4; color: #5f6368; }
+  .done-pill { background: #e6f4ea; color: #137333; }
+  .active-pill { background: #fef7e0; color: #b06000; }
+
+  /* Header */
+  .session-header {
+    display: flex; gap: 16px; align-items: center;
+    margin-bottom: 20px;
+  }
+  .session-header h1 { font-size: 22px; font-weight: 700; margin: 0; }
+  .session-header .who { font-size: 13px; color: #5f6368; }
+
+  .design-note {
+    background: #fff8e1; border: 1px solid #ffe082; padding: 10px 14px;
+    border-radius: 6px; font-size: 12px; color: #7c5300;
+    margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<header class="tabs">
+  <button class="active" data-tab="create">① Creation flow</button>
+  <button data-tab="midflow">② Mid-pipeline (Tag step)</button>
+  <button data-tab="comparison">③ Same as today</button>
+</header>
+
+<!-- ========== SCENARIO 1: Improved creation ========== -->
+<section class="scenario active" id="create">
+
+<div class="design-note">
+  <strong>What changes:</strong> instead of a manual form with free-text fields,
+  creation starts by picking a <em>source</em> (one of three concrete starting points),
+  which pre-fills players + date. Player picker is a roster type-ahead, not a textarea
+  of comma-separated names. One Continue button — the rest of the workflow happens
+  on the session detail page (see scenario ②).
+</div>
+
+<a href="#" class="crumb">&larr; All Sessions</a>
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+  <h1 style="font-size:22px; font-weight:700; margin:0;">New Session</h1>
+  <button class="btn btn-ghost">Cancel</button>
+</div>
+
+<!-- Step 1: Pick source -->
+<div class="card">
+  <h2>1 · Where's this session from?</h2>
+  <p class="subtitle">Pick one. We'll pre-fill the rest.</p>
+
+  <div class="tiles" style="margin-top: 14px;">
+    <div class="tile selected">
+      <div class="icon">📅</div>
+      <div class="tile-title">Rating Event</div>
+      <div class="tile-sub">From CourtReserve. Players + date auto-fill.</div>
+      <div class="tile-sub" style="color:#137333; margin-top:6px;">3 upcoming · choose one ↓</div>
+    </div>
+    <div class="tile">
+      <div class="icon">🎬</div>
+      <div class="tile-title">Video File</div>
+      <div class="tile-sub">From <code>videos/</code>. We'll guess the date from the filename.</div>
+      <div class="tile-sub" style="color:#5f6368; margin-top:6px;">7 unassigned recordings</div>
+    </div>
+    <div class="tile">
+      <div class="icon">✏️</div>
+      <div class="tile-title">Blank</div>
+      <div class="tile-sub">No starter. Pick everything yourself.</div>
+    </div>
+  </div>
+
+  <!-- Reveals based on selected tile -->
+  <div style="margin-top: 16px;">
+    <label class="field">
+      <span class="label-text">Pick a rating event</span>
+      <select>
+        <option>Tue 5 May 4:00 PM · Pro+3 Rating &amp; Video Review (4 players)</option>
+        <option>Wed 6 May 9:00 AM · 3.75+ Co-Ed Level Play (4 players)</option>
+        <option>Thu 7 May 6:30 PM · Open Doubles (4 players)</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<!-- Step 2: Confirm players (auto-filled) -->
+<div class="card">
+  <h2>2 · Players</h2>
+  <p class="subtitle">Pre-filled from CourtReserve. Tweak if needed.</p>
+
+  <div class="roster-row" style="margin-top: 12px;">
+    <span class="pill">Ron West <button>×</button></span>
+    <span class="pill">Bill Stride <button>×</button></span>
+    <span class="pill">Larry Berg <button>×</button></span>
+    <span class="pill">Laura Kimball <button>×</button></span>
+  </div>
+
+  <div class="roster-search">
+    <input type="text" placeholder="Add or replace a player…" />
+    <!-- A real implementation shows suggestions on type. Hidden by default. -->
+    <!-- <div class="roster-suggestions"><div>Ron Smith</div></div> -->
+  </div>
+
+  <p class="subtitle" style="margin-top: 10px;">
+    PB Vision needs exactly 4 — currently have 4 ✓
+  </p>
+</div>
+
+<!-- Step 3: Hook to a video -->
+<div class="card">
+  <h2>3 · Source video</h2>
+  <p class="subtitle">Optional. You can attach this later.</p>
+
+  <label class="field" style="margin-top: 12px;">
+    <span class="label-text">Recording</span>
+    <select>
+      <option>(Attach later — recording isn't ready yet)</option>
+      <option selected>Tuesday 5_5_2026 Pro 3.mp4 · 1.4 GB · 1h 28m · uploaded today 4:42 PM</option>
+      <option>Thursday 5_2_2026 Pro 3.mp4 · 1.2 GB · 1h 04m</option>
+      <option>(7 more, sorted by date)</option>
+    </select>
+  </label>
+</div>
+
+<div style="display:flex; justify-content:flex-end; gap: 8px; margin-top: 16px;">
+  <button class="btn btn-ghost">Cancel</button>
+  <button class="btn btn-primary">Create &amp; Start Workflow →</button>
+</div>
+
+</section>
+
+<!-- ========== SCENARIO 2: Mid-pipeline detail page (stepper) ========== -->
+<section class="scenario" id="midflow">
+
+<div class="design-note">
+  <strong>What changes on the detail page:</strong> the 5+ stacked cards become
+  a vertical timeline. Completed steps collapse to a one-line summary; the current
+  step expands automatically with its primary CTA visible; pending steps are dimmed
+  but visible so you always know what's next.
+</div>
+
+<a href="#" class="crumb">&larr; All Sessions</a>
+
+<div class="session-header">
+  <h1>Pro+3 Tuesday Drills</h1>
+  <span class="status-pill active-pill">▸ Tagging</span>
+  <div class="who" style="margin-left: auto;">
+    Ron West · Bill Stride · Larry Berg · Laura Kimball<br/>
+    <span style="color:#9aa0a6;">Tue May 5 2026 · 4:00 PM</span>
+  </div>
+</div>
+
+<div class="stepper">
+
+  <!-- Done -->
+  <div class="step done">
+    <div class="marker">✓</div>
+    <div class="body">
+      <div class="step-title"><h3>Setup</h3><span class="meta">2 min ago</span></div>
+      <div class="step-summary">4 players · "Pro+3 Tuesday Drills" · CourtReserve booking #4821</div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div class="step done">
+    <div class="marker">✓</div>
+    <div class="body">
+      <div class="step-title"><h3>Source video</h3><span class="meta">2 min ago</span></div>
+      <div class="step-summary">Tuesday 5_5_2026 Pro 3.mp4 · 1h 28m · 1.4 GB</div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div class="step done">
+    <div class="marker">✓</div>
+    <div class="body">
+      <div class="step-title"><h3>Game detection</h3><span class="meta">1 min ago</span></div>
+      <div class="step-summary">5 segments · ~17 min each · clip prefix <code>rw-bs-lb-lk-2026-05-05</code></div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div class="step done">
+    <div class="marker">✓</div>
+    <div class="body">
+      <div class="step-title"><h3>Clip export</h3><span class="meta">just now</span></div>
+      <div class="step-summary">5 clips written to <code>videos/Tuesday 5_5_2026 Pro 3.mp4_clips/</code> · 4.2 GB total</div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div class="step done">
+    <div class="marker">✓</div>
+    <div class="body">
+      <div class="step-title"><h3>Upload to PB Vision</h3><span class="meta">just now</span></div>
+      <div class="step-summary">All 5 clips uploaded via Partner API · vids returned</div>
+    </div>
+  </div>
+
+  <!-- Current -->
+  <div class="step current">
+    <div class="marker">6</div>
+    <div class="body">
+      <div class="step-title">
+        <h3>Tag players</h3>
+        <button class="btn btn-purple">Save Tagging</button>
+      </div>
+      <div class="step-summary">
+        Map each pb.vision avatar to one of:
+        <code>Ron West, Bill Stride, Larry Berg, Laura Kimball</code>.
+      </div>
+
+      <!-- Per-game thumbnails -->
+      <div style="margin-top: 14px;">
+        <div style="font-size: 12px; font-weight: 600; color: #444; margin-bottom: 6px;">
+          Game 1 <span style="font-weight: 400; color: #9aa0a6; font-family: monospace; font-size: 11px;">vid=goeunjfwr2ku</span>
+        </div>
+        <div class="thumb-grid">
+          <div class="thumb">
+            <div class="img">avatar 0</div>
+            <div class="slot-label">Slot 0</div>
+            <select>
+              <option>— pick —</option>
+              <option selected>Ron West</option>
+              <option>Bill Stride</option>
+              <option>Larry Berg</option>
+              <option>Laura Kimball</option>
+            </select>
+          </div>
+          <div class="thumb">
+            <div class="img">avatar 1</div>
+            <div class="slot-label">Slot 1</div>
+            <select>
+              <option>— pick —</option>
+              <option>Ron West</option>
+              <option selected>Bill Stride</option>
+              <option>Larry Berg</option>
+              <option>Laura Kimball</option>
+            </select>
+          </div>
+          <div class="thumb">
+            <div class="img">avatar 2</div>
+            <div class="slot-label">Slot 2</div>
+            <select>
+              <option>— pick —</option>
+              <option>Ron West</option>
+              <option>Bill Stride</option>
+              <option selected>Larry Berg</option>
+              <option>Laura Kimball</option>
+            </select>
+          </div>
+          <div class="thumb">
+            <div class="img">avatar 3</div>
+            <div class="slot-label">Slot 3</div>
+            <select>
+              <option>— pick —</option>
+              <option>Ron West</option>
+              <option>Bill Stride</option>
+              <option>Larry Berg</option>
+              <option selected>Laura Kimball</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size: 12px; color: #5f6368; margin-top: 8px;">
+          + 4 more games (collapsible) — picking the same names autopopulates if avatars look alike.
+        </div>
+      </div>
+
+      <div class="step-actions">
+        <button class="btn btn-secondary">Refresh thumbnails</button>
+        <button class="btn btn-purple">Save Tagging</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pending -->
+  <div class="step pending">
+    <div class="marker">7</div>
+    <div class="body">
+      <div class="step-title"><h3>Sync with Rating Hub</h3></div>
+      <div class="step-summary">Upserts the rating-hub session, links games, fires webhook.</div>
+    </div>
+  </div>
+
+  <!-- Pending -->
+  <div class="step pending">
+    <div class="marker">8</div>
+    <div class="body">
+      <div class="step-title"><h3>Archive &amp; close</h3></div>
+      <div class="step-summary">Source video + clips dir → <code>videos/processed/</code>.</div>
+    </div>
+  </div>
+
+</div>
+
+<details style="margin-top: 24px;">
+  <summary style="font-size: 12px; color: #5f6368; cursor: pointer;">Logs (last run · click to expand)</summary>
+  <pre style="background: #1f1f1f; color: #e8eaed; padding: 12px; border-radius: 6px; font-size: 11px; margin-top: 6px;">
+7:01:42 PM Uploading rw-bs-lb-lk-2026-05-05-gm-1.mov via Partner API…
+7:05:01 PM Uploaded — vid=goeunjfwr2ku
+…</pre>
+</details>
+
+</section>
+
+<!-- ========== SCENARIO 3: Today's UI for comparison ========== -->
+<section class="scenario" id="comparison">
+
+<div class="design-note">
+  <strong>For comparison:</strong> sketch of the existing detail page —
+  five cards stacked, each independently visible, no signal of where you
+  are in the flow. Same content, just spread out instead of sequenced.
+</div>
+
+<a href="#" class="crumb">&larr; All Sessions</a>
+<div class="session-header">
+  <h1>Pro+3 Tuesday Drills</h1>
+  <span class="status-pill active-pill">tagging</span>
+</div>
+
+<div class="card"><h2>Video</h2><p class="subtitle">Tuesday 5_5_2026 Pro 3.mp4 · ROI · Detection params (5 input boxes) · [Detect Games]</p></div>
+<div class="card"><h2>Detected Segments</h2><p class="subtitle">5 rows with edit/merge/delete buttons · [Export Clips]</p></div>
+<div class="card"><h2>Upload to PB Vision</h2><p class="subtitle">All 5 uploaded · per-row Clear buttons · [Fetch IDs] [Resume Upload]</p></div>
+<div class="card"><h2>Tag Players</h2><p class="subtitle">Per-game thumbnails &amp; dropdowns · [Refresh] [Save Tagging]</p></div>
+<div class="card"><h2>Sync with Rating Hub</h2><p class="subtitle">[Sync now]</p></div>
+
+</section>
+
+</div>
+
+<script>
+  document.querySelectorAll("header.tabs button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("header.tabs button").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".scenario").forEach(s => s.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(btn.dataset.tab).classList.add("active");
+    });
+  });
+</script>
+
+</body>
+</html>

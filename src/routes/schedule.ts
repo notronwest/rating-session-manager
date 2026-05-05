@@ -2,6 +2,7 @@ import { Router } from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { syncFromCourtReserve, CrSyncError } from "../services/cr-sync.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../../data");
@@ -80,6 +81,26 @@ router.get("/rating-events", (_req, res) => {
   }));
 
   res.json({ events: ratingEvents });
+});
+
+// POST /api/schedule/sync — refresh CR schedule + auto-create sessions
+// for any rating events that don't already exist. Body: { refresh?:
+// boolean } — pass refresh=false to skip the (slow) CR scrape and use
+// whatever's cached.
+router.post("/sync", async (req, res) => {
+  try {
+    const refresh = req.body?.refresh !== false;
+    const log: string[] = [];
+    const result = await syncFromCourtReserve({
+      refresh,
+      onLog: (line) => log.push(line),
+    });
+    res.json({ ...result, log });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err instanceof CrSyncError ? err.code : "unknown";
+    res.status(500).json({ error: msg, code });
+  }
 });
 
 export default router;
