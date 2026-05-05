@@ -706,6 +706,36 @@ export default function SessionDetail() {
   if (loading) return <div style={{ padding: 24, color: "#999" }}>Loading...</div>;
   if (!session) return <div style={{ padding: 24, color: "#d93025" }}>Session not found</div>;
 
+  // ---- Workflow progress -------------------------------------------------
+  // Where in the pipeline are we? Computed from session state alone — no
+  // round-trip needed. Drives the horizontal stepper at the top of the page
+  // so the coach can see at a glance what's done and what's next without
+  // scrolling through five cards.
+  const WORKFLOW_STEPS: { key: string; label: string; anchor?: string }[] = [
+    { key: "setup", label: "Setup" },
+    { key: "source", label: "Source", anchor: "video-card" },
+    { key: "detect", label: "Detect", anchor: "detect-card" },
+    { key: "export", label: "Export", anchor: "segments-card" },
+    { key: "upload", label: "Upload", anchor: "upload-card" },
+    { key: "tag", label: "Tag", anchor: "tag-card" },
+    { key: "sync", label: "Sync", anchor: "sync-card" },
+    { key: "complete", label: "Done" },
+  ];
+  const doneSteps = new Set<string>(["setup"]);
+  if (session.video_path) doneSteps.add("source");
+  if (session.segments && session.segments.length > 0) doneSteps.add("detect");
+  if (session.clip_paths && session.clip_paths.length > 0) doneSteps.add("export");
+  const totalClips = session.clip_paths?.length || 0;
+  const uploadedCount_ = (session.pbvision_video_ids || []).filter(Boolean).length;
+  if (totalClips > 0 && uploadedCount_ === totalClips) doneSteps.add("upload");
+  if (session.status === "complete") {
+    doneSteps.add("tag");
+    doneSteps.add("sync");
+    doneSteps.add("complete");
+  }
+  const currentStep =
+    WORKFLOW_STEPS.find((s) => !doneSteps.has(s.key))?.key ?? "complete";
+
   return (
     <div>
       <Link to="/" style={{ fontSize: 13, color: "#1a73e8", textDecoration: "none", marginBottom: 12, display: "inline-block" }}>
@@ -744,6 +774,76 @@ export default function SessionDetail() {
         >
           Delete Session
         </button>
+      </div>
+
+      {/* Workflow progress strip — at-a-glance pipeline state. */}
+      <div
+        style={{
+          background: "#fff", border: "1px solid #e8eaed", borderRadius: 8,
+          padding: "14px 20px", marginBottom: 16,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}
+      >
+        {WORKFLOW_STEPS.map((step, i) => {
+          const isDone = doneSteps.has(step.key);
+          const isCurrent = step.key === currentStep;
+          const isLast = i === WORKFLOW_STEPS.length - 1;
+          const handleClick = step.anchor
+            ? () => {
+                const el = document.getElementById(step.anchor as string);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            : undefined;
+          return (
+            <div
+              key={step.key}
+              style={{
+                display: "flex", alignItems: "center", flex: isLast ? 0 : 1,
+                minWidth: 0,
+              }}
+            >
+              <div
+                onClick={handleClick}
+                style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                  cursor: step.anchor ? "pointer" : "default",
+                }}
+                title={step.anchor ? `Jump to ${step.label}` : step.label}
+              >
+                <div
+                  style={{
+                    width: 28, height: 28, borderRadius: "50%",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 12, fontWeight: 600,
+                    background: isDone ? "#137333" : isCurrent ? "#1a73e8" : "#f1f3f4",
+                    color: isDone || isCurrent ? "#fff" : "#9aa0a6",
+                    boxShadow: isCurrent ? "0 0 0 3px rgba(26,115,232,0.2)" : "none",
+                  }}
+                >
+                  {isDone ? "✓" : i + 1}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11, fontWeight: isCurrent ? 600 : 500,
+                    color: isCurrent ? "#1a73e8" : isDone ? "#137333" : "#9aa0a6",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {step.label}
+                </div>
+              </div>
+              {!isLast && (
+                <div
+                  style={{
+                    flex: 1, height: 2,
+                    background: isDone ? "#137333" : "#e8eaed",
+                    margin: "0 8px", marginBottom: 18,
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Confirmation modal */}
@@ -859,7 +959,7 @@ export default function SessionDetail() {
               : "Pick a video and detect game breaks";
 
         return (
-          <div style={{ ...cardStyle, padding: 0, marginBottom: 16 }}>
+          <div id="video-card" style={{ ...cardStyle, padding: 0, marginBottom: 16 }}>
             <button
               onClick={() => setSplitExpandedOverride(!splitExpanded)}
               style={{
@@ -963,7 +1063,7 @@ export default function SessionDetail() {
                 )}
 
                 {/* Detection */}
-                <div style={{ marginTop: 20 }}>
+                <div id="detect-card" style={{ marginTop: 20 }}>
                   <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#444" }}>Game Detection</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
           {[
@@ -1019,7 +1119,7 @@ export default function SessionDetail() {
 
       {/* Segments */}
       {editSegments && editSegments.length > 0 && (
-        <div style={cardStyle}>
+        <div id="segments-card" style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h2 style={{ fontSize: 16, fontWeight: 600 }}>
               Detected Segments ({editSegments.length} games)
@@ -1148,7 +1248,7 @@ export default function SessionDetail() {
         const totalCount = session.clip_paths.length;
         const allDone = uploadedCount === totalCount;
         return (
-        <div style={cardStyle}>
+        <div id="upload-card" style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
               <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Upload to PB Vision</h2>
@@ -1349,7 +1449,7 @@ export default function SessionDetail() {
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tag Players</h2>
+              <h2 id="tag-card" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tag Players</h2>
               <div style={{ fontSize: 13, color: "#666" }}>
                 Map each pb.vision avatar to one of:{" "}
                 <code style={{ background: "#f1f3f4", padding: "1px 5px", borderRadius: 3 }}>
@@ -1548,7 +1648,7 @@ export default function SessionDetail() {
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sync with Rating Hub</h2>
+              <h2 id="sync-card" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sync with Rating Hub</h2>
               <div style={{ fontSize: 13, color: "#666" }}>
                 {syncRhResult?.ok && syncRhResult.totalGamesLinked
                   ? `${syncRhResult.totalGamesLinked} game${syncRhResult.totalGamesLinked === 1 ? "" : "s"} linked`
