@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { syncFromCourtReserve, CrSyncError } from "../services/cr-sync.js";
+import { sendDiscordAlert } from "../services/discord-alert.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../../data");
@@ -88,9 +89,9 @@ router.get("/rating-events", (_req, res) => {
 // boolean } — pass refresh=false to skip the (slow) CR scrape and use
 // whatever's cached.
 router.post("/sync", async (req, res) => {
+  const log: string[] = [];
   try {
     const refresh = req.body?.refresh !== false;
-    const log: string[] = [];
     const result = await syncFromCourtReserve({
       refresh,
       onLog: (line) => log.push(line),
@@ -99,6 +100,32 @@ router.post("/sync", async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const code = err instanceof CrSyncError ? err.code : "unknown";
+
+    // Fire-and-forget Discord alert. The most likely cause of a sync
+    // failure is the CR Playwright profile losing its session (auth
+    // cookie expiry, Cloudflare reset, etc.) — operators want to know
+    // about that as soon as it happens, even if the dashboard click
+    // showed an error chip locally.
+    void sendDiscordAlert({
+      title: "CourtReserve sync failed",
+      level: "error",
+      message:
+        "Couldn't refresh today's CourtReserve schedule. The Playwright profile in `courtreserve-scheduler/` likely needs to re-authenticate (Cloudflare cookie expired, magic-link expired, etc.).",
+      fields: [
+        { name: "Error code", value: "`" + code + "`" },
+        { name: "Details", value: "```\n" + msg.slice(0, 900) + "\n```" },
+        ...(log.length > 0
+          ? [{ name: "Last log lines", value: "```\n" + log.slice(-12).join("\n").slice(0, 900) + "\n```" }]
+          : []),
+        {
+          name: "Fix",
+          value:
+            "On the recording machine: open `courtreserve-scheduler/` and re-run its login flow, or run `npm run sync:members -- --headed` from this project to drive Chromium headed against CR.",
+        },
+      ],
+      dedupeKey: `cr-sync-failed:${code}`,
+    });
+
     res.status(500).json({ error: msg, code });
   }
 });
