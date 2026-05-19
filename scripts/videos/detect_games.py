@@ -407,6 +407,17 @@ GAME_START_SUSTAINED_SEC = 3   # how many seconds the signal must hold to
 GAME_START_MERGE_GAP_SEC = 15  # merge nearby game-start runs into one
                                # event; the signal often flickers during
                                # the 3-5 sec of pre-serve positioning.
+PRE_GAME_QUIET_SEC = 60        # check this many seconds BEFORE a candidate
+                               # game-start signal. A real game start is
+                               # preceded by a between-games break (few
+                               # players, court partly empty). Mid-rally
+                               # play has all 4 quadrants always occupied,
+                               # so its avg pre-window quadrants_occupied
+                               # stays high and fails this filter.
+PRE_GAME_MAX_QUADRANTS_AVG = 2.0  # mean quadrants_occupied in the pre-game
+                                  # window must be below this. Real
+                                  # between-games breaks average 0-1.5;
+                                  # active mid-game play averages 3-4.
 
 
 def find_game_starts(rows):
@@ -474,11 +485,29 @@ def segment_games(rows, verbose=True):
     starts = [(s, e) for s, e in find_game_starts(rows)
               if s >= MIN_TAP_TIME_SEC]
 
+    # Pre-game quiet filter: a real game start is preceded by a
+    # between-games break where activity drops (avg quadrants_occupied
+    # < PRE_GAME_MAX_QUADRANTS_AVG over the PRE_GAME_QUIET_SEC window
+    # before the candidate). This is what separates real game starts
+    # (preceded by a break) from mid-rally moments where 3-4 quadrants
+    # happen to be occupied during normal play (preceded by more play,
+    # so the pre-window stays at full quadrant occupancy).
+    def pre_window_avg_quadrants(start_t):
+        win_start = start_t - PRE_GAME_QUIET_SEC
+        in_window = [r["quadrants_occupied"] for r in rows
+                     if win_start <= r["t"] < start_t]
+        if not in_window:
+            return 0.0  # very start of video — treat as quiet
+        return sum(in_window) / len(in_window)
+
+    quiet_filtered = [(s, e) for s, e in starts
+                      if pre_window_avg_quadrants(s) < PRE_GAME_MAX_QUADRANTS_AVG]
+
     # Enforce minimum spacing between consecutive game starts. If two
     # game-start signals fire within MIN_GAME_GAP_SEC, the second one is
     # really "still setting up" — keep the first.
     spaced = []
-    for s, e in starts:
+    for s, e in quiet_filtered:
         if not spaced or (s - spaced[-1][0]) >= MIN_GAME_GAP_SEC:
             spaced.append((s, e))
 
