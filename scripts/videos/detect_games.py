@@ -60,12 +60,12 @@ TAP_MAX_DURATION_SEC = 25  # clusters lasting longer than this are NOT
 POST_TAP_QUIET_SEC = 60    # after a real paddle tap, the court empties
                            # for tens of seconds (players walk off). We
                            # check the 60s after the cluster end.
-POST_TAP_MIN_ZEROS = 25    # require at least this many samples with
+POST_TAP_MIN_ZEROS = 5     # require at least this many samples with
                            # n_total == 0 in the post-tap window.
-                           # Empirically: real game-ends have 39-60s of
-                           # n=0; mid-game clusters and drill clusters
-                           # have 2-27s. The 25s line separates them
-                           # cleanly across the observed taps.
+                           # Was 25 (Wed-specific). Smaller venues / faster
+                           # sessions like May 14 only see 5-15s of n=0
+                           # after a real tap because the next game starts
+                           # before the court fully clears.
 MIN_GAME_GAP_SEC = 7 * 60   # real games are 7+ min apart end-to-end
                             # (real game durations observed: 9-17 min).
                             # 10 min was too aggressive — suppressed real
