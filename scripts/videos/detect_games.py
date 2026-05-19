@@ -164,7 +164,14 @@ def run_yolo(video_path: Path, poly: np.ndarray, device: str,
         for b in r.boxes:
             x1, y1, x2, y2 = b.xyxy[0].cpu().numpy()
             cx = (x1 + x2) / 2
-            fy = y2  # feet = bottom of bbox
+            # Use the 70% point down the bbox (between center and feet)
+            # as the polygon-membership reference. Pure bbox-bottom (feet)
+            # is too brittle: a player near the polygon edge with their
+            # feet a few px outside gets dropped entirely. The 70% point
+            # is biased toward feet (so we don't accidentally include
+            # bodies whose feet are off court) but tolerates net occlusion
+            # and edge cases.
+            fy = y1 + 0.7 * (y2 - y1)
             if point_in_polygon(cx, fy, poly):
                 feet_xs.append(float(cx))
                 feet_ys.append(float(fy))
