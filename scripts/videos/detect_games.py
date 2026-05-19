@@ -57,15 +57,18 @@ TAP_MAX_DURATION_SEC = 25  # clusters lasting longer than this are NOT
                            # activity (e.g., dinking practice between
                            # games), where 4 players cluster at the net
                            # for minutes. Real taps are 0-15s typically.
-POST_TAP_QUIET_SEC = 60    # after a real paddle tap, the court empties
-                           # for tens of seconds (players walk off). We
-                           # check the 60s after the cluster end.
-POST_TAP_MIN_ZEROS = 5     # require at least this many samples with
-                           # n_total == 0 in the post-tap window.
-                           # Was 25 (Wed-specific). Smaller venues / faster
-                           # sessions like May 14 only see 5-15s of n=0
-                           # after a real tap because the next game starts
-                           # before the court fully clears.
+MIN_TAP_TIME_SEC = 90      # ignore tap candidates in the first 90s of the
+                           # video. Start-of-recording transitions (intro
+                           # graphics, players walking on, low-activity
+                           # warmup) can create brief clusters surrounded
+                           # by empty court that look like paddle taps.
+                           # Real games haven't started by then anyway —
+                           # the earliest game start observed is ~1:30.
+                           # (This replaces the post-tap-quiet filter,
+                           # which broke for sessions where players don't
+                           # exit the court between games — e.g. coaching
+                           # sessions where the court stays full
+                           # continuously through every paddle tap.)
 MIN_GAME_GAP_SEC = 7 * 60   # real games are 7+ min apart end-to-end
                             # (real game durations observed: 9-17 min).
                             # 10 min was too aggressive — suppressed real
@@ -371,24 +374,12 @@ def segment_games(rows, verbose=True):
     sustained = [(s, e, lo, hi) for s, e, lo, hi in merged
                  if TAP_SUSTAINED_MIN_SEC <= (e - s) <= TAP_MAX_DURATION_SEC]
 
-    # Post-tap quiet filter: a real paddle tap is followed by a stretch
-    # of empty court while players walk off. Mid-game brief clusters
-    # (rally chaos) and drill-end clusters don't have this — activity
-    # resumes within seconds. We count the n=0 samples in the next
-    # POST_TAP_QUIET_SEC window; real game-ends have >= POST_TAP_MIN_ZEROS,
-    # everything else has fewer.
-    quiet_filtered = []
-    for s, e, lo, hi in sustained:
-        win_lo = hi + 1
-        win_hi = min(len(rows), win_lo + POST_TAP_QUIET_SEC)
-        if win_lo >= len(rows):
-            quiet_filtered.append((s, e, lo, hi))
-            continue
-        n_zeros = sum(1 for i in range(win_lo, win_hi)
-                      if rows[i]["n"] == 0)
-        if n_zeros >= POST_TAP_MIN_ZEROS:
-            quiet_filtered.append((s, e, lo, hi))
-    sustained = quiet_filtered
+    # Drop clusters in the first MIN_TAP_TIME_SEC of the video. Start-of-
+    # recording artifacts (warmup people walking through, intro graphics,
+    # bench area activity) sometimes form clusters that survive the
+    # other filters. No real games end within the first 90 seconds.
+    sustained = [(s, e, lo, hi) for s, e, lo, hi in sustained
+                 if s >= MIN_TAP_TIME_SEC]
 
     # Non-max suppression: walk through candidates in time order, score
     # each. If a candidate is within MIN_GAME_GAP_SEC of one we've already
