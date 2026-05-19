@@ -109,6 +109,30 @@ def point_in_polygon(x, y, poly):
     return cv2.pointPolygonTest(poly, (float(x), float(y)), False) >= 0
 
 
+def compute_quadrants(poly):
+    """Split the court polygon into 4 quadrants (FL, FR, NR, NL).
+
+    Polygon points are in order FL, FR, NR, NL (as written by
+    calibrate_roi.py). We compute the midpoints of each edge and the
+    polygon centroid, then build a 4-corner polygon for each quadrant.
+    Players in their serve-start positions distribute one per quadrant,
+    which is the visual signature we use for game-start detection."""
+    fl, fr, nr, nl = poly[0], poly[1], poly[2], poly[3]
+    def mid(a, b):
+        return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+    far_mid = mid(fl, fr)         # midpoint of far edge (net side)
+    near_mid = mid(nl, nr)        # midpoint of near edge (camera side)
+    left_mid = mid(fl, nl)        # midpoint of left sideline
+    right_mid = mid(fr, nr)       # midpoint of right sideline
+    center = mid(far_mid, near_mid)
+    return [
+        np.array([fl, far_mid, center, left_mid], dtype=np.int32),
+        np.array([far_mid, fr, right_mid, center], dtype=np.int32),
+        np.array([center, right_mid, nr, near_mid], dtype=np.int32),
+        np.array([left_mid, center, near_mid, nl], dtype=np.int32),
+    ]
+
+
 def run_yolo(video_path: Path, poly: np.ndarray, device: str,
              model_name: str = "yolov8n.pt", verbose=True):
     """Sample video at SAMPLE_FPS, run person detection on each frame.
@@ -132,6 +156,9 @@ def run_yolo(video_path: Path, poly: np.ndarray, device: str,
     # Net mid-line y: roughly the average y of the polygon. Persons whose
     # feet are above this are on the FAR side, below = NEAR side.
     net_y_mid = float(poly[:, 1].mean())
+
+    # Pre-compute the 4 quadrant polygons (FL, FR, NR, NL) once.
+    quadrants = compute_quadrants(poly)
 
     if verbose:
         print(f"Video: {width}x{height} {fps:.1f}fps {total} frames "
@@ -169,6 +196,9 @@ def run_yolo(video_path: Path, poly: np.ndarray, device: str,
 
         feet_xs = []
         feet_ys = []
+        # n_q[i] = number of persons whose reference point is in quadrant i
+        # (0=FL, 1=FR, 2=NR, 3=NL).
+        n_q = [0, 0, 0, 0]
         for b in r.boxes:
             x1, y1, x2, y2 = b.xyxy[0].cpu().numpy()
             cx = (x1 + x2) / 2
@@ -183,6 +213,12 @@ def run_yolo(video_path: Path, poly: np.ndarray, device: str,
             if point_in_polygon(cx, fy, poly):
                 feet_xs.append(float(cx))
                 feet_ys.append(float(fy))
+                # Assign to one quadrant (the first that contains the point).
+                for qi, qpoly in enumerate(quadrants):
+                    if cv2.pointPolygonTest(qpoly, (float(cx), float(fy)),
+                                            False) >= 0:
+                        n_q[qi] += 1
+                        break
 
         n_total = len(feet_xs)
         n_far = sum(1 for y in feet_ys if y < net_y_mid)
@@ -206,6 +242,15 @@ def run_yolo(video_path: Path, poly: np.ndarray, device: str,
             "n_near": n_near,
             "tightness": tightness,
             "x_spread": x_spread,
+            "n_fl": n_q[0],
+            "n_fr": n_q[1],
+            "n_nr": n_q[2],
+            "n_nl": n_q[3],
+            # n_quadrants_occupied: how many of the 4 court quadrants
+            # have at least one person. 4 = canonical serve-start
+            # distribution; 3 = serve start with one player YOLO missed;
+            # <=2 = rally or transition.
+            "quadrants_occupied": sum(1 for q in n_q if q > 0),
         })
         processed += 1
         idx += 1
@@ -350,111 +395,111 @@ def cluster_score(rows, lo_idx, hi_idx):
     return max_n * 100 + (TIGHT_THRESHOLD - min_t)
 
 
+# Game-start detection thresholds (quadrant-occupancy approach)
+GAME_START_MIN_QUADRANTS = 3   # how many of 4 court quadrants must contain
+                               # a person for the frame to count toward a
+                               # game-start signal. 3 of 4 (not 4) tolerates
+                               # YOLO missing one player in serve setup.
+GAME_START_SUSTAINED_SEC = 3   # how many seconds the signal must hold to
+                               # count as a real game start (filters brief
+                               # mid-rally moments where players happen to
+                               # span all 4 quadrants in passing).
+GAME_START_MERGE_GAP_SEC = 15  # merge nearby game-start runs into one
+                               # event; the signal often flickers during
+                               # the 3-5 sec of pre-serve positioning.
+
+
+def find_game_starts(rows):
+    """Find moments where the players distribute across the court for a
+    serve setup — the canonical game-start signature.
+
+    Algorithm:
+      1. Mark each sample where >= GAME_START_MIN_QUADRANTS of the 4
+         court quadrants contain at least one detected person.
+      2. Group consecutive marked samples into runs; merge runs within
+         GAME_START_MERGE_GAP_SEC of each other (handles YOLO flicker).
+      3. Keep runs whose total duration is >= GAME_START_SUSTAINED_SEC.
+
+    Each kept run's start timestamp is a "game starts here" event.
+    """
+    flags = [r["quadrants_occupied"] >= GAME_START_MIN_QUADRANTS
+             for r in rows]
+
+    # Find consecutive runs of marked samples.
+    runs = []
+    i = 0
+    while i < len(flags):
+        if not flags[i]:
+            i += 1
+            continue
+        j = i
+        while j < len(flags) and flags[j]:
+            j += 1
+        runs.append([i, j - 1])
+        i = j
+
+    # Merge runs within GAME_START_MERGE_GAP_SEC of each other.
+    merged = []
+    for lo, hi in runs:
+        s, e = rows[lo]["t"], rows[hi]["t"]
+        if merged and s - merged[-1][1] <= GAME_START_MERGE_GAP_SEC:
+            merged[-1][1] = e
+        else:
+            merged.append([s, e])
+
+    # Keep only runs sustained long enough to be a real serve setup.
+    return [(s, e) for s, e in merged
+            if (e - s) >= GAME_START_SUSTAINED_SEC]
+
+
 def segment_games(rows, verbose=True):
-    """Apply paddle-tap + formation segmentation. Returns
-    [{start, end, unfinished?}, ...]."""
+    """Detect game segments using quadrant-occupancy game-start signals.
+
+    Pickleball games begin with 4 players distributing across the 4
+    court quadrants for the serve setup. This is a much more reliable
+    signal than paddle-tap detection (which gives the same visual
+    signature whether it ends a game or happens mid-rally).
+
+    Games are bounded by consecutive game starts: Game N runs from
+    game-start N until game-start N+1 (or end of video for the last
+    game, which is marked UNFINISHED since we can't tell whether the
+    recording ended naturally at a game-end or cut off mid-play).
+    """
     if not rows:
         return []
-
-    # Paddle-tap candidates: find runs, then merge runs within
-    # TAP_MERGE_GAP_SEC of each other. For each merged cluster we keep
-    # the indices into rows so we can score it.
-    tap_runs = find_runs(rows, is_paddle_tap, min_len=1)
-    merged = []  # list of [start_t, end_t, lo_idx, hi_idx]
-    for lo, hi in tap_runs:
-        s, e = rows[lo]["t"], rows[hi]["t"]
-        if merged and s - merged[-1][1] <= TAP_MERGE_GAP_SEC:
-            merged[-1][1] = e
-            merged[-1][3] = hi  # extend index range
-        else:
-            merged.append([s, e, lo, hi])
-    # Sustained filter (TAP_SUSTAINED_MIN_SEC=0 → keeps all single-sample
-    # clusters) AND max-duration filter (drops clusters > 25s that are
-    # really dinking-practice activity, not paddle taps).
-    sustained = [(s, e, lo, hi) for s, e, lo, hi in merged
-                 if TAP_SUSTAINED_MIN_SEC <= (e - s) <= TAP_MAX_DURATION_SEC]
-
-    # Drop clusters in the first MIN_TAP_TIME_SEC of the video. Start-of-
-    # recording artifacts (warmup people walking through, intro graphics,
-    # bench area activity) sometimes form clusters that survive the
-    # other filters. No real games end within the first 90 seconds.
-    sustained = [(s, e, lo, hi) for s, e, lo, hi in sustained
-                 if s >= MIN_TAP_TIME_SEC]
-
-    # Non-max suppression: walk through candidates in time order, score
-    # each. If a candidate is within MIN_GAME_GAP_SEC of one we've already
-    # kept, keep whichever has the higher score and drop the other.
-    # This correctly picks the strong tap-moment over weaker post-game
-    # milling clusters that come ~2 minutes after the real tap.
-    kept = []
-    for s, e, lo, hi in sustained:
-        score = cluster_score(rows, lo, hi)
-        # Find conflicts (existing kept clusters within MIN_GAME_GAP)
-        conflict_idx = None
-        for i, (ks, ke, klo, khi, kscore) in enumerate(kept):
-            if abs(s - ks) < MIN_GAME_GAP_SEC or abs(e - ke) < MIN_GAME_GAP_SEC:
-                conflict_idx = i
-                break
-        if conflict_idx is None:
-            kept.append((s, e, lo, hi, score))
-        elif score > kept[conflict_idx][4]:
-            # Replace the weaker conflicting cluster
-            kept[conflict_idx] = (s, e, lo, hi, score)
-        # else: drop this candidate
-    taps = [(s, e) for s, e, lo, hi, score in kept]
-
-    # End-of-video guard
     eov = rows[-1]["t"]
-    final_unfinished = False
-    if taps and (eov - taps[-1][1]) < EOV_GUARD_SEC:
-        taps = taps[:-1]
-        final_unfinished = True
+
+    # Ignore game starts in the first MIN_TAP_TIME_SEC of the video
+    # (start-of-recording transitions / warmup / setup).
+    starts = [(s, e) for s, e in find_game_starts(rows)
+              if s >= MIN_TAP_TIME_SEC]
+
+    # Enforce minimum spacing between consecutive game starts. If two
+    # game-start signals fire within MIN_GAME_GAP_SEC, the second one is
+    # really "still setting up" — keep the first.
+    spaced = []
+    for s, e in starts:
+        if not spaced or (s - spaced[-1][0]) >= MIN_GAME_GAP_SEC:
+            spaced.append((s, e))
 
     if verbose:
-        print(f"\nPaddle taps detected: {len(taps)}"
-              + (f" (+1 unfinished)" if final_unfinished else ""), flush=True)
-        for s, e in taps:
-            print(f"  TAP {fmt_t(s)} -> {fmt_t(e)}", flush=True)
+        print(f"\nGame-start signals (>= {GAME_START_MIN_QUADRANTS}/4 "
+              f"quadrants occupied, sustained >= "
+              f"{GAME_START_SUSTAINED_SEC}s, spaced >= "
+              f"{MIN_GAME_GAP_SEC//60}min): {len(spaced)}", flush=True)
+        for s, e in spaced:
+            print(f"  START {fmt_t(s)} (signal lasted {int(e - s)}s)",
+                  flush=True)
 
-    # Build games. Find each game's start as the first 2+2 formation
-    # within its window (between previous tap and current tap).
+    # Build games. Game N runs from start N to start N+1; last game runs
+    # to EOV and is marked unfinished (we don't know whether the
+    # recording ended at a real game-end or mid-play).
     games = []
-    if taps:
-        first_tap = taps[0][0]
-        g1_start = find_game_start(rows, 0, first_tap)
-        if g1_start is None:
-            g1_start = 90.0
-        games.append({"start": g1_start, "end": taps[0][0]})
-
-        for i in range(len(taps) - 1):
-            tap_end = taps[i][1]
-            next_tap = taps[i+1][0]
-            start = find_game_start(rows, tap_end, next_tap)
-            if start is None:
-                start = tap_end + 30
-            games.append({"start": start, "end": next_tap})
-
-    # Unfinished-game-at-tail check. Two cases both produce an unfinished
-    # game appended at the end of the segment list:
-    #   (a) EOV_GUARD already peeled the last tap (it was end-of-session
-    #       bunching); the period between the prior tap and EOV is the
-    #       unfinished game.
-    #   (b) Recording simply ran out mid-game with no paddle tap at all
-    #       — common when players don't exit the court between games.
-    # We detect (b) by checking whether there's significant time after
-    # the last completed game's end (which equals the last kept tap, or
-    # 0 if there were no taps at all).
-    last_completed_end = games[-1]["end"] if games else 0
-    tail_sec = eov - last_completed_end
-    if final_unfinished or tail_sec >= MIN_UNFINISHED_GAME_SEC:
-        start = find_game_start(rows, last_completed_end, eov)
-        if start is None:
-            start = last_completed_end + 30
-        # Only append if the unfinished game is long enough to be a real
-        # game (avoid creating a fake "unfinished game" from a couple
-        # minutes of post-tap debrief activity).
-        if (eov - start) >= MIN_UNFINISHED_GAME_SEC or final_unfinished:
-            games.append({"start": start, "end": eov, "unfinished": True})
+    for i, (s, _e) in enumerate(spaced):
+        if i + 1 < len(spaced):
+            games.append({"start": s, "end": spaced[i + 1][0]})
+        else:
+            games.append({"start": s, "end": eov, "unfinished": True})
 
     if verbose:
         print(f"\nGame segments:", flush=True)
@@ -562,6 +607,11 @@ def main():
                     "n_near": int(r["n_near"]),
                     "x_spread": float(r["x_spread"]),
                     "tightness": float(r["tightness"]),
+                    "n_fl": int(r.get("n_fl", 0)),
+                    "n_fr": int(r.get("n_fr", 0)),
+                    "n_nr": int(r.get("n_nr", 0)),
+                    "n_nl": int(r.get("n_nl", 0)),
+                    "quadrants_occupied": int(r.get("quadrants_occupied", 0)),
                 })
         print(f"Loaded {len(rows)} samples from {args.from_csv}", flush=True)
     else:
@@ -571,11 +621,14 @@ def main():
     if args.dump_csv:
         dump_path = Path(args.dump_csv).expanduser().resolve()
         with dump_path.open("w") as f:
-            f.write("time_sec,n,n_far,n_near,x_spread,tightness\n")
+            f.write("time_sec,n,n_far,n_near,x_spread,tightness,"
+                    "n_fl,n_fr,n_nr,n_nl,quadrants_occupied\n")
             for r in rows:
                 f.write(f"{r['t']:.1f},{r['n']},{r['n_far']},"
                         f"{r['n_near']},{r['x_spread']:.0f},"
-                        f"{r['tightness']:.0f}\n")
+                        f"{r['tightness']:.0f},"
+                        f"{r['n_fl']},{r['n_fr']},{r['n_nr']},{r['n_nl']},"
+                        f"{r['quadrants_occupied']}\n")
         print(f"Dumped per-frame detection data to {dump_path}", flush=True)
 
     games = segment_games(rows)
