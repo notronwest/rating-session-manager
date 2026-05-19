@@ -72,6 +72,11 @@ MIN_GAME_GAP_SEC = 7 * 60   # real games are 7+ min apart end-to-end
                             # short games (Game 2 at 15:39 vs Game 3 at 25:12,
                             # only 9:30 apart).
 EOV_GUARD_SEC = 90         # last cluster within 90s of EOV = unfinished game
+MIN_UNFINISHED_GAME_SEC = 180  # tail-after-last-tap must be >= this long
+                               # for us to treat it as an unfinished game
+                               # (recording stopped mid-play). 3 min covers
+                               # short games while ignoring brief warmup /
+                               # debrief activity that follows a real tap.
 FORMATION_TIGHTNESS_MIN = 100  # spread out enough that it's not a tap
 
 
@@ -438,12 +443,27 @@ def segment_games(rows, verbose=True):
                 start = tap_end + 30
             games.append({"start": start, "end": next_tap})
 
-    if final_unfinished:
-        last_end = taps[-1][1] if taps else 0
-        start = find_game_start(rows, last_end, eov)
+    # Unfinished-game-at-tail check. Two cases both produce an unfinished
+    # game appended at the end of the segment list:
+    #   (a) EOV_GUARD already peeled the last tap (it was end-of-session
+    #       bunching); the period between the prior tap and EOV is the
+    #       unfinished game.
+    #   (b) Recording simply ran out mid-game with no paddle tap at all
+    #       — common when players don't exit the court between games.
+    # We detect (b) by checking whether there's significant time after
+    # the last completed game's end (which equals the last kept tap, or
+    # 0 if there were no taps at all).
+    last_completed_end = games[-1]["end"] if games else 0
+    tail_sec = eov - last_completed_end
+    if final_unfinished or tail_sec >= MIN_UNFINISHED_GAME_SEC:
+        start = find_game_start(rows, last_completed_end, eov)
         if start is None:
-            start = last_end + 30
-        games.append({"start": start, "end": eov, "unfinished": True})
+            start = last_completed_end + 30
+        # Only append if the unfinished game is long enough to be a real
+        # game (avoid creating a fake "unfinished game" from a couple
+        # minutes of post-tap debrief activity).
+        if (eov - start) >= MIN_UNFINISHED_GAME_SEC or final_unfinished:
+            games.append({"start": start, "end": eov, "unfinished": True})
 
     if verbose:
         print(f"\nGame segments:", flush=True)
