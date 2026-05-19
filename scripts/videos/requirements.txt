@@ -1,2 +1,6 @@
 opencv-python
 numpy
+ultralytics>=8.4
+# torch + torchvision are installed transitively by ultralytics. On Apple
+# Silicon they ship with MPS support out of the box; on Linux with NVIDIA
+# you'll want to reinstall torch with the CUDA wheel afterwards.
