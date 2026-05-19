@@ -12,7 +12,9 @@ debug/
 venv/
 scripts/videos/venv/
 logs/
-videos/
+/videos/
+# YOLO model weights — auto-downloaded by ultralytics on first run
+yolov8*.pt
 .DS_Store
 .pbvision-profile/
 __pycache__/
