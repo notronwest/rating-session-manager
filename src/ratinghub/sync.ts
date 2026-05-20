@@ -219,6 +219,22 @@ export async function syncRatingHub(
       webhookFired: false,
     };
 
+    // Ownership guard: if any existing game for this vid is currently linked
+    // to a *different* rating-hub session, refuse to hijack it. This protects
+    // against the user temporarily attaching a vid to the wrong session and
+    // hitting Sync — without the guard, the webhook would overwrite the games'
+    // session_id, stealing them from the rightful owner.
+    const ownershipConflict = games.find(
+      (g) => g.session_id && g.session_id !== rhSessionId,
+    );
+    if (ownershipConflict) {
+      res.webhookFired = false;
+      res.webhookError = `vid ${vid} is owned by rating-hub session ${ownershipConflict.session_id}; refusing to re-link. Detach it from that session first if you really want to move it here.`;
+      onLog(`  ${vid}: SKIPPED — owned by another rating-hub session (${ownershipConflict.session_id})`);
+      perVideo.push(res);
+      continue;
+    }
+
     // Always fire the webhook so tagged-name updates (and any other pb.vision
     // changes) get pulled back into rating-hub. The webhook upserts games by
     // (org_id, pbvision_video_id, session_index) and replaces game_players,
@@ -237,7 +253,8 @@ export async function syncRatingHub(
     }
 
     // Re-query games for this video (webhook may have just imported or
-    // refreshed them) and link any that aren't pointing at this session.
+    // refreshed them) and link any unowned ones to this session. Owned-by-
+    // someone-else was already handled by the ownership guard above.
     const { data: freshGames } = await supabase
       .from("games")
       .select("id, session_id")
@@ -245,7 +262,9 @@ export async function syncRatingHub(
       .eq("pbvision_video_id", vid);
     const fresh = (freshGames || []) as { id: string; session_id: string | null }[];
     if (fresh.length > 0) {
-      const toLink = fresh.filter((g) => g.session_id !== rhSessionId).map((g) => g.id);
+      const toLink = fresh
+        .filter((g) => g.session_id !== rhSessionId && !g.session_id)
+        .map((g) => g.id);
       if (toLink.length > 0) {
         const { error: updErr } = await supabase
           .from("games")
@@ -258,8 +277,8 @@ export async function syncRatingHub(
         }
       }
       res.games = fresh.length;
-      res.gamesLinkedAfter = fresh.length;
-      totalGamesLinked += fresh.length;
+      res.gamesLinkedAfter = fresh.filter((g) => g.session_id === rhSessionId || !g.session_id).length;
+      totalGamesLinked += res.gamesLinkedAfter;
     }
 
     perVideo.push(res);
