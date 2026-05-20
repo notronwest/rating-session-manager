@@ -392,8 +392,12 @@ export default function SessionDetail() {
     void fetchTagging();
   }, [session?.id, session?.pbvision_video_ids, fetchTagging]);
 
+  // taggingDirty flips true on any pick change, false after a successful save.
+  // Drives the Save Tagging button's "✓ Saved" vs "Save Tagging" state.
+  const [taggingDirty, setTaggingDirty] = useState(false);
   const setPick = (gameId: string, playerIndex: number, playerId: string) => {
     setTaggingPicks((prev) => ({ ...prev, [`${gameId}:${playerIndex}`]: playerId }));
+    setTaggingDirty(true);
   };
 
   const applyTagging = async () => {
@@ -425,6 +429,7 @@ export default function SessionDetail() {
         setTaggingResult({ ok: false, error: data.error || res.statusText });
       } else {
         setTaggingResult({ ok: true, updated: data.updated ?? 0 });
+        setTaggingDirty(false);
         await fetchTagging(); // refresh current state
       }
     } catch (err) {
@@ -1520,18 +1525,38 @@ export default function SessionDetail() {
                 {" · idempotent"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={syncRatingHub}
-                disabled={syncingRh || running}
-                style={
-                  syncingRh || running
-                    ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
-                    : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
-                }
-              >
-                {syncingRh ? "Syncing…" : "Sync now"}
-              </button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {syncRhResult?.ok && !syncingRh ? (
+                <>
+                  <span title="Last sync succeeded" style={{ color: "#137333", fontSize: 13, fontWeight: 600 }}>
+                    ✓ Synced
+                  </span>
+                  <button
+                    onClick={syncRatingHub}
+                    disabled={running}
+                    style={
+                      running
+                        ? { ...btnDisabledStyle, background: "#fff", color: "#5f6368", border: "1px solid #c8c8c8", whiteSpace: "nowrap" }
+                        : { padding: "8px 16px", background: "#fff", color: "#5f6368", border: "1px solid #c8c8c8", borderRadius: 6, fontSize: 14, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }
+                    }
+                    title="Re-fire the webhook to pull the latest data from pb.vision (e.g. after tagging)"
+                  >
+                    Re-sync
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={syncRatingHub}
+                  disabled={syncingRh || running}
+                  style={
+                    syncingRh || running
+                      ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                      : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                  }
+                >
+                  {syncingRh ? "Syncing…" : "Sync now"}
+                </button>
+              )}
             </div>
           </div>
           {syncRhResult && (
@@ -1629,18 +1654,26 @@ export default function SessionDetail() {
               >
                 {taggingLoading ? "Refreshing…" : "Refresh"}
               </button>
-              <button
-                onClick={applyTagging}
-                disabled={taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0}
-                style={
-                  taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0
-                    ? { ...btnDisabledStyle, background: "#7c3aed", whiteSpace: "nowrap" }
-                    : { ...btnStyle, background: "#7c3aed", whiteSpace: "nowrap" }
-                }
-                title="Save the picked names to rating-hub. Only changed slots are written."
-              >
-                {taggingSaving ? "Saving…" : "Save Tagging"}
-              </button>
+              {taggingResult?.ok && !taggingDirty && !taggingSaving ? (
+                <span title="All picks saved to rating-hub" style={{ color: "#137333", fontSize: 13, fontWeight: 600, alignSelf: "center" }}>
+                  ✓ Saved
+                </span>
+              ) : (
+                <button
+                  onClick={applyTagging}
+                  disabled={taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0 || !taggingDirty}
+                  style={
+                    taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0 || !taggingDirty
+                      ? { ...btnDisabledStyle, background: "#7c3aed", whiteSpace: "nowrap" }
+                      : { ...btnStyle, background: "#7c3aed", whiteSpace: "nowrap" }
+                  }
+                  title={taggingDirty
+                    ? "Save the picked names to rating-hub. Only changed slots are written."
+                    : "No unsaved changes — pick a player to enable."}
+                >
+                  {taggingSaving ? "Saving…" : "Save Tagging"}
+                </button>
+              )}
             </div>
           </div>
 
