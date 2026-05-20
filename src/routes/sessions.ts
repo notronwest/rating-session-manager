@@ -918,12 +918,23 @@ router.get("/:id/tagging", async (req, res) => {
     }
 
     const gameIds = games.map((g) => g.id);
+    // raw_player_data carries pb.vision's original `avatar_id`, which is the
+    // index used in the GCS thumbnail path. Don't substitute player_index —
+    // pb.vision's players[] array order is not guaranteed to match avatar_id,
+    // and using player_index causes the wrong avatar image to render in the
+    // Tag Players UI (see 2026-05-20: Ron's shots ended up under Lex because
+    // slots 0 and 1 were displayed with each other's photos).
     const { data: gpData, error: gpErr } = await supabase
       .from("game_players")
-      .select("game_id, player_id, player_index")
+      .select("game_id, player_id, player_index, raw_player_data")
       .in("game_id", gameIds);
     if (gpErr) throw new Error(`game_players fetch: ${gpErr.message}`);
-    const gp = (gpData || []) as { game_id: string; player_id: string; player_index: number }[];
+    const gp = (gpData || []) as {
+      game_id: string;
+      player_id: string;
+      player_index: number;
+      raw_player_data: { avatar_id?: number } | null;
+    }[];
 
     const playerIds = Array.from(new Set(gp.map((row) => row.player_id)));
     const { data: pData, error: pErr } = await supabase
@@ -990,8 +1001,16 @@ router.get("/:id/tagging", async (req, res) => {
             const currentName = playersById.get(row.player_id) || null;
             const isPlaceholder = !!currentName && placeholderRe.test(currentName);
             const aiv = g.ai_engine_version ?? 0;
+            // pb.vision stores avatar files under the player's `avatar_id`,
+            // not its array index. They usually match but not always —
+            // fall back to player_index only if raw_player_data is missing
+            // (older imports before raw_player_data was being saved).
+            const avatarId =
+              row.raw_player_data?.avatar_id != null
+                ? row.raw_player_data.avatar_id
+                : row.player_index;
             const thumbnailUrl = aiv
-              ? `https://storage.googleapis.com/pbv-pro/${g.pbvision_video_id}/${aiv}/player${row.player_index}-0.jpg`
+              ? `https://storage.googleapis.com/pbv-pro/${g.pbvision_video_id}/${aiv}/player${avatarId}-0.jpg`
               : null;
             return {
               playerIndex: row.player_index,
