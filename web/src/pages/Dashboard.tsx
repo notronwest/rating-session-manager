@@ -198,9 +198,27 @@ export default function Dashboard() {
   const [archiving, setArchiving] = useState(false);
   const [archiveResult, setArchiveResult] = useState<
     | { ok: true; sessions_inspected: number; sessions_archived: number; files_moved: number; files_skipped: number }
+    | { ok: true; movedCount: number; flavour: "attached" }
+    | { ok: true; deleted: number; flavour: "deleted" }
     | { ok: false; error: string }
     | null
   >(null);
+  // Snapshot of <videoDir>/processed/ — populates the "Delete Archived"
+  // button label so the user sees the disk savings before clicking.
+  const [archivedInfo, setArchivedInfo] = useState<{ count: number; totalBytes: number } | null>(null);
+
+  const fetchArchivedInfo = useCallback(async () => {
+    try {
+      const res = await fetch("/api/videos/archived");
+      if (!res.ok) return;
+      const data = await res.json();
+      setArchivedInfo({ count: data.count ?? 0, totalBytes: data.totalBytes ?? 0 });
+    } catch {
+      // non-fatal — the button just renders without a size hint
+    }
+  }, []);
+
+  useEffect(() => { void fetchArchivedInfo(); }, [fetchArchivedInfo]);
 
   const archiveCompleted = async () => {
     setArchiving(true);
@@ -217,6 +235,59 @@ export default function Dashboard() {
       setArchiveResult({ ok: false, error: (err as Error).message });
     } finally {
       setArchiving(false);
+      void fetchArchivedInfo();
+    }
+  };
+
+  // Tidy ALL videos attached to a session (regardless of status). Used to
+  // clean up the dropdown so it doesn't show files that are already tied
+  // somewhere — moves the file + clips into <videoDir>/processed/.
+  const archiveAttached = async () => {
+    setArchiving(true);
+    setArchiveResult(null);
+    try {
+      const res = await fetch("/api/videos/archive-attached", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setArchiveResult({ ok: false, error: data.error || res.statusText });
+      } else {
+        setArchiveResult({ ok: true, movedCount: data.movedCount ?? 0, flavour: "attached" });
+      }
+    } catch (err) {
+      setArchiveResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setArchiving(false);
+      void fetchArchivedInfo();
+    }
+  };
+
+  // Wipes <videoDir>/processed/. Destructive — confirm dialog spells it
+  // out before the call goes through.
+  const deleteArchived = async () => {
+    if (!archivedInfo || archivedInfo.count === 0) return;
+    const sizeStr = (archivedInfo.totalBytes / (1024 ** 3)).toFixed(2) + " GB";
+    const ok = window.confirm(
+      `Delete ${archivedInfo.count} archived file${archivedInfo.count === 1 ? "" : "s"} (${sizeStr})?\n\n` +
+      `This permanently removes everything under videos/processed/. ` +
+      `Session metadata is kept, but the source recordings and per-game clips will be gone.\n\n` +
+      `Continue?`,
+    );
+    if (!ok) return;
+    setArchiving(true);
+    setArchiveResult(null);
+    try {
+      const res = await fetch("/api/videos/archived", { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setArchiveResult({ ok: false, error: data.error || res.statusText });
+      } else {
+        setArchiveResult({ ok: true, deleted: data.deleted ?? 0, flavour: "deleted" });
+      }
+    } catch (err) {
+      setArchiveResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setArchiving(false);
+      void fetchArchivedInfo();
     }
   };
 
@@ -251,7 +322,13 @@ export default function Dashboard() {
               }}
             >
               {archiveResult.ok
-                ? `Archived ${archiveResult.sessions_archived} session${archiveResult.sessions_archived === 1 ? "" : "s"} · ${archiveResult.files_moved} file${archiveResult.files_moved === 1 ? "" : "s"} moved`
+                ? "flavour" in archiveResult && archiveResult.flavour === "attached"
+                  ? `Archived ${archiveResult.movedCount} attached video${archiveResult.movedCount === 1 ? "" : "s"}`
+                  : "flavour" in archiveResult && archiveResult.flavour === "deleted"
+                    ? `Deleted ${archiveResult.deleted} archived file${archiveResult.deleted === 1 ? "" : "s"}`
+                    : "sessions_archived" in archiveResult
+                      ? `Archived ${archiveResult.sessions_archived} session${archiveResult.sessions_archived === 1 ? "" : "s"} · ${archiveResult.files_moved} file${archiveResult.files_moved === 1 ? "" : "s"} moved`
+                      : "Done"
                 : archiveResult.error}
             </span>
           )}
@@ -281,6 +358,36 @@ export default function Dashboard() {
           >
             {archiving ? "Archiving…" : "Archive Completed"}
           </button>
+          <button
+            onClick={archiveAttached}
+            disabled={archiving}
+            style={{
+              padding: "6px 12px", background: "#fff", color: "#5f6368",
+              border: "1px solid #dadce0", borderRadius: 6, fontSize: 13,
+              fontWeight: 500, cursor: archiving ? "not-allowed" : "pointer",
+              opacity: archiving ? 0.6 : 1,
+            }}
+            title="Move EVERY session's source recording + clips into videos/processed/ (not just completed sessions). Used to clean up the video dropdown."
+          >
+            {archiving ? "Working…" : "Archive Attached"}
+          </button>
+          {archivedInfo && archivedInfo.count > 0 && (
+            <button
+              onClick={deleteArchived}
+              disabled={archiving}
+              style={{
+                padding: "6px 12px", background: "#fff", color: "#b00020",
+                border: "1px solid #f5c6c6", borderRadius: 6, fontSize: 13,
+                fontWeight: 500, cursor: archiving ? "not-allowed" : "pointer",
+                opacity: archiving ? 0.6 : 1,
+              }}
+              title="Permanently delete everything under videos/processed/. Session metadata is preserved; only the on-disk files go away."
+            >
+              {archiving
+                ? "Working…"
+                : `Delete Archived (${(archivedInfo.totalBytes / (1024 ** 3)).toFixed(2)} GB)`}
+            </button>
+          )}
           <button onClick={() => setShowNew(!showNew)} style={btnPrimary}>
             + New Session
           </button>
