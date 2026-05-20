@@ -175,6 +175,17 @@ export async function syncRatingHub(
   session: Session,
   onLog: (msg: string) => void = () => {},
 ): Promise<SyncRatingHubResult> {
+  if (!session.booking_time) {
+    // Without a booking_time, ensureRatingHubSession falls back to
+    // today's date — meaning the rating-hub session date depends on
+    // when sync runs, and re-syncs after midnight create cross-linked /
+    // duplicate sessions. Forcing the date to be set up front prevents
+    // the whole class of bugs we cleaned up manually on 2026-05-19.
+    throw new SyncRatingHubError(
+      "no_booking_time",
+      "Set the session date first — without it, the rating-hub row uses today's date and you get duplicate/cross-linked sessions.",
+    );
+  }
   if (!session.pbvision_video_ids || session.pbvision_video_ids.length === 0) {
     throw new SyncRatingHubError("no_videos", "Session has no pb.vision video IDs attached yet");
   }

@@ -118,6 +118,40 @@ export default function SessionDetail() {
     }
   };
 
+  // Inline booking_time (played-date) edit. Sync to rating-hub requires
+  // this to be set; without it ensureRatingHubSession falls back to
+  // today and you get cross-linked sessions whose date depends on when
+  // sync runs.
+  const [editingDate, setEditingDate] = useState(false);
+  const [dateDraft, setDateDraft] = useState("");
+  const [dateSaving, setDateSaving] = useState(false);
+  const currentDateStr = session?.booking_time?.slice(0, 10) ?? "";
+  const saveDate = async () => {
+    if (!session) return;
+    if (dateDraft === currentDateStr) {
+      setEditingDate(false);
+      return;
+    }
+    setDateSaving(true);
+    try {
+      await fetch(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_time: dateDraft ? `${dateDraft}T00:00:00Z` : null,
+        }),
+      });
+      await fetchSession();
+      setEditingDate(false);
+    } finally {
+      setDateSaving(false);
+    }
+  };
+  const openDateEditor = () => {
+    setDateDraft(currentDateStr);
+    setEditingDate(true);
+  };
+
   const fetchSession = useCallback(async () => {
     const [sRes, lRes, vRes] = await Promise.all([
       fetch(`/api/sessions/${id}`),
@@ -816,6 +850,63 @@ export default function SessionDetail() {
           </>
         )}
         <StatusBadge status={session.status} />
+        {editingDate ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input
+              type="date"
+              value={dateDraft}
+              onChange={(e) => setDateDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveDate();
+                else if (e.key === "Escape") setEditingDate(false);
+              }}
+              autoFocus
+              disabled={dateSaving}
+              style={{ fontSize: 13, padding: "4px 6px", border: "1px solid #1a73e8", borderRadius: 4 }}
+            />
+            <button
+              onClick={saveDate}
+              disabled={dateSaving}
+              style={{ padding: "4px 10px", background: "#1a73e8", color: "#fff", border: "none", borderRadius: 4, fontSize: 12, cursor: dateSaving ? "not-allowed" : "pointer" }}
+            >
+              {dateSaving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditingDate(false)}
+              disabled={dateSaving}
+              style={{ padding: "4px 10px", background: "#fff", color: "#666", border: "1px solid #ddd", borderRadius: 4, fontSize: 12, cursor: dateSaving ? "not-allowed" : "pointer" }}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : currentDateStr ? (
+          <button
+            onClick={openDateEditor}
+            title="Edit played date"
+            style={{
+              padding: "4px 10px", background: "#f8f9fa", color: "#444",
+              border: "1px solid #dadce0", borderRadius: 4, fontSize: 12,
+              cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4,
+            }}
+          >
+            Played {currentDateStr} <span style={{ color: "#5f6368" }}>✎</span>
+          </button>
+        ) : (
+          // Missing date — sync will refuse to run. Surface this in
+          // amber so the coach notices BEFORE clicking Sync.
+          <button
+            onClick={openDateEditor}
+            title="Set the played date before syncing"
+            style={{
+              padding: "4px 10px", background: "#fef3c7", color: "#92400e",
+              border: "1px solid #f59e0b", borderRadius: 4, fontSize: 12,
+              fontWeight: 600, cursor: "pointer", display: "inline-flex",
+              alignItems: "center", gap: 4,
+            }}
+          >
+            ⚠ Set played date
+          </button>
+        )}
         <div style={{ flex: 1 }} />
         {(session.segments || session.clip_paths || session.error || logs.length > 0) && (
           <button
