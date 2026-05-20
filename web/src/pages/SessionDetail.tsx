@@ -156,7 +156,9 @@ export default function SessionDetail() {
     const [sRes, lRes, vRes] = await Promise.all([
       fetch(`/api/sessions/${id}`),
       fetch(`/api/sessions/${id}/logs`),
-      fetch("/api/videos"),
+      // Pass currentSessionId so the dropdown hides videos attached to
+      // *other* sessions but keeps this session's own pick visible.
+      fetch(`/api/videos?currentSessionId=${id}`),
     ]);
     const sData = await sRes.json();
     const lData = await lRes.json();
