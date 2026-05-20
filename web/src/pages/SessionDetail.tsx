@@ -93,6 +93,31 @@ export default function SessionDetail() {
   const [restartLookahead, setRestartLookahead] = useState("30");
   const [minGame, setMinGame] = useState("360");
 
+  // Inline label edit — toggleable input in place of the <h1> title.
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
+  const [labelSaving, setLabelSaving] = useState(false);
+  const saveLabel = async () => {
+    if (!session) return;
+    const next = labelDraft.trim();
+    if (next === (session.label ?? "")) {
+      setEditingLabel(false);
+      return;
+    }
+    setLabelSaving(true);
+    try {
+      await fetch(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: next || null }),
+      });
+      await fetchSession();
+      setEditingLabel(false);
+    } finally {
+      setLabelSaving(false);
+    }
+  };
+
   const fetchSession = useCallback(async () => {
     const [sRes, lRes, vRes] = await Promise.all([
       fetch(`/api/sessions/${id}`),
@@ -717,8 +742,8 @@ export default function SessionDetail() {
     { key: "detect", label: "Detect", anchor: "detect-card" },
     { key: "export", label: "Export", anchor: "segments-card" },
     { key: "upload", label: "Upload", anchor: "upload-card" },
-    { key: "tag", label: "Tag", anchor: "tag-card" },
     { key: "sync", label: "Sync", anchor: "sync-card" },
+    { key: "tag", label: "Tag", anchor: "tag-card" },
     { key: "complete", label: "Done" },
   ];
   const doneSteps = new Set<string>(["setup"]);
@@ -743,7 +768,48 @@ export default function SessionDetail() {
       </Link>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>{session.label || `Session ${session.id.slice(0, 8)}`}</h1>
+        {editingLabel ? (
+          <>
+            <input
+              type="text"
+              value={labelDraft}
+              onChange={(e) => setLabelDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveLabel();
+                else if (e.key === "Escape") setEditingLabel(false);
+              }}
+              autoFocus
+              disabled={labelSaving}
+              placeholder="Session name…"
+              style={{ fontSize: 20, fontWeight: 700, padding: "4px 8px", border: "1px solid #1a73e8", borderRadius: 4, minWidth: 280 }}
+            />
+            <button
+              onClick={saveLabel}
+              disabled={labelSaving}
+              style={{ padding: "6px 12px", background: "#1a73e8", color: "#fff", border: "none", borderRadius: 4, fontSize: 13, cursor: labelSaving ? "not-allowed" : "pointer" }}
+            >
+              {labelSaving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditingLabel(false)}
+              disabled={labelSaving}
+              style={{ padding: "6px 12px", background: "#fff", color: "#666", border: "1px solid #ddd", borderRadius: 4, fontSize: 13, cursor: labelSaving ? "not-allowed" : "pointer" }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <h1 style={{ fontSize: 22, fontWeight: 700 }}>{session.label || `Session ${session.id.slice(0, 8)}`}</h1>
+            <button
+              onClick={() => { setLabelDraft(session.label || ""); setEditingLabel(true); }}
+              title="Rename session"
+              style={{ background: "transparent", border: "none", color: "#5f6368", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}
+            >
+              ✎
+            </button>
+          </>
+        )}
         <StatusBadge status={session.status} />
         <div style={{ flex: 1 }} />
         {(session.segments || session.clip_paths || session.error || logs.length > 0) && (
@@ -1441,6 +1507,97 @@ export default function SessionDetail() {
         );
       })()}
 
+      {/* Rating Hub sync — visible once any clip has a pb.vision ID */}
+      {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div>
+              <h2 id="sync-card" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sync with Rating Hub</h2>
+              <div style={{ fontSize: 13, color: "#666" }}>
+                {syncRhResult?.ok && syncRhResult.totalGamesLinked
+                  ? `${syncRhResult.totalGamesLinked} game${syncRhResult.totalGamesLinked === 1 ? "" : "s"} linked`
+                  : "Upsert rating-hub session, link games, fire webhook for anything missing."}
+                {" · idempotent"}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={syncRatingHub}
+                disabled={syncingRh || running}
+                style={
+                  syncingRh || running
+                    ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                    : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                }
+              >
+                {syncingRh ? "Syncing…" : "Sync now"}
+              </button>
+            </div>
+          </div>
+          {syncRhResult && (
+            <div
+              style={{
+                padding: "8px 12px", borderRadius: 6, fontSize: 13,
+                background: syncRhResult.ok ? "#e6f4ea" : "#fde7e7",
+                color: syncRhResult.ok ? "#137333" : "#b00020",
+                border: `1px solid ${syncRhResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
+              }}
+            >
+              {syncRhResult.ok ? (
+                <>
+                  {syncRhResult.totalGamesLinked ?? 0} game(s) linked
+                  {syncRhResult.perVideo && syncRhResult.perVideo.some((v) => v.webhookFired) &&
+                    ` · ${syncRhResult.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`}
+                  {syncRhResult.url && (
+                    <>
+                      {" · "}
+                      <a href={syncRhResult.url} target="_blank" rel="noopener noreferrer" style={{ color: "#137333", fontWeight: 500 }}>
+                        View in Rating Hub →
+                      </a>
+                    </>
+                  )}
+                  {syncRhResult.perVideo && syncRhResult.perVideo.length > 0 && (
+                    <details style={{ marginTop: 8, color: "#444" }}>
+                      <summary style={{ cursor: "pointer", fontSize: 12 }}>
+                        Per-video status
+                      </summary>
+                      <table style={{ fontSize: 11, marginTop: 6, borderCollapse: "collapse", fontFamily: "monospace" }}>
+                        <thead>
+                          <tr style={{ color: "#666" }}>
+                            <th style={{ textAlign: "left", paddingRight: 12 }}>video_id</th>
+                            <th style={{ textAlign: "left", paddingRight: 12 }}>games</th>
+                            <th style={{ textAlign: "left" }}>action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {syncRhResult.perVideo.map((v) => (
+                            <tr key={v.vid}>
+                              <td style={{ paddingRight: 12 }}>{v.vid}</td>
+                              <td style={{ paddingRight: 12 }}>{v.games}</td>
+                              <td style={{ color: v.webhookError ? "#b00020" : "#444" }}>
+                                {v.webhookFired
+                                  ? v.webhookError
+                                    ? `webhook error: ${v.webhookError}`
+                                    : `webhook fired (${v.webhookStatus ?? "ok"}) — waiting on pb.vision`
+                                  : v.gamesLinkedAfter > v.gamesLinkedBefore
+                                    ? `linked ${v.gamesLinkedAfter - v.gamesLinkedBefore} game(s)`
+                                    : `${v.gamesLinkedAfter} game(s) already linked`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{syncRhResult.error}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* In-app player tagging (PB Vision avatar → WMPC player). Visible
           once any clip has a pb.vision ID; populates once rating-hub
           imports have happened (which only completes after AI processing
@@ -1553,7 +1710,23 @@ export default function SessionDetail() {
               )}
 
               {!pbvStatusLoading && (!pbvStatuses || pbvStatuses.length === 0) && (
-                <>Rating-hub hasn't imported any games for this session yet. Click Refresh once pb.vision finishes processing (~30 min after upload).</>
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    Rating-hub hasn't imported any games for this session yet. Run <strong>Sync with Rating Hub</strong> above first — once it pulls games in, this card will populate with avatars to tag.
+                  </div>
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById("sync-card");
+                      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    style={{
+                      padding: "6px 14px", background: "#5f6368", color: "#fff",
+                      border: "none", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                    }}
+                  >
+                    Jump to Sync ↑
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -1638,97 +1811,6 @@ export default function SessionDetail() {
               {taggingResult.ok
                 ? `Saved ${taggingResult.updated} slot${taggingResult.updated === 1 ? "" : "s"} to rating-hub.`
                 : taggingResult.error}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Rating Hub sync — visible once any clip has a pb.vision ID */}
-      {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (
-        <div style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <div>
-              <h2 id="sync-card" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sync with Rating Hub</h2>
-              <div style={{ fontSize: 13, color: "#666" }}>
-                {syncRhResult?.ok && syncRhResult.totalGamesLinked
-                  ? `${syncRhResult.totalGamesLinked} game${syncRhResult.totalGamesLinked === 1 ? "" : "s"} linked`
-                  : "Upsert rating-hub session, link games, fire webhook for anything missing."}
-                {" · idempotent"}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={syncRatingHub}
-                disabled={syncingRh || running}
-                style={
-                  syncingRh || running
-                    ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
-                    : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
-                }
-              >
-                {syncingRh ? "Syncing…" : "Sync now"}
-              </button>
-            </div>
-          </div>
-          {syncRhResult && (
-            <div
-              style={{
-                padding: "8px 12px", borderRadius: 6, fontSize: 13,
-                background: syncRhResult.ok ? "#e6f4ea" : "#fde7e7",
-                color: syncRhResult.ok ? "#137333" : "#b00020",
-                border: `1px solid ${syncRhResult.ok ? "#c8e6c9" : "#f5c6c6"}`,
-              }}
-            >
-              {syncRhResult.ok ? (
-                <>
-                  {syncRhResult.totalGamesLinked ?? 0} game(s) linked
-                  {syncRhResult.perVideo && syncRhResult.perVideo.some((v) => v.webhookFired) &&
-                    ` · ${syncRhResult.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`}
-                  {syncRhResult.url && (
-                    <>
-                      {" · "}
-                      <a href={syncRhResult.url} target="_blank" rel="noopener noreferrer" style={{ color: "#137333", fontWeight: 500 }}>
-                        View in Rating Hub →
-                      </a>
-                    </>
-                  )}
-                  {syncRhResult.perVideo && syncRhResult.perVideo.length > 0 && (
-                    <details style={{ marginTop: 8, color: "#444" }}>
-                      <summary style={{ cursor: "pointer", fontSize: 12 }}>
-                        Per-video status
-                      </summary>
-                      <table style={{ fontSize: 11, marginTop: 6, borderCollapse: "collapse", fontFamily: "monospace" }}>
-                        <thead>
-                          <tr style={{ color: "#666" }}>
-                            <th style={{ textAlign: "left", paddingRight: 12 }}>video_id</th>
-                            <th style={{ textAlign: "left", paddingRight: 12 }}>games</th>
-                            <th style={{ textAlign: "left" }}>action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {syncRhResult.perVideo.map((v) => (
-                            <tr key={v.vid}>
-                              <td style={{ paddingRight: 12 }}>{v.vid}</td>
-                              <td style={{ paddingRight: 12 }}>{v.games}</td>
-                              <td style={{ color: v.webhookError ? "#b00020" : "#444" }}>
-                                {v.webhookFired
-                                  ? v.webhookError
-                                    ? `webhook error: ${v.webhookError}`
-                                    : `webhook fired (${v.webhookStatus ?? "ok"}) — waiting on pb.vision`
-                                  : v.gamesLinkedAfter > v.gamesLinkedBefore
-                                    ? `linked ${v.gamesLinkedAfter - v.gamesLinkedBefore} game(s)`
-                                    : `${v.gamesLinkedAfter} game(s) already linked`}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </details>
-                  )}
-                </>
-              ) : (
-                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{syncRhResult.error}</pre>
-              )}
             </div>
           )}
         </div>
