@@ -288,7 +288,7 @@ export default function SessionDetail() {
   const [pasteSaving, setPasteSaving] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
-  const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number } | null>(null);
+  const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number; skippedOwnedElsewhere: { clipName: string; vid: string; ownerLabel: string | null }[] } | null>(null);
   const [needsPbvisionLogin, setNeedsPbvisionLogin] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -521,13 +521,14 @@ export default function SessionDetail() {
         if (data.code === "not_authenticated") {
           setNeedsPbvisionLogin(true);
         }
-        setFetchSummary({ matched: 0, unmatchedClips: 0, unmatchedVideos: 0, webhookErrors: 0 });
+        setFetchSummary({ matched: 0, unmatchedClips: 0, unmatchedVideos: 0, webhookErrors: 0, skippedOwnedElsewhere: [] });
       } else {
         setFetchSummary({
           matched: data.matched?.length ?? 0,
           unmatchedClips: data.unmatchedClips?.length ?? 0,
           unmatchedVideos: data.unmatchedVideos?.length ?? 0,
           webhookErrors: data.webhookErrors?.length ?? 0,
+          skippedOwnedElsewhere: data.skippedOwnedElsewhere ?? [],
         });
       }
     } finally {
@@ -1484,6 +1485,30 @@ export default function SessionDetail() {
               {fetchSummary.unmatchedClips > 0 && ` · ${fetchSummary.unmatchedClips} clip${fetchSummary.unmatchedClips !== 1 ? "s" : ""} unmatched (paste manually)`}
               {fetchSummary.unmatchedVideos > 0 && ` · ${fetchSummary.unmatchedVideos} video${fetchSummary.unmatchedVideos !== 1 ? "s" : ""} in library with no matching clip`}
               {fetchSummary.webhookErrors > 0 && ` · ${fetchSummary.webhookErrors} webhook error${fetchSummary.webhookErrors !== 1 ? "s" : ""} (see logs)`}
+            </div>
+          )}
+          {fetchSummary && fetchSummary.skippedOwnedElsewhere.length > 0 && (
+            <div
+              style={{
+                padding: "10px 12px", marginBottom: 10, borderRadius: 6, fontSize: 12,
+                background: "#fef3c7", color: "#92400e", border: "1px solid #f59e0b",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                ⚠ {fetchSummary.skippedOwnedElsewhere.length} match
+                {fetchSummary.skippedOwnedElsewhere.length !== 1 ? "es" : ""} skipped — already attached to other sessions
+              </div>
+              <div style={{ fontSize: 11, lineHeight: 1.5 }}>
+                Detach from the other session first if you want to move it here. Manual paste is also blocked while another session owns the vid.
+              </div>
+              <ul style={{ margin: "6px 0 0 0", paddingLeft: 18 }}>
+                {fetchSummary.skippedOwnedElsewhere.map((s) => (
+                  <li key={`${s.vid}-${s.clipName}`}>
+                    <code>{s.clipName}</code> → <code>{s.vid}</code> · owned by
+                    {" "}<em>{s.ownerLabel ?? "(unnamed)"}</em>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           <ul style={{ listStyle: "none", padding: 0, margin: 0, borderTop: "1px solid #f0f0f0" }}>
