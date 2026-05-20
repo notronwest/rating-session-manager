@@ -27,6 +27,43 @@ const router = Router();
 
 const uploadsInFlight = new Set<string>();
 
+/**
+ * Find which OTHER session (if any) currently has `vid` attached.
+ *
+ * Used by the PATCH endpoint, pbvision-confirm, and pbvision-fetch-ids
+ * to refuse to silently steal a vid that already belongs to another
+ * session. Returns `{ id, label }` of the owning session, or null if
+ * no other session has it.
+ *
+ * `currentSessionId` is the session we're updating — rows with that id
+ * are excluded so we don't false-positive on a re-attach of an existing
+ * vid to the same session.
+ */
+async function findOwnerSession(
+  vid: string,
+  currentSessionId: string,
+): Promise<{ id: string; label: string | null } | null> {
+  const supabase = getSupabase();
+  const orgId = await getOrgId();
+  const { data, error } = await supabase
+    .from("session_manager_sessions")
+    .select("id, label")
+    .eq("org_id", orgId)
+    .neq("id", currentSessionId)
+    .contains("pbvision_video_ids", [vid])
+    .limit(1);
+  if (error) {
+    // Don't fail the whole request on a lookup error — log and let the
+    // caller decide. Returning null = "no known owner" is the safe
+    // fallback (no spurious 409s) but it does mean a transient Supabase
+    // hiccup could let a hijack slip through. Acceptable.
+    console.error(`[findOwnerSession] lookup failed for vid ${vid}: ${error.message}`);
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+  return { id: data[0].id as string, label: (data[0].label as string | null) ?? null };
+}
+
 // Build a filename-safe prefix from player names + booking date.
 // Produces e.g. "kr-do-pk-2026-04-15" for Kellie Rowell / Debbie O'Connor / Patricia Kraieski.
 function computeClipNamePrefix(session: Session): string | null {
@@ -153,6 +190,24 @@ router.patch("/:id", async (req, res) => {
     }
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "No fields to update" });
+    }
+
+    // Cross-session vid uniqueness: refuse the patch if it would attach
+    // a vid that's already on another session. Same check as
+    // pbvision-confirm; lives here because the SessionDetail UI also
+    // calls PATCH to clear/edit individual slots (see allowedFields
+    // comment above).
+    if (Array.isArray(updates.pbvision_video_ids)) {
+      for (const vid of updates.pbvision_video_ids) {
+        if (!vid) continue;
+        const owner = await findOwnerSession(vid, session.id);
+        if (owner) {
+          return res.status(409).json({
+            error: `Video ID ${vid} is already attached to session "${owner.label ?? owner.id.slice(0, 8)}". Detach it there first.`,
+            ownerSessionId: owner.id,
+          });
+        }
+      }
     }
 
     const updated = await updateSession(session.id, updates);
@@ -437,6 +492,16 @@ router.post("/:id/pbvision-confirm", async (req, res) => {
       });
     }
 
+    // Cross-session uniqueness: refuse if another session in this org
+    // already owns this vid.
+    const owner = await findOwnerSession(videoId, session.id);
+    if (owner) {
+      return res.status(409).json({
+        error: `Video ID ${videoId} is already attached to session "${owner.label ?? owner.id.slice(0, 8)}". Detach it there first.`,
+        ownerSessionId: owner.id,
+      });
+    }
+
     if (vids[clipIndex] && vids[clipIndex] !== videoId) {
       addLog(`Clip ${clipIndex + 1}: replacing existing video ID ${vids[clipIndex]} with ${videoId}`);
     } else if (!vids[clipIndex]) {
@@ -567,6 +632,11 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
       if (existing) unmatchedVideos.delete(existing);
     }
     const matches: { clipIndex: number; clipName: string; vid: string; title: string }[] = [];
+    // Vids that filename-matched a clip but are already owned by another
+    // session — we surface these so the coach knows to manually decide
+    // (rename one of the sessions, or detach from the other) instead of
+    // silently picking the wrong one or stealing.
+    const skippedOwnedElsewhere: { clipIndex: number; clipName: string; vid: string; title: string; ownerSessionId: string; ownerLabel: string | null }[] = [];
 
     for (let i = 0; i < session.clip_paths.length; i++) {
       if (vids[i]) continue;
@@ -579,14 +649,28 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
         // with extension ("rs-hc-…-gm-1.mov") appears as a complete token.
         return isFilenameInTitle(stemName, title) || isFilenameInTitle(basename, title);
       });
-      if (hit) {
-        vids[i] = hit.vid;
-        unmatchedVideos.delete(hit.vid);
-        matches.push({ clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title });
-        addLog(`  Matched ${basename} → ${hit.vid}`);
-      } else {
+      if (!hit) {
         addLog(`  No pb.vision video matches ${basename}`);
+        continue;
       }
+
+      // Cross-session ownership check: if this vid is already on another
+      // session, DON'T auto-assign it. Surface it as skipped instead.
+      const owner = await findOwnerSession(hit.vid, session.id);
+      if (owner) {
+        skippedOwnedElsewhere.push({
+          clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title,
+          ownerSessionId: owner.id, ownerLabel: owner.label,
+        });
+        unmatchedVideos.delete(hit.vid);
+        addLog(`  ⚠ Skipped ${basename} → ${hit.vid}: already attached to session "${owner.label ?? owner.id.slice(0, 8)}"`);
+        continue;
+      }
+
+      vids[i] = hit.vid;
+      unmatchedVideos.delete(hit.vid);
+      matches.push({ clipIndex: i, clipName: basename, vid: hit.vid, title: hit.title });
+      addLog(`  Matched ${basename} → ${hit.vid}`);
     }
 
     const allDone = vids.every((v) => !!v);
@@ -636,6 +720,7 @@ router.post("/:id/pbvision-fetch-ids", async (req, res) => {
       matched: matches,
       unmatchedClips,
       unmatchedVideos: unmatchedVideoList,
+      skippedOwnedElsewhere,
       webhookErrors,
     });
   } catch (err) {
