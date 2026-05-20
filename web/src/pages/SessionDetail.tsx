@@ -346,6 +346,19 @@ export default function SessionDetail() {
     { ok: true; updated: number } | { ok: false; error: string } | null
   >(null);
 
+  // True once every slot in every imported game has a real player assigned
+  // (no "Player 0/1/2/3" placeholders). Drives the destructive-action lock:
+  // once tagging is in, "Sync now" would `delete + insert` game_players from
+  // pb.vision insights — wiping the mappings the coach just saved. We hide
+  // the pre-tagging sync button and replace the bottom "Sync now" with an
+  // explicit "Re-import (clears tagging)" path behind a confirm.
+  const taggingComplete =
+    !!taggingGames &&
+    taggingGames.length > 0 &&
+    taggingGames.every(
+      (g) => g.slots.length > 0 && g.slots.every((s) => !s.isPlaceholder),
+    );
+
   // pb.vision per-vid processing status — only fetched when no games have
   // been imported yet, so the UI can tell the coach "still processing"
   // vs "ready, click Sync now".
@@ -1642,7 +1655,42 @@ export default function SessionDetail() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {syncRhResult?.ok && !syncingRh ? (
+              {taggingComplete ? (
+                // Tagging is in. Re-running Sync would `delete + insert`
+                // game_players from pb.vision insights, replacing real
+                // mappings with "Player 0/1/2/3" placeholders. Replace the
+                // primary button with a locked indicator + an explicit
+                // re-import escape hatch behind a confirm.
+                <>
+                  <span
+                    title="All slots tagged. Re-syncing would overwrite player mappings."
+                    style={{ color: "#137333", fontSize: 13, fontWeight: 600 }}
+                  >
+                    ✓ Synced & tagged
+                  </span>
+                  <button
+                    onClick={() => {
+                      const ok = window.confirm(
+                        "Re-import will erase your tagging.\n\n" +
+                        "This pulls fresh game data from pb.vision. All slots will reset to “Player 0 / 1 / 2 / 3” " +
+                        "and you'll need to re-map them.\n\n" +
+                        "Only do this if pb.vision re-processed the clips or you need to start over.\n\n" +
+                        "Continue?",
+                      );
+                      if (ok) void syncRatingHub();
+                    }}
+                    disabled={syncingRh || running}
+                    style={
+                      syncingRh || running
+                        ? { ...btnDisabledStyle, background: "transparent", color: "#b00020", border: "1px solid #f5c6c6", whiteSpace: "nowrap" }
+                        : { padding: "6px 12px", background: "transparent", color: "#b00020", border: "1px solid #f5c6c6", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }
+                    }
+                    title="Re-pull game data from pb.vision. Erases current tagging — confirmation required."
+                  >
+                    {syncingRh ? "Re-importing…" : "Re-import from pb.vision…"}
+                  </button>
+                </>
+              ) : syncRhResult?.ok && !syncingRh ? (
                 <>
                   <span title="Last sync succeeded" style={{ color: "#137333", fontSize: 13, fontWeight: 600 }}>
                     ✓ Synced
@@ -1833,7 +1881,13 @@ export default function SessionDetail() {
                       </li>
                     ))}
                   </ul>
-                  {pbvAllReady && (
+                  {/* Only show the pre-tagging sync button BEFORE tagging
+                      is complete. After tagging it's a footgun — clicking
+                      it would re-import from pb.vision and overwrite the
+                      slot mappings the coach just saved. The "Re-import…"
+                      button on the bottom Sync card (behind a confirm) is
+                      the supported way to redo. */}
+                  {pbvAllReady && !taggingComplete && (
                     <div style={{ marginTop: 8 }}>
                       <button
                         onClick={async () => {
