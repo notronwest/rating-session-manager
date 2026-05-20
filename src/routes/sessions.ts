@@ -1134,27 +1134,28 @@ router.post("/:id/tagging", async (req, res) => {
       }
     }
 
-    // Apply each mapping. Supabase doesn't support multi-row updates with
-    // different values in a single call, so we issue one update per mapping.
-    // We've already validated game/player constraints above, so each update
-    // should hit exactly one row; count mappings as the success metric.
-    let updated = 0;
-    for (const m of mappings) {
-      const { error: upErr, data } = await supabase
-        .from("game_players")
-        .update({ player_id: m.playerId })
-        .eq("game_id", m.gameId)
-        .eq("player_index", m.playerIndex)
-        .select("id");
-      if (upErr) throw new Error(`update game_players: ${upErr.message}`);
-      updated += (data || []).length;
-    }
+    // Apply all mappings atomically via the apply_session_tagging RPC
+    // (rating-hub migration 049). The naive sequential UPDATE blows up
+    // `game_players_game_id_player_id_key` whenever a tagging change
+    // swaps two players between slots in the same game — the first
+    // UPDATE puts player B onto slot 0 while player B still owns slot
+    // 1, hitting the non-deferrable unique constraint mid-statement.
+    // The RPC runs the loop with the constraint DEFERRED so transient
+    // duplicates are fine and the whole operation is one transaction.
+    const { data: rpcData, error: rpcErr } = await supabase.rpc(
+      "apply_session_tagging",
+      { p_mappings: mappings },
+    );
+    if (rpcErr) throw new Error(`apply_session_tagging: ${rpcErr.message}`);
+    const updated = typeof rpcData === "number" ? rpcData : 0;
 
-    // Same idea for player_rating_snapshots if rating-hub indexes them by
-    // (game_id, player_index) — but the schema keys snapshots on player_id,
-    // not player_index. Walk by (game_id, old player_id we just replaced)?
-    // Skip for v1; the rating snapshot row stays attached to the *old*
-    // player. The user can re-import via Sync with Rating Hub if needed.
+    // Note: player_rating_snapshots are keyed on (player_id, game_id),
+    // not player_index, so tagging changes leave snapshots attached to
+    // the *old* player_id. Known gap from the original v1 flow — the
+    // game_players-based aggregation (refresh_player_aggregates) reads
+    // from game_players directly so the leaderboard / per-game stats
+    // are correct; only the rating-delta hero on PlayerHomePage still
+    // reads from snapshots.
 
     addLog(`Applied ${updated} player tagging mapping(s) to rating-hub.`);
     res.json({ ok: true, updated });
