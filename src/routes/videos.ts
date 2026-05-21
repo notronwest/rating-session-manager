@@ -126,7 +126,38 @@ router.post("/archive-attached", async (_req, res) => {
         }
       }
     }
-    res.json({ movedCount, archivedCount, results });
+
+    // Final sweep: any *_games.srt left in the active VIDEO_DIR that the
+    // per-session loop didn't pick up (e.g. session deleted but srt
+    // stayed behind, or srt from a manual detect_games run). They're
+    // just text files describing segment timecodes — safe to relocate
+    // wholesale.
+    let srtsSwept = 0;
+    try {
+      const videoDir = getVideoDir();
+      if (fs.existsSync(videoDir)) {
+        const processedDir = path.join(videoDir, PROCESSED_DIR_NAME);
+        fs.mkdirSync(processedDir, { recursive: true });
+        for (const entry of fs.readdirSync(videoDir, { withFileTypes: true })) {
+          if (!entry.isFile()) continue;
+          if (!/_games\.srt$/i.test(entry.name)) continue;
+          const src = path.join(videoDir, entry.name);
+          const dest = path.join(processedDir, entry.name);
+          if (fs.existsSync(dest)) continue;
+          try {
+            fs.renameSync(src, dest);
+            srtsSwept += 1;
+          } catch {
+            // skip — file may have been moved by the session loop
+            // in a race, or perms issue; not fatal.
+          }
+        }
+      }
+    } catch {
+      // best-effort — the rest of the response is still useful
+    }
+
+    res.json({ movedCount, archivedCount, srtsSwept, results });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
