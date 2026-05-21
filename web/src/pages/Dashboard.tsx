@@ -206,6 +206,9 @@ export default function Dashboard() {
   // Snapshot of <videoDir>/processed/ — populates the "Delete Archived"
   // button label so the user sees the disk savings before clicking.
   const [archivedInfo, setArchivedInfo] = useState<{ count: number; totalBytes: number } | null>(null);
+  // Hide archived sessions (those whose video_path lives in processed/)
+  // from the table by default. Toggle reveals them.
+  const [showArchived, setShowArchived] = useState(false);
 
   const fetchArchivedInfo = useCallback(async () => {
     try {
@@ -588,61 +591,118 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Sessions Table */}
-      {sessions.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center", color: "#999" }}>
-          No sessions yet. Import a rating event above or create one manually.
-        </div>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff", borderRadius: 8, overflow: "hidden" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #eee" }}>
-              {["Session", "Status", "Players", "Games", "Created"].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: "10px 12px", fontSize: 12, fontWeight: 600,
-                    color: "#666", textTransform: "uppercase", textAlign: "left",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((s) => (
-              <tr key={s.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                <td style={{ padding: "10px 12px", fontSize: 14 }}>
-                  <Link to={`/sessions/${s.id}`} style={{ color: "#1a73e8", textDecoration: "none", fontWeight: 500 }}>
-                    {s.label || s.id.slice(0, 8)}
-                  </Link>
-                  {s.booking_time && (
-                    <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
-                      {new Date(s.booking_time).toLocaleString([], {
-                        weekday: "short", month: "short", day: "numeric",
-                        hour: "numeric", minute: "2-digit",
-                      })}
-                    </div>
-                  )}
-                </td>
-                <td style={{ padding: "10px 12px" }}>
-                  <StatusBadge status={s.status} />
-                </td>
-                <td style={{ padding: "10px 12px", fontSize: 13, color: "#666" }}>
-                  {s.player_names ? s.player_names.join(", ") : "—"}
-                </td>
-                <td style={{ padding: "10px 12px", fontSize: 13, color: "#666" }}>
-                  {s.segments ? s.segments.length : "—"}
-                </td>
-                <td style={{ padding: "10px 12px", fontSize: 13, color: "#999" }}>
-                  {new Date(s.created_at).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* Sessions Table — split into active vs archived. A session counts
+          as "archived" once its source recording has been moved into
+          videos/processed/ (i.e. its video_path contains the "processed"
+          segment). Hidden by default; toggle reveals them. */}
+      {(() => {
+        const isArchived = (s: Session) =>
+          !!s.video_path && s.video_path.split("/").includes("processed");
+        const archivedSessions = sessions.filter(isArchived);
+        const activeSessions = sessions.filter((s) => !isArchived(s));
+        const visible = showArchived ? sessions : activeSessions;
+        return (
+          <>
+            <div
+              style={{
+                display: "flex", justifyContent: "space-between",
+                alignItems: "center", marginBottom: 8, fontSize: 12, color: "#666",
+              }}
+            >
+              <div>
+                {activeSessions.length} active
+                {archivedSessions.length > 0 && (
+                  <>
+                    {" · "}
+                    <button
+                      onClick={() => setShowArchived((v) => !v)}
+                      style={{
+                        background: "transparent", border: "none", padding: 0,
+                        color: "#1a73e8", cursor: "pointer", fontSize: 12,
+                        textDecoration: "underline", fontFamily: "inherit",
+                      }}
+                      title="Sessions whose source recording has been moved to videos/processed/"
+                    >
+                      {showArchived
+                        ? `Hide ${archivedSessions.length} archived`
+                        : `Show ${archivedSessions.length} archived`}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {visible.length === 0 ? (
+              <div style={{ padding: 40, textAlign: "center", color: "#999" }}>
+                {sessions.length === 0
+                  ? "No sessions yet. Import a rating event above or create one manually."
+                  : "No active sessions. Toggle \"Show archived\" above to see older ones."}
+              </div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff", borderRadius: 8, overflow: "hidden" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid #eee" }}>
+                    {["Session", "Status", "Players", "Games", "Created"].map((h) => (
+                      <th
+                        key={h}
+                        style={{
+                          padding: "10px 12px", fontSize: 12, fontWeight: 600,
+                          color: "#666", textTransform: "uppercase", textAlign: "left",
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((s) => (
+                    <tr
+                      key={s.id}
+                      style={{
+                        borderBottom: "1px solid #f0f0f0",
+                        // Dim archived rows when they're visible so the user
+                        // can still tell which is which.
+                        opacity: isArchived(s) ? 0.55 : 1,
+                      }}
+                    >
+                      <td style={{ padding: "10px 12px", fontSize: 14 }}>
+                        <Link to={`/sessions/${s.id}`} style={{ color: "#1a73e8", textDecoration: "none", fontWeight: 500 }}>
+                          {s.label || s.id.slice(0, 8)}
+                        </Link>
+                        {isArchived(s) && (
+                          <span style={{ marginLeft: 6, fontSize: 10, color: "#999", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                            · archived
+                          </span>
+                        )}
+                        {s.booking_time && (
+                          <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
+                            {new Date(s.booking_time).toLocaleString([], {
+                              weekday: "short", month: "short", day: "numeric",
+                              hour: "numeric", minute: "2-digit",
+                            })}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <StatusBadge status={s.status} />
+                      </td>
+                      <td style={{ padding: "10px 12px", fontSize: 13, color: "#666" }}>
+                        {s.player_names ? s.player_names.join(", ") : "—"}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontSize: 13, color: "#666" }}>
+                        {s.segments ? s.segments.length : "—"}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontSize: 13, color: "#999" }}>
+                        {new Date(s.created_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
