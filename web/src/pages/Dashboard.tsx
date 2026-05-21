@@ -10,6 +10,7 @@ interface Session {
   player_names: string[] | null;
   video_path: string | null;
   segments: { index: number; start: string; end: string; duration_sec: number }[] | null;
+  archived_at: string | null;
   created_at: string;
 }
 
@@ -591,13 +592,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Sessions Table — split into active vs archived. A session counts
-          as "archived" once its source recording has been moved into
-          videos/processed/ (i.e. its video_path contains the "processed"
-          segment). Hidden by default; toggle reveals them. */}
+      {/* Sessions Table — split into active vs archived. archived_at !=
+          null means the session was explicitly archived (via Archive
+          Completed / Archive Attached / per-session archive action).
+          Hidden by default; toggle reveals them. */}
       {(() => {
-        const isArchived = (s: Session) =>
-          !!s.video_path && s.video_path.split("/").includes("processed");
+        const isArchived = (s: Session) => !!s.archived_at;
         const archivedSessions = sessions.filter(isArchived);
         const activeSessions = sessions.filter((s) => !isArchived(s));
         const visible = showArchived ? sessions : activeSessions;

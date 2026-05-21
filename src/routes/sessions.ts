@@ -105,19 +105,76 @@ function sendError(res: Parameters<typeof router.get>[1] extends never ? never :
 // "archive-completed" as an :id segment.
 router.post("/archive-completed", async (_req, res) => {
   try {
+    // Step 1: physically move files for sessions that have them.
     const results = await archiveAllCompletedSessions();
     const totalMoved = results.reduce((n, r) => n + r.moved.length, 0);
     const totalSkipped = results.reduce((n, r) => n + r.skipped.length, 0);
-    const sessionsArchived = results.filter((r) => r.moved.length > 0).length;
+    const sessionsFilesMoved = results.filter((r) => r.moved.length > 0).length;
+
+    // Step 2: mark every status=complete session as archived, regardless
+    // of whether it had files to move. Without this, the Dashboard's
+    // "Archive Completed" button looked broken for CR-imported sessions
+    // that never had a video file attached — they stayed in the active
+    // list forever because step 1 found nothing to do.
+    const all = await listSessions();
+    const now = new Date().toISOString();
+    let sessionsMarked = 0;
+    for (const s of all) {
+      if (s.status !== "complete") continue;
+      if (s.archived_at) continue;
+      try {
+        await updateSession(s.id, { archived_at: now });
+        sessionsMarked += 1;
+      } catch (err) {
+        // Don't fail the whole batch on one bad row — surface as a skip.
+        results.push({
+          sessionId: s.id,
+          label: s.label,
+          moved: [],
+          skipped: [`mark archived failed: ${(err as Error).message}`],
+        });
+      }
+    }
+
     res.json({
       results,
       summary: {
         sessions_inspected: results.length,
-        sessions_archived: sessionsArchived,
+        sessions_archived: sessionsMarked,
         files_moved: totalMoved,
         files_skipped: totalSkipped,
+        sessions_files_moved: sessionsFilesMoved,
       },
     });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/sessions/:id/archive — mark a single session archived. Idempotent;
+// re-running on an already-archived session is a no-op (returns existing time).
+router.post("/:id/archive", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (session.archived_at) return res.json(session);
+    const updated = await updateSession(session.id, {
+      archived_at: new Date().toISOString(),
+    });
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/sessions/:id/unarchive — clear archived_at. For when something
+// got archived by mistake or the coach wants to revisit a finished session.
+router.post("/:id/unarchive", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    const updated = await updateSession(session.id, { archived_at: null });
+    res.json(updated);
   } catch (err) {
     sendError(res, err);
   }

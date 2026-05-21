@@ -3,7 +3,7 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { listSessions } from "../db/index.js";
+import { listSessions, updateSession } from "../db/index.js";
 import { archiveSessionVideo } from "../services/archive.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -92,6 +92,8 @@ router.post("/archive-attached", async (_req, res) => {
     const sessions = await listSessions();
     const results = [];
     let movedCount = 0;
+    let archivedCount = 0;
+    const now = new Date().toISOString();
     for (const s of sessions) {
       if (!s.video_path) continue;
       try {
@@ -106,8 +108,25 @@ router.post("/archive-attached", async (_req, res) => {
           skipped: [`error: ${(err as Error).message}`],
         });
       }
+      // Mark archived even if the file move was a no-op (already in
+      // processed/, source missing, etc.) — the user's intent for this
+      // button is "this session shouldn't appear in the active list
+      // anymore", which is now an explicit session-level state.
+      if (!s.archived_at) {
+        try {
+          await updateSession(s.id, { archived_at: now });
+          archivedCount += 1;
+        } catch (err) {
+          results.push({
+            sessionId: s.id,
+            label: s.label,
+            moved: [],
+            skipped: [`mark archived failed: ${(err as Error).message}`],
+          });
+        }
+      }
     }
-    res.json({ movedCount, results });
+    res.json({ movedCount, archivedCount, results });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
