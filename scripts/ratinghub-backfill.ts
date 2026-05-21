@@ -263,9 +263,16 @@ async function main() {
         continue;
       }
       if (!dryRun) {
+        // Use status="imported" (not "complete") because these rows
+        // didn't go through session-manager's record→split→upload→
+        // tag→sync pipeline. The games already exist in rating-hub —
+        // this row is just a mirror so the Dashboard can see them.
+        // Marking complete would claim the pipeline finished work it
+        // never actually did, and that's what surfaced the user's
+        // confusion on 2026-05-21.
         await createSession({
           id: s.id,
-          status: "complete",
+          status: "imported",
           label: s.label ?? null,
           booking_time: bookingTime,
           player_names: playerNames,

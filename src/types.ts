@@ -10,6 +10,13 @@ export const SESSION_STATUSES = [
   "importing",
   "complete",
   "failed",
+  // Reserved for rows mirrored in from rating-hub by
+  // scripts/ratinghub-backfill.ts. Those sessions never went through
+  // the local record → split → upload → tag → sync pipeline; the games
+  // already exist in rating-hub. Distinct from `complete` so the
+  // Dashboard doesn't claim the local pipeline finished work it never
+  // actually did.
+  "imported",
 ] as const;
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number];

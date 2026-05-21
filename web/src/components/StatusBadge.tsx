@@ -10,6 +10,10 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   importing: { bg: "#fef7e0", text: "#e37400" },
   complete: { bg: "#e6f4ea", text: "#137333" },
   failed: { bg: "#fce8e6", text: "#d93025" },
+  // Backfilled from rating-hub (not via local pipeline). Grey-blue so
+  // it doesn't read as a success or failure — it's "this row is just
+  // a mirror, the work happened elsewhere".
+  imported: { bg: "#eef0f3", text: "#5f6368" },
 };
 
 export default function StatusBadge({ status }: { status: string }) {
