@@ -54,8 +54,29 @@ export async function archiveSessionVideo(session: Session): Promise<ArchiveResu
   const sourcePath = session.video_path;
   const sourceDir = path.dirname(sourcePath);
   const sourceName = path.basename(sourcePath);
+  // detect_games.py writes a sibling SRT named `<stem>_games.srt` next to
+  // the source video. Keep them together — they belong with the same
+  // recording forever, and earlier archive runs left them behind in
+  // videos/ even after the video itself was moved.
+  const videoStem = sourceName.replace(/\.[^.]+$/, "");
+  const srtName = `${videoStem}_games.srt`;
 
   if (isInProcessed(sourceDir)) {
+    // Video already moved by an earlier archive run, but the companion
+    // SRT may still be sitting in the active /videos/ dir. Sweep it.
+    const activeDir = path.dirname(sourceDir); // strip the trailing /processed
+    const srtInActive = path.join(activeDir, srtName);
+    const srtTarget = path.join(sourceDir, srtName);
+    if (fs.existsSync(srtInActive) && !fs.existsSync(srtTarget)) {
+      try {
+        fs.renameSync(srtInActive, srtTarget);
+        result.moved.push(`${srtName} → processed/`);
+        return result;
+      } catch (err) {
+        result.skipped.push(`rename srt failed: ${(err as Error).message}`);
+        return result;
+      }
+    }
     result.skipped.push("already inside a processed/ directory");
     return result;
   }
@@ -109,6 +130,24 @@ export async function archiveSessionVideo(session: Session): Promise<ArchiveResu
         }
         result.skipped.push(`rename clips failed: ${(err as Error).message}`);
         return result;
+      }
+    }
+  }
+
+  // Move the companion SRT if present. Best-effort — failure here
+  // leaves the video + clips archived but the SRT behind, which is no
+  // worse than the pre-fix state. Reported in `skipped` either way.
+  const srtSource = path.join(sourceDir, srtName);
+  if (fs.existsSync(srtSource)) {
+    const srtTarget = path.join(processedDir, srtName);
+    if (fs.existsSync(srtTarget)) {
+      result.skipped.push(`srt target already exists: ${srtTarget}`);
+    } else {
+      try {
+        fs.renameSync(srtSource, srtTarget);
+        result.moved.push(`${srtName} → processed/`);
+      } catch (err) {
+        result.skipped.push(`rename srt failed: ${(err as Error).message}`);
       }
     }
   }
