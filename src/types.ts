@@ -26,6 +26,10 @@ export interface Session {
   clip_paths: string[] | null;
   pbvision_video_ids: string[] | null;
   error: string | null;
+  /** When this session was archived (= hidden from the active dashboard
+   *  list). NULL = active. See migration 050. Toggled by Archive
+   *  Completed / Archive Attached / per-session archive actions. */
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }

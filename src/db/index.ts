@@ -15,7 +15,7 @@ const LOGS = "session_manager_session_logs";
 // Columns we always select. Order matches the Session type for readability.
 const SESSION_COLS =
   "id, status, label, booking_time, player_names, video_path, roi_path, " +
-  "segments, clip_paths, pbvision_video_ids, error, created_at, updated_at";
+  "segments, clip_paths, pbvision_video_ids, error, archived_at, created_at, updated_at";
 
 // Cast Supabase rows (which use `unknown` JSONB and a wide select-string type)
 // into our Session type. We trust Postgres + the column list above.
@@ -94,6 +94,8 @@ export interface UpdateSessionInput {
   clip_paths?: string[] | null;
   pbvision_video_ids?: (string | null)[] | null;
   error?: string | null;
+  /** ISO timestamp to mark archived, or null to unarchive. */
+  archived_at?: string | null;
 }
 
 /** Update a session and return the fresh row. updated_at auto-bumps via trigger. */

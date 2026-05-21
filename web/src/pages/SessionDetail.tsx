@@ -22,6 +22,7 @@ interface Session {
   clip_paths: string[] | null;
   pbvision_video_ids: string[] | null;
   error: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -939,6 +940,34 @@ export default function SessionDetail() {
             Cancel Build
           </button>
         )}
+        <button
+          onClick={async () => {
+            const path = session.archived_at ? "unarchive" : "archive";
+            try {
+              const res = await fetch(`/api/sessions/${id}/${path}`, { method: "POST" });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(`${path} failed: ${data.error || res.statusText}`);
+                return;
+              }
+              await fetchSession();
+            } catch (err) {
+              alert(`${path} failed: ${(err as Error).message}`);
+            }
+          }}
+          disabled={running}
+          style={{
+            padding: "6px 14px", background: "#fff", color: "#5f6368",
+            border: "1px solid #dadce0", borderRadius: 6, fontSize: 13,
+            fontWeight: 500, cursor: running ? "not-allowed" : "pointer",
+            opacity: running ? 0.5 : 1,
+          }}
+          title={session.archived_at
+            ? "Move this session back into the active Dashboard list"
+            : "Hide this session from the active Dashboard list. Reversible."}
+        >
+          {session.archived_at ? "Unarchive" : "Archive"}
+        </button>
         <button
           onClick={deleteSessionAction}
           disabled={running}
