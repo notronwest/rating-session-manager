@@ -1742,11 +1742,16 @@ export default function SessionDetail() {
               ) : (
                 <button
                   onClick={syncRatingHub}
-                  disabled={syncingRh || running}
+                  disabled={syncingRh || running || (pbvStatuses && !pbvAllReady) || false}
                   style={
-                    syncingRh || running
+                    syncingRh || running || (pbvStatuses && !pbvAllReady)
                       ? { ...btnDisabledStyle, background: "#5f6368", whiteSpace: "nowrap" }
                       : { ...btnStyle, background: "#5f6368", whiteSpace: "nowrap" }
+                  }
+                  title={
+                    pbvStatuses && !pbvAllReady
+                      ? "Waiting on pb.vision to finish processing all clips"
+                      : "Pull insights from pb.vision into rating-hub"
                   }
                 >
                   {syncingRh ? "Syncing…" : "Sync now"}
@@ -1754,6 +1759,43 @@ export default function SessionDetail() {
               )}
             </div>
           </div>
+          {/* pb.vision processing status — shows up here (next to the sync
+              button) when we know it. Drives the disabled state above so
+              the coach can see WHY Sync is grey. */}
+          {pbvStatuses && pbvStatuses.length > 0 && !taggingComplete && (taggingGames?.length ?? 0) === 0 && (
+            <div style={{ padding: 12, fontSize: 13, color: "#5f6368", background: "#f8f9fa", borderRadius: 6, marginBottom: 12 }}>
+              <div style={{ marginBottom: 6 }}>
+                {pbvAllReady ? (
+                  <span style={{ color: "#137333", fontWeight: 500 }}>
+                    ✓ All clips processed on pb.vision — ready to sync.
+                  </span>
+                ) : (
+                  <>
+                    <span style={{ fontWeight: 500 }}>
+                      Waiting on pb.vision — {pbvStatuses.filter((s) => s.ready).length} of {pbvStatuses.length} clips processed.
+                    </span>{" "}
+                    AI usually takes ~30 minutes after upload.
+                  </>
+                )}
+              </div>
+              <ul style={{ listStyle: "none", padding: 0, margin: "4px 0", fontSize: 12 }}>
+                {pbvStatuses.map((s) => (
+                  <li key={s.vid} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span
+                      style={{
+                        display: "inline-block", width: 10, height: 10, borderRadius: "50%",
+                        background: s.ready ? "#34a853" : "#fbbc04",
+                      }}
+                    />
+                    <code style={{ fontFamily: "monospace" }}>{s.vid}</code>
+                    <span style={{ color: "#999" }}>
+                      {s.ready ? "Ready" : `Processing${s.reason ? ` (${s.reason})` : "…"}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {syncRhResult && (
             <div
               style={{
@@ -1818,11 +1860,17 @@ export default function SessionDetail() {
         </div>
       )}
 
-      {/* In-app player tagging (PB Vision avatar → WMPC player). Visible
-          once any clip has a pb.vision ID; populates once rating-hub
-          imports have happened (which only completes after AI processing
-          finishes on pb.vision). */}
-      {session.clip_paths && session.clip_paths.length > 0 && (session.pbvision_video_ids || []).some(Boolean) && (
+      {/* In-app player tagging (PB Vision avatar → WMPC player).
+          Only renders when rating-hub has games imported for this
+          session — i.e. there's something to actually tag. Before
+          that, the Sync card above shows the pb.vision processing
+          state + the canonical "Sync now" action. Once tagging
+          completes, the Sync card flips to "✓ Synced & tagged" with
+          a small "Re-import…" escape hatch. One canonical action
+          per step. */}
+      {session.clip_paths && session.clip_paths.length > 0 &&
+       (session.pbvision_video_ids || []).some(Boolean) &&
+       taggingGames && taggingGames.length > 0 && (
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <div>
@@ -1871,99 +1919,6 @@ export default function SessionDetail() {
               )}
             </div>
           </div>
-
-          {/* Empty state: no games imported yet. Drill into pb.vision to
-              report per-clip processing status so the user knows whether
-              it's "wait longer" vs "ready, click Sync now". */}
-          {!taggingLoading && taggingGames && taggingGames.length === 0 && (
-            <div style={{ padding: 12, fontSize: 13, color: "#5f6368", background: "#f8f9fa", borderRadius: 6 }}>
-              {pbvStatusLoading && <div>Checking pb.vision processing status…</div>}
-
-              {pbvStatuses && pbvStatuses.length > 0 && (
-                <>
-                  <div style={{ marginBottom: 6 }}>
-                    {pbvAllReady ? (
-                      <span style={{ color: "#137333", fontWeight: 500 }}>
-                        ✓ All clips processed on pb.vision.
-                      </span>
-                    ) : (
-                      <>
-                        <span style={{ fontWeight: 500 }}>
-                          Waiting on pb.vision —{" "}
-                          {pbvStatuses.filter((s) => s.ready).length} of {pbvStatuses.length} clips processed.
-                        </span>{" "}
-                        AI usually takes ~30 minutes after upload.
-                      </>
-                    )}
-                  </div>
-                  <ul style={{ listStyle: "none", padding: 0, margin: "4px 0", fontSize: 12 }}>
-                    {pbvStatuses.map((s) => (
-                      <li key={s.vid} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span
-                          style={{
-                            display: "inline-block", width: 10, height: 10, borderRadius: "50%",
-                            background: s.ready ? "#34a853" : "#fbbc04",
-                          }}
-                        />
-                        <code style={{ fontFamily: "monospace" }}>{s.vid}</code>
-                        <span style={{ color: "#999" }}>
-                          {s.ready ? "Ready" : `Processing${s.reason ? ` (${s.reason})` : "…"}`}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  {/* Only show the pre-tagging sync button BEFORE tagging
-                      is complete. After tagging it's a footgun — clicking
-                      it would re-import from pb.vision and overwrite the
-                      slot mappings the coach just saved. The "Re-import…"
-                      button on the bottom Sync card (behind a confirm) is
-                      the supported way to redo. */}
-                  {pbvAllReady && !taggingComplete && (
-                    <div style={{ marginTop: 8 }}>
-                      <button
-                        onClick={async () => {
-                          await syncRatingHub();
-                          await fetchTagging();
-                        }}
-                        disabled={syncingRh || taggingLoading}
-                        style={{
-                          padding: "6px 14px", background: "#5f6368", color: "#fff",
-                          border: "none", borderRadius: 6, fontSize: 13, fontWeight: 500,
-                          cursor: syncingRh || taggingLoading ? "not-allowed" : "pointer",
-                          opacity: syncingRh || taggingLoading ? 0.5 : 1,
-                        }}
-                      >
-                        {syncingRh ? "Syncing…" : "Run Sync with Rating Hub now"}
-                      </button>
-                      <span style={{ marginLeft: 8, fontSize: 12, color: "#999" }}>
-                        — pulls insights into rating-hub so the tagging UI can populate.
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {!pbvStatusLoading && (!pbvStatuses || pbvStatuses.length === 0) && (
-                <div>
-                  <div style={{ marginBottom: 8 }}>
-                    Rating-hub hasn't imported any games for this session yet. Run <strong>Sync with Rating Hub</strong> above first — once it pulls games in, this card will populate with avatars to tag.
-                  </div>
-                  <button
-                    onClick={() => {
-                      const el = document.getElementById("sync-card");
-                      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }}
-                    style={{
-                      padding: "6px 14px", background: "#5f6368", color: "#fff",
-                      border: "none", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer",
-                    }}
-                  >
-                    Jump to Sync ↑
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Per-game thumbnails + picks */}
           {taggingGames && taggingGames.length > 0 && (
