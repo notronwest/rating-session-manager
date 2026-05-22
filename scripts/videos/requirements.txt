@@ -4,3 +4,12 @@ ultralytics>=8.4
 # torch + torchvision are installed transitively by ultralytics. On Apple
 # Silicon they ship with MPS support out of the box; on Linux with NVIDIA
 # you'll want to reinstall torch with the CUDA wheel afterwards.
+
+# Avatar matching (scripts/videos/match_avatars.py) — auto-suggests
+# tagging for Games 2/3 by CLIP-embedding the avatar thumbnails of an
+# already-tagged source game and finding nearest neighbours among the
+# untagged game's thumbnails. Hungarian assignment ensures each
+# reference player maps to at most one candidate slot per game.
+open_clip_torch>=2.20
+Pillow>=10.0
+scipy>=1.10

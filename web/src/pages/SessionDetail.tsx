@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import VideoSegmentEditor from "../components/VideoSegmentEditor";
@@ -448,6 +448,106 @@ export default function SessionDetail() {
   const setPick = (gameId: string, playerIndex: number, playerId: string) => {
     setTaggingPicks((prev) => ({ ...prev, [`${gameId}:${playerIndex}`]: playerId }));
     setTaggingDirty(true);
+    // The pick is no longer a CLIP suggestion once the coach edits it,
+    // but a coach who CONFIRMS a suggested pick (selects the same value)
+    // is also no longer treating it as "suggested" — the pill goes away
+    // either way. We just drop the badge for this key.
+    setSuggestedBadges((prev) => {
+      const next = { ...prev };
+      delete next[`${gameId}:${playerIndex}`];
+      return next;
+    });
+  };
+
+  // Per-slot "this pick came from auto-suggest" badge map. Keyed the
+  // same as taggingPicks. Confidence drives the badge colour: ≥0.85
+  // green, ≥0.70 amber, otherwise red.
+  const [suggestedBadges, setSuggestedBadges] = useState<
+    Record<string, { confidence: number; margin: number }>
+  >({});
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+
+  // Returns the game we should use as a tagging reference: the first
+  // game (by playedAt order — same order the API returns) whose every
+  // slot has a real, non-placeholder player. Null if no game qualifies.
+  const fullyTaggedSourceGame = useMemo(() => {
+    if (!taggingGames) return null;
+    for (const g of taggingGames) {
+      if (g.slots.length === 0) continue;
+      if (g.slots.every((s) => !s.isPlaceholder && s.currentPlayerName)) {
+        return g;
+      }
+    }
+    return null;
+  }, [taggingGames]);
+
+  // True when there's at least one other game with placeholders that
+  // could benefit from a suggestion. Drives the button visibility.
+  const hasUntaggedGames = useMemo(() => {
+    if (!taggingGames) return false;
+    return taggingGames.some(
+      (g) => g.slots.length > 0 && g.slots.some((s) => s.isPlaceholder),
+    );
+  }, [taggingGames]);
+
+  const requestSuggestions = async () => {
+    if (!fullyTaggedSourceGame) return;
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch(`/api/sessions/${id}/tagging/suggest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceGameId: fullyTaggedSourceGame.gameId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSuggestError(data.error || res.statusText);
+        return;
+      }
+      const newPicks: Record<string, string> = {};
+      const newBadges: Record<string, { confidence: number; margin: number }> = {};
+      for (const g of data.suggestions as Array<{
+        gameId: string;
+        slots: Array<{
+          playerIndex: number;
+          playerId: string;
+          confidence: number;
+          margin: number;
+        }>;
+      }>) {
+        for (const s of g.slots) {
+          const key = `${g.gameId}:${s.playerIndex}`;
+          newPicks[key] = s.playerId;
+          newBadges[key] = { confidence: s.confidence, margin: s.margin };
+        }
+      }
+      // Merge into existing picks; suggestions OVERRIDE picks that
+      // haven't been saved yet (i.e. still match the original currentPlayerId
+      // or are empty), but do NOT clobber picks the coach manually changed.
+      setTaggingPicks((prev) => {
+        const next = { ...prev };
+        for (const [key, sid] of Object.entries(newPicks)) {
+          // Only fill in slots that are currently a placeholder. If the
+          // coach already picked a real player here we leave it alone —
+          // their pick is more authoritative than CLIP's guess.
+          const [gameId, playerIndexStr] = key.split(":");
+          const game = taggingGames?.find((g) => g.gameId === gameId);
+          const slot = game?.slots.find((s) => s.playerIndex === Number(playerIndexStr));
+          if (!slot) continue;
+          if (!slot.isPlaceholder && prev[key] && prev[key] !== slot.currentPlayerId) continue;
+          next[key] = sid;
+        }
+        return next;
+      });
+      setSuggestedBadges((prev) => ({ ...prev, ...newBadges }));
+      setTaggingDirty(true);
+    } catch (err) {
+      setSuggestError((err as Error).message);
+    } finally {
+      setSuggesting(false);
+    }
   };
 
   const applyTagging = async () => {
@@ -1897,6 +1997,26 @@ export default function SessionDetail() {
               >
                 {taggingLoading ? "Refreshing…" : "Refresh"}
               </button>
+              {fullyTaggedSourceGame && hasUntaggedGames && (
+                <button
+                  onClick={requestSuggestions}
+                  disabled={suggesting || taggingSaving || taggingLoading}
+                  style={{
+                    padding: "6px 12px", background: "#fff", color: "#7c3aed",
+                    border: "1px solid #c4b5fd", borderRadius: 6, fontSize: 13,
+                    fontWeight: 500, cursor: suggesting ? "not-allowed" : "pointer",
+                    opacity: suggesting || taggingSaving || taggingLoading ? 0.5 : 1,
+                    whiteSpace: "nowrap",
+                  }}
+                  title={`Use ${
+                    fullyTaggedSourceGame.gameId === taggingGames?.[0]?.gameId
+                      ? "Game 1"
+                      : `vid=${fullyTaggedSourceGame.vid}`
+                  } as a reference and predict tagging for the remaining games (CLIP image matching, runs locally).`}
+                >
+                  {suggesting ? "Matching…" : "✨ Suggest remaining"}
+                </button>
+              )}
               {taggingResult?.ok && !taggingDirty && !taggingSaving ? (
                 <span title="All picks saved to rating-hub" style={{ color: "#137333", fontSize: 13, fontWeight: 600, alignSelf: "center" }}>
                   ✓ Saved
@@ -1919,6 +2039,16 @@ export default function SessionDetail() {
               )}
             </div>
           </div>
+
+          {suggestError && (
+            <div style={{
+              padding: "6px 10px", marginBottom: 10, fontSize: 12,
+              color: "#b00020", background: "#fde7e7",
+              border: "1px solid #f5c6c6", borderRadius: 6,
+            }}>
+              Suggest failed: {suggestError}
+            </div>
+          )}
 
           {/* Per-game thumbnails + picks */}
           {taggingGames && taggingGames.length > 0 && (
@@ -1970,6 +2100,31 @@ export default function SessionDetail() {
                             {slot.isPlaceholder && (
                               <span style={{ color: "#d93025", fontWeight: 500 }}> · untagged</span>
                             )}
+                            {(() => {
+                              const badge = suggestedBadges[key];
+                              if (!badge) return null;
+                              // Confidence colour bands: ≥0.85 green,
+                              // ≥0.70 amber, otherwise red. Margin
+                              // appears in the tooltip so a coach can
+                              // see "even when CLIP is unsure, here's
+                              // how close the runner-up was".
+                              const c = badge.confidence;
+                              const colour = c >= 0.85 ? "#137333" : c >= 0.7 ? "#b06000" : "#b00020";
+                              const bg = c >= 0.85 ? "#e6f4ea" : c >= 0.7 ? "#fef7e0" : "#fce8e6";
+                              return (
+                                <span
+                                  title={`CLIP suggested this match. confidence=${c.toFixed(2)}, margin=${badge.margin.toFixed(2)}. Edit if wrong.`}
+                                  style={{
+                                    marginLeft: 6, fontSize: 9, fontWeight: 700,
+                                    letterSpacing: 0.4, padding: "1px 5px",
+                                    color: colour, background: bg,
+                                    border: `1px solid ${colour}`, borderRadius: 3,
+                                  }}
+                                >
+                                  SUGGESTED {Math.round(c * 100)}%
+                                </span>
+                              );
+                            })()}
                           </div>
                           <select
                             value={pickedId}

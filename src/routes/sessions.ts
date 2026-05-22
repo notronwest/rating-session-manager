@@ -19,6 +19,7 @@ import { listPbVisionVideos, ListError } from "../pbvision/list.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
 import { archiveAllCompletedSessions } from "../services/archive.js";
+import { matchAvatars } from "../services/avatar-matcher.js";
 import { sendDiscordAlert } from "../services/discord-alert.js";
 import { getSupabase, getOrgId } from "../supabase.js";
 import type { Session, GameSegment, SessionStatus } from "../types.js";
@@ -1216,6 +1217,180 @@ router.post("/:id/tagging", async (req, res) => {
 
     addLog(`Applied ${updated} player tagging mapping(s) to rating-hub.`);
     res.json({ ok: true, updated });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/sessions/:id/tagging/suggest
+//
+// After the coach manually tags one game in a session, this endpoint
+// uses the tagged game as a reference and predicts the tagging for
+// every OTHER game in the session via CLIP image embeddings. Returns
+// one suggestion per slot per untagged game, with a confidence score
+// the UI can use to flag low-confidence matches.
+//
+// Body:
+//   { sourceGameId: "uuid" }   — required, must be a game on this
+//                                session with every slot tagged to a
+//                                real player (no "Player N" placeholders).
+//
+// Response:
+//   {
+//     suggestions: [
+//       {
+//         gameId: "uuid",
+//         vid: "...",
+//         slots: [
+//           { playerIndex: 0, playerId: "uuid", playerName: "Ron",
+//             confidence: 0.92, margin: 0.18 },
+//           ...
+//         ]
+//       }, ...
+//     ]
+//   }
+router.post("/:id/tagging/suggest", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const sourceGameId = req.body?.sourceGameId as string | undefined;
+    if (!sourceGameId) {
+      return res.status(400).json({ error: "sourceGameId is required" });
+    }
+
+    const supabase = getSupabase();
+    const orgId = await getOrgId();
+
+    // Pull every game on this session, with its slot rows + raw_player_data
+    // (we read avatar_id from there — same source the tagging GET uses).
+    const { data: gamesData, error: gErr } = await supabase
+      .from("games")
+      .select("id, pbvision_video_id, ai_engine_version, played_at")
+      .eq("org_id", orgId)
+      .eq("session_id", session.id);
+    if (gErr) throw new Error(`games fetch: ${gErr.message}`);
+    const games = (gamesData || []) as {
+      id: string;
+      pbvision_video_id: string;
+      ai_engine_version: number | null;
+      played_at: string | null;
+    }[];
+    if (games.length === 0) {
+      return res.json({ suggestions: [] });
+    }
+
+    const gameIds = games.map((g) => g.id);
+    const { data: gpData, error: gpErr } = await supabase
+      .from("game_players")
+      .select("game_id, player_id, player_index, raw_player_data")
+      .in("game_id", gameIds);
+    if (gpErr) throw new Error(`game_players fetch: ${gpErr.message}`);
+    const gp = (gpData || []) as {
+      game_id: string;
+      player_id: string;
+      player_index: number;
+      raw_player_data: { avatar_id?: number } | null;
+    }[];
+
+    // Names for the reference picks — so the response can label each
+    // suggestion (UI shows e.g. "Suggested: Ron West (92%)").
+    const refPlayerIds = Array.from(new Set(
+      gp.filter((row) => row.game_id === sourceGameId).map((row) => row.player_id),
+    ));
+    const { data: pData, error: pErr } = await supabase
+      .from("players")
+      .select("id, display_name")
+      .in("id", refPlayerIds);
+    if (pErr) throw new Error(`players fetch: ${pErr.message}`);
+    const playerNameById = new Map<string, string>();
+    for (const p of (pData || []) as { id: string; display_name: string }[]) {
+      playerNameById.set(p.id, p.display_name);
+    }
+
+    const placeholderRe = /^Player [0-9]$/;
+    const buildThumbnail = (g: { pbvision_video_id: string; ai_engine_version: number | null }, row: { player_index: number; raw_player_data: { avatar_id?: number } | null }) => {
+      const aiv = g.ai_engine_version;
+      if (!aiv) return null;
+      const avatarId = row.raw_player_data?.avatar_id != null
+        ? row.raw_player_data.avatar_id
+        : row.player_index;
+      return `https://storage.googleapis.com/pbv-pro/${g.pbvision_video_id}/${aiv}/player${avatarId}-0.jpg`;
+    };
+
+    const sourceGame = games.find((g) => g.id === sourceGameId);
+    if (!sourceGame) {
+      return res.status(400).json({ error: `sourceGameId ${sourceGameId} is not on this session` });
+    }
+    const sourceSlots = gp.filter((row) => row.game_id === sourceGameId);
+    // Verify the source game is fully tagged — refuse to use placeholders
+    // as references, that would propagate the bad tagging.
+    for (const row of sourceSlots) {
+      const name = playerNameById.get(row.player_id);
+      if (!name) {
+        return res.status(400).json({ error: `Source game has unknown player_id ${row.player_id}` });
+      }
+      if (placeholderRe.test(name)) {
+        return res.status(400).json({ error: `Source game still has placeholder "${name}" — tag it manually first.` });
+      }
+    }
+
+    const references = sourceSlots
+      .map((row) => {
+        const url = buildThumbnail(sourceGame, row);
+        if (!url) return null;
+        return {
+          player_id: row.player_id,
+          name: playerNameById.get(row.player_id) || "",
+          url,
+        };
+      })
+      .filter((r): r is { player_id: string; name: string; url: string } => !!r);
+    if (references.length === 0) {
+      return res.status(400).json({ error: "Source game has no usable avatar thumbnails (missing ai_engine_version)." });
+    }
+
+    // Now produce suggestions for every OTHER game. We don't filter by
+    // "has placeholders" — the caller may want a fresh suggestion to
+    // double-check an already-tagged game. The frontend can decide
+    // whether to apply.
+    const suggestions = [];
+    for (const g of games) {
+      if (g.id === sourceGameId) continue;
+      const slots = gp.filter((row) => row.game_id === g.id);
+      const candidates = slots
+        .map((row) => {
+          const url = buildThumbnail(g, row);
+          if (!url) return null;
+          return { slot: row.player_index, url };
+        })
+        .filter((c): c is { slot: number; url: string } => !!c);
+      if (candidates.length === 0) continue;
+
+      try {
+        const matches = await matchAvatars(references, candidates);
+        suggestions.push({
+          gameId: g.id,
+          vid: g.pbvision_video_id,
+          slots: matches.map((m) => ({
+            playerIndex: m.slot,
+            playerId: m.player_id,
+            playerName: m.player_name,
+            confidence: m.confidence,
+            margin: m.margin,
+          })),
+        });
+      } catch (err) {
+        suggestions.push({
+          gameId: g.id,
+          vid: g.pbvision_video_id,
+          slots: [],
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    res.json({ suggestions });
   } catch (err) {
     sendError(res, err);
   }
