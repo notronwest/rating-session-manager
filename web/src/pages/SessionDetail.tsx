@@ -1931,10 +1931,21 @@ export default function SessionDetail() {
                       vid={game.vid}
                     </span>
                   </div>
+                  {/* Each player can only fill ONE slot per game — doubles
+                      is 4 players, exclusive. Per slot we compute the
+                      set of player_ids already claimed by OTHER slots in
+                      this same game and disable them in the dropdown. */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                     {game.slots.map((slot) => {
                       const key = `${game.gameId}:${slot.playerIndex}`;
                       const pickedId = taggingPicks[key] ?? "";
+                      const claimedElsewhere = new Set<string>();
+                      for (const other of game.slots) {
+                        if (other.playerIndex === slot.playerIndex) continue;
+                        const otherKey = `${game.gameId}:${other.playerIndex}`;
+                        const otherPicked = taggingPicks[otherKey];
+                        if (otherPicked) claimedElsewhere.add(otherPicked);
+                      }
                       return (
                         <div key={slot.playerIndex} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           {slot.thumbnailUrl ? (
@@ -1969,15 +1980,20 @@ export default function SessionDetail() {
                             }}
                           >
                             <option value="">— pick a player —</option>
-                            {taggingCandidates.map((c) => (
-                              <option
-                                key={c.displayName}
-                                value={c.id ?? ""}
-                                disabled={!c.id}
-                              >
-                                {c.displayName}{!c.id ? " (not in roster)" : ""}
-                              </option>
-                            ))}
+                            {taggingCandidates.map((c) => {
+                              const usedHere = !!c.id && claimedElsewhere.has(c.id);
+                              return (
+                                <option
+                                  key={c.displayName}
+                                  value={c.id ?? ""}
+                                  disabled={!c.id || usedHere}
+                                >
+                                  {c.displayName}
+                                  {!c.id ? " (not in roster)" : ""}
+                                  {usedHere ? " · already in this game" : ""}
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
                       );
