@@ -902,6 +902,15 @@ export default function SessionDetail() {
     { key: "tag", label: "Tag", anchor: "tag-card" },
     { key: "complete", label: "Done" },
   ];
+  // Each step derives its done-state from its OWN signal rather than
+  // collapsing onto session.status. Status === "complete" used to flip
+  // sync/tag/complete all green at once, but the new workflow (Sync
+  // before Tag) lets us track them independently — sync done when
+  // games are present in rating-hub for this session, tag done when
+  // every slot in every game has a real player (no "Player N"
+  // placeholders). Otherwise the strip lies after Sync succeeds but
+  // before Tag is saved (which is exactly when the coach is on this
+  // page).
   const doneSteps = new Set<string>(["setup"]);
   if (session.video_path) doneSteps.add("source");
   if (session.segments && session.segments.length > 0) doneSteps.add("detect");
@@ -909,9 +918,28 @@ export default function SessionDetail() {
   const totalClips = session.clip_paths?.length || 0;
   const uploadedCount_ = (session.pbvision_video_ids || []).filter(Boolean).length;
   if (totalClips > 0 && uploadedCount_ === totalClips) doneSteps.add("upload");
-  if (session.status === "complete") {
-    doneSteps.add("tag");
-    doneSteps.add("sync");
+  // Sync done iff rating-hub has games for this session's vids — that's
+  // exactly what makes the tagging UI populate (taggingGames non-empty).
+  // Falls back to status==="complete" for legacy rows that never
+  // populated taggingGames.
+  const syncDone =
+    (taggingGames !== null && taggingGames.length > 0) ||
+    session.status === "complete";
+  if (syncDone) doneSteps.add("sync");
+  // Tag done iff every slot in every game maps to a real WMPC player
+  // (no "Player 0/1/2/3" placeholders). This is exactly taggingComplete
+  // computed below, but it's declared later — re-derive inline so the
+  // workflow strip doesn't depend on declaration order. Same predicate.
+  const tagDone =
+    !!taggingGames &&
+    taggingGames.length > 0 &&
+    taggingGames.every(
+      (g) => g.slots.length > 0 && g.slots.every((s) => !s.isPlaceholder),
+    );
+  if (tagDone) doneSteps.add("tag");
+  // Done iff sync and tag both done. status==="complete" stays as a
+  // safety net for sessions that finished before this derivation existed.
+  if ((syncDone && tagDone) || session.status === "complete") {
     doneSteps.add("complete");
   }
   const currentStep =
