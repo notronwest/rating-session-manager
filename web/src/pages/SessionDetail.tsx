@@ -446,15 +446,51 @@ export default function SessionDetail() {
   // Drives the Save Tagging button's "✓ Saved" vs "Save Tagging" state.
   const [taggingDirty, setTaggingDirty] = useState(false);
   const setPick = (gameId: string, playerIndex: number, playerId: string) => {
-    setTaggingPicks((prev) => ({ ...prev, [`${gameId}:${playerIndex}`]: playerId }));
+    // Pre-compute the auto-fill target (if any) so we can clear its
+    // suggested-badge in the same render pass we drop the picked slot's.
+    let autoFilledSlot: number | null = null;
+    setTaggingPicks((prev) => {
+      const next = { ...prev, [`${gameId}:${playerIndex}`]: playerId };
+
+      // Doubles is exactly 4 players. If exactly 3 of 4 slots in this
+      // game are now picked AND the session roster has exactly 4 real
+      // candidates (no subs/extras), the 4th slot's identity is fully
+      // determined — auto-fill it with the unselected roster player so
+      // the coach doesn't have to do the trivial last click. Conditions
+      // are deliberately strict to avoid guessing when there are subs.
+      const game = taggingGames?.find((g) => g.gameId === gameId);
+      const rosterIds = taggingCandidates
+        .map((c) => c.id)
+        .filter((id): id is string => !!id);
+      if (game && rosterIds.length === 4) {
+        const pickedIds = new Set<string>();
+        let emptySlot: number | null = null;
+        for (const s of game.slots) {
+          const k = `${gameId}:${s.playerIndex}`;
+          const v = next[k];
+          if (v) pickedIds.add(v);
+          else emptySlot = s.playerIndex;
+        }
+        if (emptySlot !== null && pickedIds.size === 3) {
+          const missing = rosterIds.find((rid) => !pickedIds.has(rid));
+          if (missing) {
+            next[`${gameId}:${emptySlot}`] = missing;
+            autoFilledSlot = emptySlot;
+          }
+        }
+      }
+      return next;
+    });
     setTaggingDirty(true);
-    // The pick is no longer a CLIP suggestion once the coach edits it,
-    // but a coach who CONFIRMS a suggested pick (selects the same value)
-    // is also no longer treating it as "suggested" — the pill goes away
-    // either way. We just drop the badge for this key.
+    // Drop the suggested-badge for slots whose values are no longer a
+    // CLIP suggestion: the slot the coach just picked, plus any slot
+    // the auto-fill above populated. Other slots' badges stay intact.
     setSuggestedBadges((prev) => {
       const next = { ...prev };
       delete next[`${gameId}:${playerIndex}`];
+      if (autoFilledSlot !== null) {
+        delete next[`${gameId}:${autoFilledSlot}`];
+      }
       return next;
     });
   };
@@ -467,6 +503,11 @@ export default function SessionDetail() {
   >({});
   const [suggesting, setSuggesting] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
+  /** Last suggest run's result message. Drives the positive feedback
+   *  banner next to the error banner — without it, the user gets no
+   *  signal that anything happened when the API returned no matches
+   *  (which silently filled zero slots). */
+  const [suggestResult, setSuggestResult] = useState<string | null>(null);
 
   // Returns the game we should use as a tagging reference: the first
   // game (by playedAt order — same order the API returns) whose every
@@ -495,6 +536,7 @@ export default function SessionDetail() {
     if (!fullyTaggedSourceGame) return;
     setSuggesting(true);
     setSuggestError(null);
+    setSuggestResult(null);
     try {
       const res = await fetch(`/api/sessions/${id}/tagging/suggest`, {
         method: "POST",
@@ -542,7 +584,20 @@ export default function SessionDetail() {
         return next;
       });
       setSuggestedBadges((prev) => ({ ...prev, ...newBadges }));
-      setTaggingDirty(true);
+      const filledCount = Object.keys(newPicks).length;
+      const gameCount = (data.suggestions as unknown[]).length;
+      if (filledCount === 0) {
+        setSuggestResult(
+          gameCount === 0
+            ? "No other games needed suggestions — every game already has tags."
+            : `Suggest returned 0 slots. Check the API logs — match_avatars.py may have failed silently or returned no matches.`,
+        );
+      } else {
+        setSuggestResult(
+          `Filled ${filledCount} slot${filledCount === 1 ? "" : "s"} across ${gameCount} game${gameCount === 1 ? "" : "s"}. Review the colored badges below, then Save Tagging.`,
+        );
+        setTaggingDirty(true);
+      }
     } catch (err) {
       setSuggestError((err as Error).message);
     } finally {
@@ -2096,6 +2151,15 @@ export default function SessionDetail() {
               Suggest failed: {suggestError}
             </div>
           )}
+          {suggestResult && !suggestError && (
+            <div style={{
+              padding: "6px 10px", marginBottom: 10, fontSize: 12,
+              color: "#0c5b2f", background: "#e6f4ea",
+              border: "1px solid #b8dec4", borderRadius: 6,
+            }}>
+              ✨ {suggestResult}
+            </div>
+          )}
 
           {/* Per-game thumbnails + picks */}
           {taggingGames && taggingGames.length > 0 && (
@@ -2111,8 +2175,11 @@ export default function SessionDetail() {
                   {/* Each player can only fill ONE slot per game — doubles
                       is 4 players, exclusive. Per slot we compute the
                       set of player_ids already claimed by OTHER slots in
-                      this same game and disable them in the dropdown. */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+                      this same game and disable them in the dropdown.
+                      `alignItems: start` keeps all slot columns top-aligned
+                      so a slot whose photo letterboxes differently doesn't
+                      drag its label/dropdown down. */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, alignItems: "start" }}>
                     {game.slots.map((slot) => {
                       const key = `${game.gameId}:${slot.playerIndex}`;
                       const pickedId = taggingPicks[key] ?? "";
@@ -2125,23 +2192,46 @@ export default function SessionDetail() {
                       }
                       return (
                         <div key={slot.playerIndex} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {slot.thumbnailUrl ? (
-                            <img
-                              src={slot.thumbnailUrl}
-                              alt={`Player ${slot.playerIndex}`}
-                              style={{
-                                width: "100%", aspectRatio: "3 / 4", objectFit: "contain",
-                                borderRadius: 6, background: "#f1f3f4", border: "1px solid #e0e0e0",
-                              }}
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = "none";
-                              }}
-                            />
-                          ) : (
-                            <div style={{ width: "100%", aspectRatio: "3 / 4", background: "#f1f3f4", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 11 }}>
-                              no thumbnail
-                            </div>
-                          )}
+                          {/* Wrap the <img> in a div that owns the
+                              aspect ratio. The image fills 100% of the
+                              wrapper, and objectFit:contain letterboxes
+                              the natural avatar into the box. This way
+                              the column heights are identical across all
+                              4 slots regardless of source image
+                              dimensions — without the wrapper, Safari
+                              was honouring aspect-ratio on the <img>
+                              inconsistently when natural dimensions
+                              were unusual, dragging Slot 3 out of
+                              alignment with the others. */}
+                          <div
+                            style={{
+                              width: "100%", aspectRatio: "3 / 4",
+                              borderRadius: 6, background: "#f1f3f4",
+                              border: "1px solid #e0e0e0", overflow: "hidden",
+                            }}
+                          >
+                            {slot.thumbnailUrl ? (
+                              <img
+                                src={slot.thumbnailUrl}
+                                alt={`Player ${slot.playerIndex}`}
+                                style={{
+                                  width: "100%", height: "100%",
+                                  objectFit: "contain", display: "block",
+                                }}
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                                }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: "100%", height: "100%",
+                                display: "flex", alignItems: "center",
+                                justifyContent: "center", color: "#999", fontSize: 11,
+                              }}>
+                                no thumbnail
+                              </div>
+                            )}
+                          </div>
                           <div style={{ fontSize: 11, color: "#5f6368" }}>
                             Slot {slot.playerIndex}
                             {slot.isPlaceholder && (
