@@ -2191,23 +2191,27 @@ export default function SessionDetail() {
                         if (otherPicked) claimedElsewhere.add(otherPicked);
                       }
                       return (
-                        <div key={slot.playerIndex} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {/* Wrap the <img> in a div that owns the
-                              aspect ratio. The image fills 100% of the
-                              wrapper, and objectFit:contain letterboxes
-                              the natural avatar into the box. This way
-                              the column heights are identical across all
-                              4 slots regardless of source image
-                              dimensions — without the wrapper, Safari
-                              was honouring aspect-ratio on the <img>
-                              inconsistently when natural dimensions
-                              were unusual, dragging Slot 3 out of
-                              alignment with the others. */}
+                        <div key={slot.playerIndex} style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                          {/* Aspect-ratio box using the padding-top trick
+                              instead of the `aspect-ratio` CSS property.
+                              The CSS property kept producing a smaller box
+                              for Slot 3 — possibly because the wrapper sat
+                              in a flex column with an explicit `gap: 6`,
+                              and aspect-ratio interacts poorly with flex
+                              children that lack an explicit basis. The
+                              padding-top approach (`paddingTop: 133.33%`
+                              = 4/3) is height = width × 4/3, which is what
+                              we want for a 3:4 portrait and always renders
+                              identical across columns. */}
                           <div
                             style={{
-                              width: "100%", aspectRatio: "3 / 4",
-                              borderRadius: 6, background: "#f1f3f4",
-                              border: "1px solid #e0e0e0", overflow: "hidden",
+                              position: "relative",
+                              width: "100%",
+                              paddingTop: "133.3333%",
+                              borderRadius: 6,
+                              background: "#f1f3f4",
+                              border: "1px solid #e0e0e0",
+                              overflow: "hidden",
                             }}
                           >
                             {slot.thumbnailUrl ? (
@@ -2215,6 +2219,8 @@ export default function SessionDetail() {
                                 src={slot.thumbnailUrl}
                                 alt={`Player ${slot.playerIndex}`}
                                 style={{
+                                  position: "absolute",
+                                  top: 0, left: 0, right: 0, bottom: 0,
                                   width: "100%", height: "100%",
                                   objectFit: "contain", display: "block",
                                 }}
@@ -2224,7 +2230,8 @@ export default function SessionDetail() {
                               />
                             ) : (
                               <div style={{
-                                width: "100%", height: "100%",
+                                position: "absolute",
+                                top: 0, left: 0, right: 0, bottom: 0,
                                 display: "flex", alignItems: "center",
                                 justifyContent: "center", color: "#999", fontSize: 11,
                               }}>
