@@ -2000,10 +2000,15 @@ export default function SessionDetail() {
        (session.pbvision_video_ids || []).some(Boolean) &&
        taggingGames && taggingGames.length > 0 && (
         <div style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <div>
+          {/* Header: left column is title + helper text, right column is
+              the action buttons. The left column has paddingRight + flex
+              constraints so the helper text wraps cleanly without
+              running into the buttons (the long player-list code chip
+              would otherwise butt right up against Refresh/Save). */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, gap: 16 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <h2 id="tag-card" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tag Players</h2>
-              <div style={{ fontSize: 13, color: "#666" }}>
+              <div style={{ fontSize: 13, color: "#666", lineHeight: 1.5 }}>
                 Map each pb.vision avatar to one of:{" "}
                 <code style={{ background: "#f1f3f4", padding: "1px 5px", borderRadius: 3 }}>
                   {(session.player_names || []).join(", ") || "(no player names set)"}
@@ -2011,7 +2016,7 @@ export default function SessionDetail() {
                 . Avatar indices vary per clip, so pick separately for each game.
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <button
                 onClick={fetchTagging}
                 disabled={taggingLoading || taggingSaving}
