@@ -2051,7 +2051,21 @@ export default function SessionDetail() {
                 </button>
               )}
               {taggingResult?.ok && !taggingDirty && !taggingSaving ? (
-                <span title="All picks saved to rating-hub" style={{ color: "#137333", fontSize: 13, fontWeight: 600, alignSelf: "center" }}>
+                <span
+                  title="All picks saved to rating-hub"
+                  style={{
+                    padding: "6px 14px",
+                    background: "#e6f4ea",
+                    color: "#137333",
+                    border: "1px solid #b8dec4",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                    display: "inline-flex",
+                    alignItems: "center",
+                  }}
+                >
                   ✓ Saved
                 </span>
               ) : (
