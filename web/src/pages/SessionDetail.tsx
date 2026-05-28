@@ -316,6 +316,56 @@ export default function SessionDetail() {
   const [syncingRh, setSyncingRh] = useState(false);
   const [syncRhResult, setSyncRhResult] = useState<SyncResult | null>(null);
 
+  // Mux playback ID fetch state — drives the inline "🎬 Fetch Mux IDs"
+  // button on the Sync card. Replaces the old rating-hub bookmarklet:
+  // we scrape pb.vision via the Playwright profile and write the IDs
+  // to rating-hub's games.mux_playback_id ourselves.
+  const [fetchingMux, setFetchingMux] = useState(false);
+  const [muxResult, setMuxResult] = useState<
+    { summary: string; message: string; errors: number } | null
+  >(null);
+
+  const fetchMuxIds = async () => {
+    if (fetchingMux) return;
+    setFetchingMux(true);
+    setMuxResult(null);
+    try {
+      const res = await fetch(`/api/sessions/${id}/fetch-mux-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMuxResult({
+          summary: `Fetch failed: ${data.error || res.statusText}`,
+          message: data.error || res.statusText,
+          errors: 1,
+        });
+        return;
+      }
+      const { fetched, updated, skipped, errors } = data.summary;
+      const parts: string[] = [];
+      if (updated > 0) parts.push(`${updated} game${updated === 1 ? "" : "s"} updated`);
+      if (skipped > 0) parts.push(`${skipped} skipped (already had IDs)`);
+      if (errors > 0) parts.push(`${errors} error${errors === 1 ? "" : "s"}`);
+      if (parts.length === 0) parts.push("nothing to do");
+      setMuxResult({
+        summary: `${errors > 0 ? "⚠" : "✓"} ${parts.join(", ")}`,
+        message: `fetched=${fetched}, updated=${updated}, skipped=${skipped}, errors=${errors}`,
+        errors,
+      });
+    } catch (err) {
+      setMuxResult({
+        summary: `Fetch failed: ${(err as Error).message}`,
+        message: (err as Error).message,
+        errors: 1,
+      });
+    } finally {
+      setFetchingMux(false);
+    }
+  };
+
   // ---- In-app tagging (PB Vision avatars → WMPC players) -----------------
   // Replaces the old Playwright-based pbvision-tag.py flow. We fetch
   // thumbnail URLs + the current rating-hub state, the coach picks who
@@ -1942,6 +1992,50 @@ export default function SessionDetail() {
               )}
             </div>
           </div>
+          {/* Fetch Mux playback IDs — replaces the rating-hub
+              "📌 PBV Grab" bookmarklet. Scrapes pb.vision (via the
+              persistent Playwright profile) for each vid's Mux ID and
+              writes it to rating-hub's games.mux_playback_id so the
+              analyze-page video player works without the user copy-
+              pasting IDs by hand. Idempotent — skips vids whose games
+              already have an ID unless force=true. */}
+          {(syncRhResult?.ok || taggingComplete) && (
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                padding: "8px 12px", background: "#f8f9fa", borderRadius: 6,
+                fontSize: 12, color: "#5f6368", marginTop: 12,
+              }}
+            >
+              <span>
+                <strong style={{ color: "#3c4043" }}>Video playback:</strong> grab Mux IDs for in-app video players.
+              </span>
+              <button
+                onClick={fetchMuxIds}
+                disabled={fetchingMux || running}
+                style={{
+                  padding: "5px 12px", background: "#fff", color: "#5f6368",
+                  border: "1px solid #c8c8c8", borderRadius: 6, fontSize: 12,
+                  fontWeight: 500, cursor: fetchingMux || running ? "not-allowed" : "pointer",
+                  opacity: fetchingMux || running ? 0.5 : 1, whiteSpace: "nowrap",
+                }}
+                title="Scrape pb.vision for each vid's Mux playback ID and store it on rating-hub's games. Idempotent — skips vids that already have an ID."
+              >
+                {fetchingMux ? "Fetching… (browser open)" : "🎬 Fetch Mux IDs"}
+              </button>
+              {muxResult && (
+                <span
+                  style={{
+                    color: muxResult.errors > 0 ? "#b00020" : "#137333",
+                    fontWeight: 500,
+                  }}
+                  title={muxResult.message}
+                >
+                  {muxResult.summary}
+                </span>
+              )}
+            </div>
+          )}
           {/* pb.vision processing status — shows up here (next to the sync
               button) when we know it. Drives the disabled state above so
               the coach can see WHY Sync is grey. */}
