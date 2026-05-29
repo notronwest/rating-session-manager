@@ -10,6 +10,7 @@
 // without burning real credits).
 
 import { PBVision } from "@pbvision/partner-sdk";
+import fs from "fs";
 import path from "path";
 
 let cached: PBVision | null = null;
@@ -64,22 +65,72 @@ export async function uploadClipViaApi(opts: UploadOptions): Promise<{ vid: stri
   }
   const onLog = opts.onLog ?? (() => {});
   const filename = path.basename(opts.videoPath);
-  onLog(`Uploading ${filename} to pb.vision via Partner API...`);
+
+  // Log the file size up front so a large HD clip doesn't *look* hung
+  // when it's just slow. The SDK uploads to GCS in 8 MB chunks with no
+  // progress callback, so without this the only signal is the single
+  // "Uploading…" line below.
+  let sizeMB = 0;
+  try {
+    sizeMB = fs.statSync(opts.videoPath).size / (1024 * 1024);
+  } catch {
+    /* stat failure is non-fatal — uploadVideo will surface a real error */
+  }
+  const sizeLabel = sizeMB > 0 ? ` (${sizeMB.toFixed(0)} MB)` : "";
+  onLog(`Uploading ${filename}${sizeLabel} to pb.vision via Partner API...`);
+  if (sizeMB > 400) {
+    onLog(`  Note: large clip — this can take several minutes on a slow uplink.`);
+  }
 
   const client = getClient();
+
+  // The SDK's GCS chunk upload has no per-chunk timeout (node-fetch
+  // doesn't time out by default), so a stalled chunk hangs forever with
+  // zero output. Wrap the call with:
+  //   • a heartbeat that logs elapsed seconds every 60s (liveness), and
+  //   • an overall timeout that rejects so the session fails cleanly and
+  //     can be resumed by re-running the upload, instead of sitting in
+  //     limbo. Tune with PBVISION_UPLOAD_TIMEOUT_MS (default 45 min).
+  const startedAt = Date.now();
+  const heartbeat = setInterval(() => {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    onLog(`  …still uploading ${filename} (${elapsed}s elapsed)`);
+  }, 60_000);
+  const timeoutMs =
+    Number(process.env.PBVISION_UPLOAD_TIMEOUT_MS) || 45 * 60 * 1000;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(
+        new PbvisionApiError(
+          "upload_timeout",
+          `Upload of ${filename}${sizeLabel} exceeded ${Math.round(timeoutMs / 60000)} min — ` +
+            `the connection is likely stalled. Re-run the upload to resume from this clip.`,
+        ),
+      );
+    }, timeoutMs);
+  });
+
   let result: { vid?: string; hasCredits?: boolean };
   try {
-    result = await client.uploadVideo(opts.videoPath, {
-      userEmails: opts.userEmails ?? [],
-      name: opts.name ?? filename,
-      desc: opts.desc,
-      gameStartEpoch: opts.gameStartEpoch,
-      facility: opts.facility,
-      court: opts.court,
-    });
+    result = await Promise.race([
+      client.uploadVideo(opts.videoPath, {
+        userEmails: opts.userEmails ?? [],
+        name: opts.name ?? filename,
+        desc: opts.desc,
+        gameStartEpoch: opts.gameStartEpoch,
+        facility: opts.facility,
+        court: opts.court,
+      }),
+      timeoutPromise,
+    ]);
   } catch (err) {
+    if (err instanceof PbvisionApiError) throw err; // already typed (e.g. timeout)
     const msg = err instanceof Error ? err.message : String(err);
     throw new PbvisionApiError("upload_failed", msg);
+  } finally {
+    clearInterval(heartbeat);
+    if (timeoutHandle) clearTimeout(timeoutHandle);
   }
   if (!result.vid) {
     if (result.hasCredits === false) {
