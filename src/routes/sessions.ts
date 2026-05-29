@@ -16,7 +16,7 @@ import { detectGames, exportClips } from "../services/video-processor.js";
 import { uploadClipViaApi, PbvisionApiError } from "../pbvision/api.js";
 import { tagPbVisionVideo, TagError } from "../pbvision/tag.js";
 import { listPbVisionVideos, ListError } from "../pbvision/list.js";
-import { fetchMuxPlaybackIds, MuxFetchError } from "../pbvision/mux.js";
+import { fetchAndStoreMuxIds, MuxFetchError } from "../services/mux-sync.js";
 import { notifyRatingHub, WebhookError } from "../pbvision/webhook.js";
 import { syncRatingHub, ensureRatingHubSession, SyncRatingHubError } from "../ratinghub/sync.js";
 import { archiveAllCompletedSessions } from "../services/archive.js";
@@ -960,97 +960,19 @@ router.post("/:id/fetch-mux-ids", async (req, res) => {
       return res.json({ results: [], summary: { fetched: 0, updated: 0, skipped: 0, errors: 0 } });
     }
 
-    const supabase = getSupabase();
-    const orgId = await getOrgId();
     const addLog = makeAddLog(session.id);
-    const force = !!req.body?.force;
-
-    // Find which vids already have a mux_playback_id on at least one
-    // of their games — if force=false we'll skip the scrape for those.
-    const { data: existingGames, error: gErr } = await supabase
-      .from("games")
-      .select("pbvision_video_id, mux_playback_id")
-      .eq("org_id", orgId)
-      .in("pbvision_video_id", vids);
-    if (gErr) throw new Error(`games fetch: ${gErr.message}`);
-    const alreadyHas = new Set<string>(
-      ((existingGames || []) as { pbvision_video_id: string; mux_playback_id: string | null }[])
-        .filter((g) => g.mux_playback_id)
-        .map((g) => g.pbvision_video_id),
-    );
-
-    const toScrape = force ? vids : vids.filter((v) => !alreadyHas.has(v));
-    const skippedVids = force ? [] : vids.filter((v) => alreadyHas.has(v));
-    addLog(
-      `Fetch Mux IDs: scraping ${toScrape.length}/${vids.length} vid(s)` +
-      (skippedVids.length > 0 ? ` (skipping ${skippedVids.length} that already have IDs)` : ""),
-    );
-
-    let fetcherResults: { vid: string; muxPlaybackId: string | null; source?: string; error?: string }[] = [];
-    if (toScrape.length > 0) {
-      try {
-        fetcherResults = await fetchMuxPlaybackIds(toScrape, {
-          onLog: (line) => addLog(`[pbvision-mux] ${line}`),
-        });
-      } catch (err) {
-        if (err instanceof MuxFetchError) {
-          return res.status(500).json({ error: err.message, code: err.code });
-        }
-        throw err;
+    try {
+      const out = await fetchAndStoreMuxIds(vids, {
+        force: !!req.body?.force,
+        onLog: addLog,
+      });
+      res.json(out);
+    } catch (err) {
+      if (err instanceof MuxFetchError) {
+        return res.status(500).json({ error: err.message, code: err.code });
       }
+      throw err;
     }
-
-    // Persist each scraped ID into every game row tied to the vid on
-    // THIS org. We don't filter to session_id because the same vid
-    // can only belong to one rating-hub session anyway (the cross-
-    // session uniqueness guard from PR #8) and the Mux ID is a
-    // property of the vid, not the session.
-    const results: Array<{
-      vid: string;
-      muxPlaybackId: string | null;
-      source?: string;
-      error?: string;
-      updatedGames: number;
-      skipped: boolean;
-    }> = [];
-    let updated = 0;
-    let errors = 0;
-    for (const r of fetcherResults) {
-      if (!r.muxPlaybackId) {
-        errors += 1;
-        results.push({ ...r, updatedGames: 0, skipped: false });
-        continue;
-      }
-      const { data: updRows, error: updErr } = await supabase
-        .from("games")
-        .update({ mux_playback_id: r.muxPlaybackId })
-        .eq("org_id", orgId)
-        .eq("pbvision_video_id", r.vid)
-        .select("id");
-      if (updErr) {
-        errors += 1;
-        results.push({ ...r, updatedGames: 0, skipped: false, error: `update failed: ${updErr.message}` });
-        continue;
-      }
-      const n = (updRows || []).length;
-      updated += n;
-      addLog(`[${r.vid}] saved mux_playback_id=${r.muxPlaybackId} to ${n} game(s)`);
-      results.push({ ...r, updatedGames: n, skipped: false });
-    }
-    // Tack on the skipped vids so the UI can show "N already had IDs".
-    for (const vid of skippedVids) {
-      results.push({ vid, muxPlaybackId: null, skipped: true, updatedGames: 0 });
-    }
-
-    res.json({
-      results,
-      summary: {
-        fetched: fetcherResults.length,
-        updated,
-        skipped: skippedVids.length,
-        errors,
-      },
-    });
   } catch (err) {
     sendError(res, err);
   }
@@ -1540,7 +1462,35 @@ router.post("/:id/sync-rating-hub", async (req, res) => {
         `Sync complete: ${result.totalGamesLinked} game(s) linked, ` +
           `${result.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`,
       );
+      // Respond immediately — the sync itself is done. Then kick off the
+      // Mux-playback-ID scrape in the BACKGROUND (not awaited): it drives
+      // Playwright and can take minutes for a multi-game session, so
+      // blocking the sync response on it would make "Sync now" feel
+      // frozen. By firing it here (right after games land in rating-hub,
+      // before the coach starts tagging) the IDs are typically populated
+      // by the time tagging is done — so players can watch their games
+      // without a separate manual step. Idempotent + locked, so it won't
+      // collide with a manual "Fetch Mux IDs" click. Progress + any
+      // errors stream to the same session log the UI polls.
       res.json(result);
+
+      const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
+      if (vids.length > 0) {
+        const bgLog = makeAddLog(session.id);
+        bgLog("Auto-fetching Mux playback IDs in the background…");
+        fetchAndStoreMuxIds(vids, { onLog: bgLog })
+          .then((out) => {
+            if (out.busy) return; // another fetch was already running
+            bgLog(
+              `Auto Mux fetch done: ${out.summary.updated} game(s) updated, ` +
+                `${out.summary.skipped} skipped, ${out.summary.errors} error(s).`,
+            );
+          })
+          .catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            bgLog(`Auto Mux fetch failed (non-fatal): ${msg}`);
+          });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const code = err instanceof SyncRatingHubError ? err.code : "unknown";
