@@ -1029,11 +1029,18 @@ router.get("/:id/tagging", async (req, res) => {
     }
 
     // Pull the games + their game_players for this session's vids.
+    // We filter ONLY by pbvision_video_id, not also session_id — see the
+    // long comment at the top of this file's POST /tagging handler for
+    // the rationale. tl;dr: when two session-manager sessions share the
+    // same (date, player_group) the rating-hub session row is shared
+    // (rh.sessions has a UNIQUE constraint on those), so games for
+    // session-manager session X may have rh `session_id` = Y. Vids,
+    // however, are uniquely scoped to one session-manager session via
+    // PR #8's cross-session uniqueness guard, so this is unambiguous.
     const { data: gamesData, error: gErr } = await supabase
       .from("games")
       .select("id, pbvision_video_id, ai_engine_version, played_at")
       .eq("org_id", orgId)
-      .eq("session_id", session.id)
       .in("pbvision_video_id", vids);
     if (gErr) throw new Error(`games fetch: ${gErr.message}`);
     const games = (gamesData || []) as {
@@ -1204,11 +1211,22 @@ router.post("/:id/tagging", async (req, res) => {
     const gameIds: string[] = Array.from(
       new Set(mappings.map((m: { gameId: string }) => m.gameId)),
     );
+    // Validate each gameId is one of the games owned by THIS session.
+    // "Owned" here means: its pbvision_video_id is in this session-
+    // manager session's pbvision_video_ids array. We do NOT filter by
+    // rating-hub games.session_id because two session-manager sessions
+    // sharing the same (date, player_group) latch onto a single rh
+    // sessions row (rh.sessions has a UNIQUE constraint on org/date/
+    // group), so `games.session_id` may not equal this sm session's id
+    // even when the games are "ours". Cross-session vid uniqueness
+    // (PR #8) guarantees vid → sm-session is unambiguous, so filtering
+    // by vid + game-id pair is the correct authority check.
+    const sessionVids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
     const { data: gameRows, error: gErr } = await supabase
       .from("games")
       .select("id")
       .eq("org_id", orgId)
-      .eq("session_id", session.id)
+      .in("pbvision_video_id", sessionVids)
       .in("id", gameIds);
     if (gErr) throw new Error(`games validation: ${gErr.message}`);
     const validGameIds = new Set(
@@ -1336,11 +1354,17 @@ router.post("/:id/tagging/suggest", async (req, res) => {
 
     // Pull every game on this session, with its slot rows + raw_player_data
     // (we read avatar_id from there — same source the tagging GET uses).
+    // Filtered by pbvision_video_id rather than session_id for the same
+    // reason as the tagging GET — see comment on that handler.
+    const sessionVids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
+    if (sessionVids.length === 0) {
+      return res.json({ suggestions: [] });
+    }
     const { data: gamesData, error: gErr } = await supabase
       .from("games")
       .select("id, pbvision_video_id, ai_engine_version, played_at")
       .eq("org_id", orgId)
-      .eq("session_id", session.id);
+      .in("pbvision_video_id", sessionVids);
     if (gErr) throw new Error(`games fetch: ${gErr.message}`);
     const games = (gamesData || []) as {
       id: string;
