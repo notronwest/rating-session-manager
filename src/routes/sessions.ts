@@ -950,6 +950,30 @@ router.get("/:id/pbvision-status", async (req, res) => {
 //     ],
 //     summary: { fetched, updated, skipped, errors }
 //   }
+// GET /api/sessions/:id/clip-sizes — file sizes (bytes) for every clip
+// in session.clip_paths, parallel array. null for clips whose file is
+// missing on disk (e.g. archived) or unreadable. Used by the Upload
+// card to surface size next to each clip name so the coach knows what
+// they're about to push to pb.vision before clicking — large clips on
+// a slow uplink are the #1 source of "is it stuck?" support pings.
+router.get("/:id/clip-sizes", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    const clipPaths = session.clip_paths || [];
+    const sizes = clipPaths.map((cp) => {
+      try {
+        return fs.statSync(cp).size;
+      } catch {
+        return null;
+      }
+    });
+    res.json({ sizes });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 router.post("/:id/fetch-mux-ids", async (req, res) => {
   try {
     const session = await getSession(req.params.id);
