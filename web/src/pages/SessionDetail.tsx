@@ -292,6 +292,35 @@ export default function SessionDetail() {
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchSummary, setFetchSummary] = useState<{ matched: number; unmatchedClips: number; unmatchedVideos: number; webhookErrors: number; skippedOwnedElsewhere: { clipName: string; vid: string; ownerLabel: string | null }[] } | null>(null);
+  // Per-clip file sizes in bytes, parallel to session.clip_paths. null for
+  // clips whose file is missing on disk. Surfaced in the Upload card so
+  // the coach can eyeball "this is a 1.4 GB clip — it'll take a while"
+  // before clicking Upload, instead of finding out 20 minutes in.
+  const [clipSizes, setClipSizes] = useState<(number | null)[]>([]);
+  useEffect(() => {
+    const paths = session?.clip_paths ?? [];
+    if (paths.length === 0) {
+      setClipSizes([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/sessions/${id}/clip-sizes`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled) setClipSizes((data.sizes as (number | null)[]) ?? []);
+      } catch {
+        /* non-fatal — sizes are a UI nicety, not required */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch whenever the set of clip paths changes (new export,
+    // start-over, archive, etc.). Joining into a string keeps the
+    // dep stable for unchanged arrays.
+  }, [id, (session?.clip_paths ?? []).join("|")]);
   const [needsPbvisionLogin, setNeedsPbvisionLogin] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -1802,7 +1831,25 @@ export default function SessionDetail() {
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontFamily: "monospace", color: "#444" }}>{name}</span>
+                    <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontFamily: "monospace", color: "#444" }}>{name}</span>
+                      {(() => {
+                        const bytes = clipSizes[i];
+                        if (typeof bytes !== "number") return null;
+                        const mb = bytes / (1024 * 1024);
+                        const label = mb < 1024
+                          ? `${mb.toFixed(0)} MB`
+                          : `${(mb / 1024).toFixed(2)} GB`;
+                        return (
+                          <span
+                            style={{ fontSize: 11, color: "#999" }}
+                            title={`${bytes.toLocaleString()} bytes — large clips take longer to upload, especially on slow uplinks`}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })()}
+                    </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ fontSize: 11, color: alreadyUploaded ? "#137333" : "#999", fontWeight: 500 }}>
                         {alreadyUploaded ? `uploaded · ${session.pbvision_video_ids![i]}` : "not uploaded"}
