@@ -1,0 +1,80 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * session-manager design tokens
+ *
+ * Derived from the shared WMPC template:
+ *   ../../../wmpc-meta/design-system/tokens.css
+ * See ../../../wmpc-meta/design-system/DESIGN_SYSTEM.md for the system.
+ *
+ * Token NAMES are the shared contract — don't rename them. VALUES are
+ * session-manager's own identity; override freely. New/edited inline styles
+ * should reference var(--token) instead of raw hex.
+ *
+ * No overrides yet — session-manager's primary (#1a73e8) and success
+ * (#137333) already match the canonical defaults.
+ *
+ * Note: StatusBadge.tsx keeps its own Material-style status palette (paired
+ * bg/text per pipeline state) — that's a domain taxonomy, not the shared
+ * semantic set, so it intentionally does not consume these tokens.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Typography */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+  --line-height: 1.5;
+
+  /* Surfaces / structure */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-sunken: #f1f3f4;
+  --overlay: rgba(0, 0, 0, 0.45);
+
+  /* Text */
+  --text: #222222;
+  --text-muted: #555555;
+  --text-subtle: #9ca3af;
+
+  /* Borders */
+  --border: #e2e2e2;
+  --border-strong: #9ca3af;
+
+  /* Brand / primary action */
+  --primary: #1a73e8;
+  --primary-hover: #1765cc;
+  --primary-contrast: #ffffff;
+
+  /* Semantic status */
+  --success: #137333;
+  --warning: #d97706;
+  --danger: #c62828;
+  --info: #1a73e8;
+
+  /* Flag / note-to-self family (amber) — reserved meaning, do not repurpose */
+  --flag-bg: #fffbeb;
+  --flag-bg-strong: #fef3c7;
+  --flag-border: #fde68a;
+  --flag-text: #7a5d00;
+  --flag-text-strong: #92400e;
+  --flag-icon: #d97706;
+
+  /* Focus */
+  --focus-ring: #facc15;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+
+  /* Inline status-icon buttons (aligned row indicators) */
+  --icon-slot: 28px;
+  --icon-btn: 22px;
+  --icon-glyph: 14px;
+}
