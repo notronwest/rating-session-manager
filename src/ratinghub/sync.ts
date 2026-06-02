@@ -134,30 +134,20 @@ export async function ensureRatingHubSession(
     ? session.booking_time.slice(0, 10)
     : new Date().toISOString().slice(0, 10);
 
-  // --- 2. Upsert the rating-hub sessions row. We have to use the
-  //       existing row (if any) for this (org, date, group) because
-  //       rh.sessions has a UNIQUE constraint on those three columns —
-  //       inserting a second row with a fresh id would fail. So when
-  //       two session-manager sessions share (date, group) (same 4
-  //       people, same day), they latch onto a SHARED rating-hub
-  //       session row. That's structurally fine — tagging/sync/
-  //       fetch-mux endpoints all filter games by pbvision_video_id,
-  //       which is uniquely scoped per sm session via PR #8's cross-
-  //       session ownership guard. The only thing the coach should
-  //       notice is the log line below: it tells them whether their
-  //       sync just created a fresh rh session or latched onto an
-  //       existing one that another sm session is also using.
-  const { data: existingByKey } = await supabase
-    .from("sessions")
-    .select("id, label")
-    .eq("org_id", orgId)
-    .eq("played_date", playedDate)
-    .eq("player_group_key", playerGroupKey)
-    .maybeSingle();
-
-  const rhSessionId: string = (existingByKey?.id as string) ?? session.id;
-  const sharingWithOtherSmSession = !!existingByKey && rhSessionId !== session.id;
-
+  // --- 2. Upsert the rating-hub sessions row at THIS session-manager
+  //       session's id. 1:1 mapping by design — every sm session has
+  //       its own rh session row, regardless of whether another sm
+  //       session for the same (date, group) already exists.
+  //
+  //       Before migration 052, rh.sessions had a UNIQUE constraint on
+  //       (org_id, played_date, player_group_key) which forced sm
+  //       sessions sharing a (date, group) to latch onto a single rh
+  //       row. That encoded a false invariant ("only one rating
+  //       session per 4-player group per day") and broke the tagging
+  //       UI for whichever sm session synced second. The migration
+  //       dropped that constraint; this code is now the simple upsert
+  //       it always should have been.
+  const rhSessionId = session.id;
   const { error: upsertErr } = await supabase.from("sessions").upsert(
     {
       id: rhSessionId,
@@ -169,28 +159,21 @@ export async function ensureRatingHubSession(
     { onConflict: "id" },
   );
   if (upsertErr) throw new SyncRatingHubError("session_upsert_failed", upsertErr.message);
-  if (sharingWithOtherSmSession) {
-    onLog(
-      `⚠ Shared rating-hub session: this session-manager session (${session.id}) ` +
-        `is sharing rating-hub session ${rhSessionId} ("${existingByKey?.label ?? "(no label)"}") ` +
-        `with another session-manager session — they have the same date and player group. ` +
-        `Tagging still works (filters games by vid), but be aware games created here are ` +
-        `linked to that shared rh session id, not this sm session's id.`,
-    );
-  } else {
-    onLog(
-      existingByKey
-        ? `Re-used existing rating-hub session ${rhSessionId}`
-        : `Created rating-hub session ${rhSessionId}`,
-    );
-  }
+  onLog(`Upserted rating-hub session ${rhSessionId}`);
 
   return {
     rhSessionId,
     playedDate,
     matchedUuids,
     playerGroupKey,
-    reused: !!existingByKey,
+    // `reused` was used to distinguish "we latched onto an existing rh
+    // session row" from "we created a fresh one". Post-migration 052
+    // that distinction is gone — every sm session has its own rh row
+    // by design. Kept on the result type for the caller's existing
+    // wire shape (sessionWasUpserted derives from it) but it now just
+    // means "this isn't the first time we upserted it", which is
+    // close enough to its prior meaning to not break consumers.
+    reused: false,
   };
 }
 
