@@ -53,3 +53,16 @@ for hook_name in post-merge post-rewrite; do
     echo "[claude-bootstrap] installed $hook_name hook"
   fi
 done
+
+# 3. Teach this repo where the backlog is (idempotent). Canonical convention:
+#    ../wmpc-meta/conventions/backlog.md (synced above). Append its short
+#    CLAUDE.md block if this repo does not already have it.
+CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
+BLOCK_SRC="$META_DIR/conventions/backlog-claude-block.md"
+if [ -f "$CLAUDE_MD" ] && [ -f "$BLOCK_SRC" ] && ! grep -q "WMPC Roadmap" "$CLAUDE_MD" 2>/dev/null; then
+  bk_repo="this-repo"
+  bk_url="$(git -C "$REPO_ROOT" config --get remote.origin.url 2>/dev/null || true)"
+  [ -n "$bk_url" ] && bk_repo="$(basename -s .git "$bk_url")"
+  { printf "\n"; sed "s#<REPO>#${bk_repo}#g" "$BLOCK_SRC"; } >> "$CLAUDE_MD"
+  echo "[claude-bootstrap] added Backlog section to CLAUDE.md"
+fi

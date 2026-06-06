@@ -271,3 +271,20 @@ whichever machine processed the video. On a second machine those paths
 won't resolve unless the same directory tree exists. For now the convention
 is that the recording machine "owns" the video files; other machines see
 the metadata but can't replay clips.
+
+## Backlog
+
+This repo's backlog lives on the **WMPC Roadmap** GitHub Project board
+(Project **#1**, owner `notronwest`) — **not** in a file. This repo's
+stories are its `story`-labeled GitHub Issues, added to the board.
+
+- **Read:** `gh issue list --repo notronwest/rating-session-manager --label story`
+  (whole board: `gh project item-list 1 --owner notronwest`).
+- **Write:** create a GitHub Issue with a user story + a scripted,
+  code-free `## Acceptance criteria`, label it `story`, add it to the
+  board, set **Priority**.
+- The Builder agent works the board's **Agent Ready** column into PRs;
+  Ron reviews + merges. Don't reintroduce a `BACKLOG.md` file.
+- **Full convention** (fields, Builder workflow, examples):
+  [`../wmpc-meta/conventions/backlog.md`](../wmpc-meta/conventions/backlog.md)
+  (synced into every repo by `scripts/claude-bootstrap.sh`).
