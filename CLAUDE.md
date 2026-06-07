@@ -280,11 +280,20 @@ stories are its `story`-labeled GitHub Issues, added to the board.
 
 - **Read:** `gh issue list --repo notronwest/rating-session-manager --label story`
   (whole board: `gh project item-list 1 --owner notronwest`).
-- **Write:** create a GitHub Issue with a user story + a scripted,
-  code-free `## Acceptance criteria`, label it `story`, add it to the
-  board, set **Priority**.
-- The Builder agent works the board's **Agent Ready** column into PRs;
-  Ron reviews + merges. Don't reintroduce a `BACKLOG.md` file.
-- **Full convention** (fields, Builder workflow, examples):
-  [`../wmpc-meta/conventions/backlog.md`](../wmpc-meta/conventions/backlog.md)
-  (synced into every repo by `scripts/claude-bootstrap.sh`).
+- **Write ("add to backlog"):** create a GitHub Issue with a user story + a
+  scripted, code-free `## Acceptance criteria`; label it `story`; add it
+  (`gh project item-add 1 --owner notronwest --url <url>`); set **Priority**
+  + **Type**. Runs on your `gh` auth — no approval needed.
+- **Statuses — one pipeline:** `Backlog` → `Agent Ready` → `In Progress` →
+  `In Review` → `Done`, with `Blocked` and `On Hold` as side rails.
+  - The **Builder** drains **Agent Ready** into PRs and moves cards itself;
+    **you merge** `In Review` (the only gate). It never merges or pushes main.
+  - **`Blocked` = the Builder needs you** (missing AC, a product decision, or
+    risky work — migrations / security / money). **Draining `Blocked` is your
+    loop:** read its comment, then add the AC/decision and move it to **Agent
+    Ready**, do the risky part yourself, or close it.
+  - **`On Hold`** = intentionally parked (no action needed); **`Backlog`** =
+    uncurated intake.
+- **Full convention** (lifecycle table, the Blocked flow, fields, examples):
+  [`../wmpc-meta/conventions/backlog.md`](../wmpc-meta/conventions/backlog.md).
+  Don't reintroduce a `BACKLOG.md` file.
