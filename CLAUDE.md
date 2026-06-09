@@ -297,3 +297,24 @@ stories are its `story`-labeled GitHub Issues, added to the board.
 - **Full convention** (lifecycle table, the Blocked flow, fields, examples):
   [`../wmpc-meta/conventions/backlog.md`](../wmpc-meta/conventions/backlog.md).
   Don't reintroduce a `BACKLOG.md` file.
+
+## Git & gh hygiene
+
+These keep routine git/gh commands from triggering Claude Code approval
+prompts. The prompts come from a **hardcoded safety heuristic** — an
+allowlist *cannot* suppress them — so the fix is how the command is written:
+
+- **Never lead with `cd <path> && …`.** A `cd` in front of git/gh (or any
+  command with a pipe, `$( )`, redirection, or a quoted multi-line arg)
+  trips Claude Code's "changes directory → untrusted hooks / path-resolution
+  bypass" check and prompts *every time*, regardless of the allowlist.
+- **Git:** use `git -C <path> …`, never `cd <path> && git …`.
+- **gh:** pass `--repo <owner>/<repo>` and run the command directly (no
+  `cd`). `gh` is allowlisted, so a bare `gh …` runs without a prompt.
+- **`gh issue|pr create` with a multi-line body:** write the body to a file
+  and use `--body-file <file>` (or `--body-file -` with a heredoc). An inline
+  `--body '…## Heading…'` puts a newline-then-`#` inside a quoted argument,
+  which trips a separate "expansion obfuscation" heuristic.
+- **Don't wrap allowlisted tools in big compound shells.** The allowlist
+  applies per-command; a leading `cd` + substitution/pipe defeats it. Run the
+  tool directly and let the allowlist do its job.
