@@ -1,68 +1,30 @@
 #!/usr/bin/env bash
-# Sync ../wmpc-meta (cross-cutting strategic + reference docs) and install
-# a post-merge hook so future `git pull`s on this project keep it current.
+# claude-bootstrap SHIM — installed as <repo>/scripts/claude-bootstrap.sh.
 #
-# Run once after cloning the project. Idempotent — safe to re-run anytime.
-# After the post-merge hook is installed, regular `git pull` calls will
-# refresh ../wmpc-meta automatically.
+# DO NOT add logic here. The real bootstrap is the CANONICAL at
+#   ../wmpc-meta/conventions/claude-bootstrap.sh
+# This shim only (1) ensures wmpc-meta is present, then (2) execs the canonical.
+# So a convention change is ONE wmpc-meta PR that reaches every repo on its next
+# `git pull` — no per-repo PRs, nothing to drift. Self-healing (wmpc-meta#4).
+# See the canonical's header + daemon docs/synchronization.md (Pillar 4).
 #
-# Edge cases handled:
-#   - First run ever: clones wmpc-meta as a sibling.
-#   - Network down or SSH key missing: warns and continues.
-#   - Already-installed hook: leaves it alone.
-#   - User uses `git pull --rebase`: also installs post-rewrite hook.
-
+# Fail-open: any problem (no network, wmpc-meta absent, canonical missing) exits
+# 0 so it never blocks a `git pull` or a session. Idempotent.
 set -e
-
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
-if [ -z "$REPO_ROOT" ]; then
-  echo "claude-bootstrap.sh: must be run inside a git repo" >&2
-  exit 1
-fi
-
-PARENT_DIR="$(dirname "$REPO_ROOT")"
-META_DIR="$PARENT_DIR/wmpc-meta"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+META_DIR="$(dirname "$REPO_ROOT")/wmpc-meta"
 META_URL="git@github-notronwest:notronwest/wmpc-meta.git"
 
-# 1. Sync wmpc-meta — clone if missing, pull if present.
-if [ -d "$META_DIR/.git" ]; then
-  if git -C "$META_DIR" pull --ff-only --quiet 2>/dev/null; then
-    : # silent on success
-  else
-    echo "[claude-bootstrap] wmpc-meta pull failed (network? auth?). Continuing with last-pulled copy." >&2
-  fi
-else
-  echo "[claude-bootstrap] cloning wmpc-meta to $META_DIR..."
-  if ! git clone --quiet "$META_URL" "$META_DIR" 2>/dev/null; then
-    echo "[claude-bootstrap] clone failed. Strategy doc won't be available until network/auth is fixed." >&2
-  fi
+# Ensure wmpc-meta exists so the canonical can be found (canonical pulls it fresh).
+if [ ! -d "$META_DIR/.git" ]; then
+  echo "[claude-bootstrap] cloning wmpc-meta to $META_DIR..." >&2
+  git clone --quiet "$META_URL" "$META_DIR" 2>/dev/null \
+    || { echo "[claude-bootstrap] wmpc-meta unavailable (network/auth) — skipping." >&2; exit 0; }
 fi
 
-# 2. Install hooks. Both post-merge (for `git pull`) and post-rewrite (for
-#    `git pull --rebase`) so any pull strategy works.
-HOOK_BODY='#!/usr/bin/env bash
-# Auto-installed by scripts/claude-bootstrap.sh
-"$(git rev-parse --show-toplevel)/scripts/claude-bootstrap.sh" >/dev/null 2>&1 || true
-'
-for hook_name in post-merge post-rewrite; do
-  HOOK_PATH="$REPO_ROOT/.git/hooks/$hook_name"
-  if [ ! -f "$HOOK_PATH" ] || ! grep -q "claude-bootstrap" "$HOOK_PATH" 2>/dev/null; then
-    mkdir -p "$(dirname "$HOOK_PATH")"
-    printf '%s' "$HOOK_BODY" > "$HOOK_PATH"
-    chmod +x "$HOOK_PATH"
-    echo "[claude-bootstrap] installed $hook_name hook"
-  fi
-done
+CANON="$META_DIR/conventions/claude-bootstrap.sh"
+[ -f "$CANON" ] || { echo "[claude-bootstrap] canonical missing at $CANON — skipping." >&2; exit 0; }
 
-# 3. Teach this repo where the backlog is (idempotent). Canonical convention:
-#    ../wmpc-meta/conventions/backlog.md (synced above). Append its short
-#    CLAUDE.md block if this repo does not already have it.
-CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
-BLOCK_SRC="$META_DIR/conventions/backlog-claude-block.md"
-if [ -f "$CLAUDE_MD" ] && [ -f "$BLOCK_SRC" ] && ! grep -q "WMPC Roadmap" "$CLAUDE_MD" 2>/dev/null; then
-  bk_repo="this-repo"
-  bk_url="$(git -C "$REPO_ROOT" config --get remote.origin.url 2>/dev/null || true)"
-  [ -n "$bk_url" ] && bk_repo="$(basename -s .git "$bk_url")"
-  { printf "\n"; sed "s#<REPO>#${bk_repo}#g" "$BLOCK_SRC"; } >> "$CLAUDE_MD"
-  echo "[claude-bootstrap] added Backlog section to CLAUDE.md"
-fi
+# Hand off to the canonical (it does the wmpc-meta pull, hook install, CLAUDE.md
+# backlog block, and board link). Runs in this repo's cwd, so it targets here.
+exec bash "$CANON"
