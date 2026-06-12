@@ -67,6 +67,12 @@ export default function Dashboard() {
   // Manual session creation
   const [showNew, setShowNew] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  // Date the games were actually played. Required for a clean rating-hub
+  // sync — without it, played_date falls back to whatever day sync runs.
+  // Default to today since most manual sessions are created same-day.
+  // Use the LOCAL date (en-CA gives YYYY-MM-DD) — toISOString() would use
+  // UTC and roll to tomorrow on evening sessions east of UTC.
+  const [newDate, setNewDate] = useState(() => new Date().toLocaleDateString("en-CA"));
   const [newVideoPath, setNewVideoPath] = useState("");
   const [videoPathCustom, setVideoPathCustom] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<{ name: string; memberId: string }[]>([]);
@@ -138,12 +144,14 @@ export default function Dashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         label: newLabel || null,
+        booking_time: newDate ? `${newDate}T00:00:00Z` : null,
         player_names: selectedPlayers.length > 0 ? selectedPlayers.map((p) => p.name) : null,
         video_path: newVideoPath || null,
       }),
     });
     const session = await res.json();
     setNewLabel("");
+    setNewDate(new Date().toLocaleDateString("en-CA"));
     setNewVideoPath("");
     setVideoPathCustom(false);
     setSelectedPlayers([]);
@@ -455,7 +463,7 @@ export default function Dashboard() {
       {showNew && (
         <div style={cardStyle}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>New Manual Session</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 1fr", gap: 12, marginBottom: 12 }}>
             <div>
               <label style={labelStyle}>Label</label>
               <input
@@ -464,6 +472,16 @@ export default function Dashboard() {
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
                 style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Date played</label>
+              <input
+                type="date"
+                value={newDate}
+                onChange={(e) => setNewDate(e.target.value)}
+                style={{ ...inputStyle, width: "100%" }}
+                title="Date the games were actually played — used as the rating-hub session date"
               />
             </div>
             <div>
