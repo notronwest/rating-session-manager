@@ -1,30 +1,36 @@
 """
 Detect pickleball game segments in a session recording and write an SRT.
 
-How it works (replacing the old motion-magnitude detector as of 2026-05-14):
+The signal is dead simple (rewritten 2026-06-18, replacing the paddle-tap /
+quadrant-occupancy detector that over-counted games because it never looked
+at whether the court actually emptied):
+
+  A game ends when ALL FOUR players leave the court. Between games, players
+  walk off to switch, rest, or get water — so the court goes empty. During a
+  game the court is never empty. The next game starts when players come back
+  on and play resumes.
+
+How it works:
 
   1. Sample the video at 1 fps and run YOLOv8 person detection on each frame
      (Apple MPS by default, ~25 ms/frame on M-series — ~5 min for a 3-hour
      video).
   2. Filter detections to persons whose feet are inside the court polygon
-     defined by roi.json (eliminates adjacent-court spillover that confused
-     the pixel-based detector).
-  3. Detect PADDLE TAPS — game-end signal — as samples with N >= 3 persons
-     whose positions are tight (max distance from centroid < 80 px). Real
-     paddle taps cluster 3-4 players within ~50 px; rallies and between-
-     game milling spread persons 100-300+ px apart.
-  4. Detect GAME-START FORMATIONS as samples with 4+ persons spread across
-     the court (tightness >= 100, at least one on each side of the net)
-     sustained for 5+ seconds.
-  5. Filter paddle taps with backward-greedy 5-min spacing so a mid-game
-     huddle doesn't get treated as a game end. Last tap inside 90 s of
-     end-of-video means the final game ran out of time and is marked
-     UNFINISHED.
-  6. Build games: Game N = (first formation after tap N-1) to tap N.
+     defined by roi.json (eliminates adjacent-court spillover).
+  3. Mark each 1-second sample EMPTY when <= EMPTY_MAX_N persons are inside
+     the court.
+  4. A BREAK = the court stays EMPTY for >= BREAK_SEC consecutive seconds.
+     Breaks are the only game boundaries. Everything between two breaks (and
+     before the first / after the last) is one game.
+  5. A game starts at the first sample where play is underway (>= ACTIVE_MIN_N
+     persons on court) after the preceding break, and ends when the court next
+     empties. The final game runs to end-of-video and is marked UNFINISHED.
+  6. Games shorter than MIN_GAME_SEC are dropped (warmup blips, brief
+     re-entries that didn't become real play).
 
-CLI is unchanged from the old detector — same args, same SRT output. Old
-motion-based tuning knobs (--warmup, --min-gap, etc.) are accepted but
-ignored.
+CLI knobs (all map to the UI): --warmup, --break-sec, --empty-max-n,
+--min-game. The old motion-detector knobs (--min-gap, --long-break,
+--restart-lookahead) are accepted but ignored.
 """
 import argparse
 import json
@@ -37,50 +43,23 @@ import cv2
 import numpy as np
 
 
-# === Tuned thresholds (from /tmp/wed-frames/ analysis, 2026-05-14) ===
+# === Sampling / detection ===
 SAMPLE_FPS = 1.0           # YOLO inference is the bottleneck; 1 fps is plenty
 CONF_THRESHOLD = 0.35      # YOLO person confidence floor
-TIGHT_THRESHOLD = 80       # max px from centroid for a "paddle-tap cluster";
-                           # real taps observed at 38-78 px tightness
-N_MIN_TAP = 3              # min persons in a tap cluster — kept at 3 because
-                           # YOLO often misses one of the 4 players due to
-                           # occlusion. The NMS scoring favors max_n=4 clusters
-                           # over max_n=3 ones, so real taps win when both
-                           # types of cluster fall within the spacing window.
-TAP_SUSTAINED_MIN_SEC = 0  # Accept single-sample clusters — real paddle taps
-                           # often only register clean signal (n>=3, tight<80)
-                           # for one frame because the cluster moves quickly.
-                           # The 5-minute spacing filter handles false positives.
-TAP_MERGE_GAP_SEC = 30     # cluster samples within 30s = one event
-TAP_MAX_DURATION_SEC = 25  # clusters lasting longer than this are NOT
-                           # paddle taps — they're sustained kitchen-line
-                           # activity (e.g., dinking practice between
-                           # games), where 4 players cluster at the net
-                           # for minutes. Real taps are 0-15s typically.
-MIN_TAP_TIME_SEC = 90      # ignore tap candidates in the first 90s of the
-                           # video. Start-of-recording transitions (intro
-                           # graphics, players walking on, low-activity
-                           # warmup) can create brief clusters surrounded
-                           # by empty court that look like paddle taps.
-                           # Real games haven't started by then anyway —
-                           # the earliest game start observed is ~1:30.
-                           # (This replaces the post-tap-quiet filter,
-                           # which broke for sessions where players don't
-                           # exit the court between games — e.g. coaching
-                           # sessions where the court stays full
-                           # continuously through every paddle tap.)
-MIN_GAME_GAP_SEC = 7 * 60   # real games are 7+ min apart end-to-end
-                            # (real game durations observed: 9-17 min).
-                            # 10 min was too aggressive — suppressed real
-                            # short games (Game 2 at 15:39 vs Game 3 at 25:12,
-                            # only 9:30 apart).
-EOV_GUARD_SEC = 90         # last cluster within 90s of EOV = unfinished game
-MIN_UNFINISHED_GAME_SEC = 180  # tail-after-last-tap must be >= this long
-                               # for us to treat it as an unfinished game
-                               # (recording stopped mid-play). 3 min covers
-                               # short games while ignoring brief warmup /
-                               # debrief activity that follows a real tap.
-FORMATION_TIGHTNESS_MIN = 100  # spread out enough that it's not a tap
+
+# === Segmentation defaults (all overridable from the CLI / UI) ===
+DEFAULT_WARMUP_SEC = 0       # ignore activity before this many seconds (skip
+                             # pre-session warmup before the first real game)
+DEFAULT_BREAK_SEC = 12       # court must stay EMPTY this long to count as a
+                             # between-games break (the only game boundary)
+DEFAULT_EMPTY_MAX_N = 1      # court is "empty" when <= this many persons are
+                             # inside the polygon (1 tolerates a single
+                             # straggler lingering at the net post-game)
+DEFAULT_ACTIVE_MIN_N = 3     # play is "underway" when >= this many persons are
+                             # on court — used to pin the game-start moment
+                             # after a break
+DEFAULT_MIN_GAME_SEC = 120   # drop active stretches shorter than this (warmup
+                             # blips, brief re-entries that didn't become play)
 
 
 def fmt_t(t):
@@ -263,272 +242,98 @@ def run_yolo(video_path: Path, poly: np.ndarray, device: str,
     return rows
 
 
-def is_paddle_tap(r):
-    return r["n"] >= N_MIN_TAP and 0 < r["tightness"] < TIGHT_THRESHOLD
+def find_breaks(rows, empty_max_n, break_sec):
+    """Find between-games breaks: stretches where the court stays EMPTY
+    (<= empty_max_n persons inside the polygon) for >= break_sec seconds.
 
-
-def is_strict_formation(r):
-    """Strict game-start signature: 2 players on each side of the net,
-    spread out. This is what 'real game play has just begun' looks like —
-    not warmup (where players are usually all far or all near) and not
-    between-games (where typically 1-2 people are on the court).
-    Empirically appears in ~7% of samples in a session, clustered at game
-    starts."""
-    return (r["n"] >= 4
-            and r["n_far"] >= 2
-            and r["n_near"] >= 2
-            and r["tightness"] >= FORMATION_TIGHTNESS_MIN)
-
-
-def is_loose_formation(r):
-    """Looser fallback: at least one player on each side, total >= 3.
-    Used when no strict formation appears in a window (e.g., if YOLO
-    consistently misses one of the 4 players in a particular game)."""
-    return (r["n"] >= 3
-            and r["n_far"] >= 1
-            and r["n_near"] >= 1
-            and r["tightness"] >= FORMATION_TIGHTNESS_MIN)
-
-
-QUIET_AVG_N = 0.3            # avg n_total in a real between-games break
-                             # (~80-99% n=0). Mid-game lulls hit 0.45+.
-QUIET_STRETCH_MIN_SEC = 30   # the break must persist at least this long
-QUIET_FALLBACK_AVG_N = 0.5   # lenient fallback when no strict quiet
-                             # window exists (e.g., pre-game warmup with
-                             # 1-2 people drifting around the court).
-QUIET_FALLBACK_MIN_SEC = 15  # shorter window for the fallback.
-ACTIVE_N = 3                 # n_total >= this counts as game in progress
-
-
-def find_game_start(rows, t_lo, t_hi):
-    """Find the moment a game begins inside (t_lo, t_hi).
-
-    Algorithm: a real game start is a QUIET→ACTIVE TRANSITION POINT —
-    the 30s BEFORE has avg n_total < PRE_GAME_QUIET_AVG_N (court empty,
-    players walking to position) and the 30s AFTER has avg n_total >=
-    GAME_ACTIVE_AVG_N (sustained 3-4 players in play).
-
-    We pick the LATEST such transition in the window. This correctly
-    handles cases like:
-      - Drill activity between games (G6→G7): there's drill activity
-        then a real quiet→active transition into the actual game.
-      - Setup/staging time between games (G8→G9): brief setup activity
-        bursts before the actual sustained game starts.
-      - Mid-game brief lulls: don't qualify because pre-window isn't
-        quiet (game was already in progress).
-
-    Earlier approaches (longest quiet stretch, first active sample,
-    formation predicate) all failed in at least one of these cases.
-    """
-    in_range = [r for r in rows if t_lo < r["t"] < t_hi]
-    if not in_range:
-        return None
-
-    n_vals = [r["n"] for r in in_range]
-
-    def find_latest_window(threshold, win_size):
-        """Walks backward, finds latest window where avg n < threshold."""
-        for start in range(len(n_vals) - win_size, -1, -1):
-            if sum(n_vals[start:start + win_size]) / win_size < threshold:
-                return start + win_size - 1
-        return None
-
-    # Try strict quiet first (real between-games break).
-    latest_end = find_latest_window(QUIET_AVG_N, QUIET_STRETCH_MIN_SEC)
-    # Fall back to looser quiet (handles pre-game warmup where someone is
-    # always drifting around — never quite empty).
-    if latest_end is None:
-        latest_end = find_latest_window(QUIET_FALLBACK_AVG_N,
-                                        QUIET_FALLBACK_MIN_SEC)
-
-    if latest_end is None:
-        # Court was continuously active — return first active sample.
-        for r in in_range:
-            if r["n"] >= ACTIVE_N:
-                return r["t"]
-        return in_range[0]["t"]
-
-    # Game starts at first active sample after the quiet stretch.
-    for idx in range(latest_end + 1, len(in_range)):
-        if in_range[idx]["n"] >= ACTIVE_N:
-            return in_range[idx]["t"]
-
-    if latest_end + 1 < len(in_range):
-        return in_range[latest_end + 1]["t"]
-    return in_range[-1]["t"]
-
-
-def find_runs(rows, predicate, min_len=1):
-    runs = []
+    Returns a list of (start_t, end_t) — the empty window for each break.
+    These are the ONLY game boundaries; during a game the court is never
+    empty for this long."""
+    breaks = []
+    n = len(rows)
     i = 0
-    while i < len(rows):
-        if not predicate(rows[i]):
+    while i < n:
+        if rows[i]["n"] > empty_max_n:
             i += 1
             continue
         j = i
-        while j < len(rows) and predicate(rows[j]):
+        while j < n and rows[j]["n"] <= empty_max_n:
             j += 1
-        if (j - i) >= min_len:
-            runs.append((i, j - 1))
+        # rows[i .. j-1] are all empty
+        start_t, end_t = rows[i]["t"], rows[j - 1]["t"]
+        if (end_t - start_t) >= break_sec:
+            breaks.append((start_t, end_t))
         i = j
-    return runs
+    return breaks
 
 
-def cluster_score(rows, lo_idx, hi_idx):
-    """Score a tap-candidate cluster. Higher = more likely a real paddle
-    tap. max_n dominates with x100 weight so any cluster with 4 detected
-    players beats any cluster with only 3 — this correctly picks the real
-    paddle-tap moment over post-game milling, where YOLO typically sees
-    only 2-3 people walking by. Tightness is a secondary tiebreaker.
+def segment_games(rows,
+                  warmup_sec=DEFAULT_WARMUP_SEC,
+                  break_sec=DEFAULT_BREAK_SEC,
+                  empty_max_n=DEFAULT_EMPTY_MAX_N,
+                  active_min_n=DEFAULT_ACTIVE_MIN_N,
+                  min_game_sec=DEFAULT_MIN_GAME_SEC,
+                  verbose=True):
+    """Segment a session into games using the empty-court signal.
 
-    IMPORTANT: only consider samples that actually match the paddle-tap
-    predicate. Clusters may span non-matching samples (when two short
-    runs got merged via TAP_MERGE_GAP_SEC), and those non-matching
-    samples can have artificially-low tightness (e.g., 2 close people)
-    that would distort the score."""
-    matching = [rows[i] for i in range(lo_idx, hi_idx + 1)
-                if is_paddle_tap(rows[i])]
-    if not matching:
-        return 0
-    max_n = max(r["n"] for r in matching)
-    min_t = min(r["tightness"] for r in matching if r["tightness"] > 0)
-    return max_n * 100 + (TIGHT_THRESHOLD - min_t)
+    A game ends when all four players leave the court — it goes EMPTY
+    (<= empty_max_n on court) for >= break_sec. The next game starts when
+    players return and play resumes (>= active_min_n on court). Breaks are
+    the only boundaries; everything between two consecutive breaks (and
+    before the first break / after the last) is one game.
 
-
-# Game-start detection thresholds (quadrant-occupancy approach)
-GAME_START_MIN_QUADRANTS = 3   # how many of 4 court quadrants must contain
-                               # a person for the frame to count toward a
-                               # game-start signal. 3 of 4 (not 4) tolerates
-                               # YOLO missing one player in serve setup.
-GAME_START_SUSTAINED_SEC = 3   # how many seconds the signal must hold to
-                               # count as a real game start (filters brief
-                               # mid-rally moments where players happen to
-                               # span all 4 quadrants in passing).
-GAME_START_MERGE_GAP_SEC = 15  # merge nearby game-start runs into one
-                               # event; the signal often flickers during
-                               # the 3-5 sec of pre-serve positioning.
-PRE_GAME_QUIET_SEC = 60        # check this many seconds BEFORE a candidate
-                               # game-start signal. A real game start is
-                               # preceded by a between-games break (few
-                               # players, court partly empty). Mid-rally
-                               # play has all 4 quadrants always occupied,
-                               # so its avg pre-window quadrants_occupied
-                               # stays high and fails this filter.
-PRE_GAME_MAX_QUADRANTS_AVG = 2.0  # mean quadrants_occupied in the pre-game
-                                  # window must be below this. Real
-                                  # between-games breaks average 0-1.5;
-                                  # active mid-game play averages 3-4.
-
-
-def find_game_starts(rows):
-    """Find moments where the players distribute across the court for a
-    serve setup — the canonical game-start signature.
-
-    Algorithm:
-      1. Mark each sample where >= GAME_START_MIN_QUADRANTS of the 4
-         court quadrants contain at least one detected person.
-      2. Group consecutive marked samples into runs; merge runs within
-         GAME_START_MERGE_GAP_SEC of each other (handles YOLO flicker).
-      3. Keep runs whose total duration is >= GAME_START_SUSTAINED_SEC.
-
-    Each kept run's start timestamp is a "game starts here" event.
+    The final game runs to end-of-video and is marked UNFINISHED only when
+    it isn't itself followed by a break — i.e. the recording stopped while
+    players were still on court rather than after a clean changeover.
     """
-    flags = [r["quadrants_occupied"] >= GAME_START_MIN_QUADRANTS
-             for r in rows]
+    if not rows:
+        return []
 
-    # Find consecutive runs of marked samples.
-    runs = []
-    i = 0
-    while i < len(flags):
-        if not flags[i]:
-            i += 1
-            continue
-        j = i
-        while j < len(flags) and flags[j]:
-            j += 1
-        runs.append([i, j - 1])
-        i = j
-
-    # Merge runs within GAME_START_MERGE_GAP_SEC of each other.
-    merged = []
-    for lo, hi in runs:
-        s, e = rows[lo]["t"], rows[hi]["t"]
-        if merged and s - merged[-1][1] <= GAME_START_MERGE_GAP_SEC:
-            merged[-1][1] = e
-        else:
-            merged.append([s, e])
-
-    # Keep only runs sustained long enough to be a real serve setup.
-    return [(s, e) for s, e in merged
-            if (e - s) >= GAME_START_SUSTAINED_SEC]
-
-
-def segment_games(rows, verbose=True):
-    """Detect game segments using quadrant-occupancy game-start signals.
-
-    Pickleball games begin with 4 players distributing across the 4
-    court quadrants for the serve setup. This is a much more reliable
-    signal than paddle-tap detection (which gives the same visual
-    signature whether it ends a game or happens mid-rally).
-
-    Games are bounded by consecutive game starts: Game N runs from
-    game-start N until game-start N+1 (or end of video for the last
-    game, which is marked UNFINISHED since we can't tell whether the
-    recording ended naturally at a game-end or cut off mid-play).
-    """
+    # Drop pre-session warmup: ignore everything before warmup_sec.
+    rows = [r for r in rows if r["t"] >= warmup_sec]
     if not rows:
         return []
     eov = rows[-1]["t"]
 
-    # Ignore game starts in the first MIN_TAP_TIME_SEC of the video
-    # (start-of-recording transitions / warmup / setup).
-    starts = [(s, e) for s, e in find_game_starts(rows)
-              if s >= MIN_TAP_TIME_SEC]
-
-    # Pre-game quiet filter: a real game start is preceded by a
-    # between-games break where activity drops (avg quadrants_occupied
-    # < PRE_GAME_MAX_QUADRANTS_AVG over the PRE_GAME_QUIET_SEC window
-    # before the candidate). This is what separates real game starts
-    # (preceded by a break) from mid-rally moments where 3-4 quadrants
-    # happen to be occupied during normal play (preceded by more play,
-    # so the pre-window stays at full quadrant occupancy).
-    def pre_window_avg_quadrants(start_t):
-        win_start = start_t - PRE_GAME_QUIET_SEC
-        in_window = [r["quadrants_occupied"] for r in rows
-                     if win_start <= r["t"] < start_t]
-        if not in_window:
-            return 0.0  # very start of video — treat as quiet
-        return sum(in_window) / len(in_window)
-
-    quiet_filtered = [(s, e) for s, e in starts
-                      if pre_window_avg_quadrants(s) < PRE_GAME_MAX_QUADRANTS_AVG]
-
-    # Enforce minimum spacing between consecutive game starts. If two
-    # game-start signals fire within MIN_GAME_GAP_SEC, the second one is
-    # really "still setting up" — keep the first.
-    spaced = []
-    for s, e in quiet_filtered:
-        if not spaced or (s - spaced[-1][0]) >= MIN_GAME_GAP_SEC:
-            spaced.append((s, e))
+    breaks = find_breaks(rows, empty_max_n, break_sec)
 
     if verbose:
-        print(f"\nGame-start signals (>= {GAME_START_MIN_QUADRANTS}/4 "
-              f"quadrants occupied, sustained >= "
-              f"{GAME_START_SUSTAINED_SEC}s, spaced >= "
-              f"{MIN_GAME_GAP_SEC//60}min): {len(spaced)}", flush=True)
-        for s, e in spaced:
-            print(f"  START {fmt_t(s)} (signal lasted {int(e - s)}s)",
-                  flush=True)
+        print(f"\nBetween-games breaks (<= {empty_max_n} on court for "
+              f">= {break_sec}s): {len(breaks)}", flush=True)
+        for s, e in breaks:
+            print(f"  BREAK {fmt_t(s)} -> {fmt_t(e)} "
+                  f"({int(e - s)}s empty)", flush=True)
 
-    # Build games. Game N runs from start N to start N+1; last game runs
-    # to EOV and is marked unfinished (we don't know whether the
-    # recording ended at a real game-end or mid-play).
+    # The active spans between breaks are the candidate games. Span k runs
+    # from the END of break k-1 (court refills) to the START of break k
+    # (court empties). The first span starts at warmup; the last runs to EOV.
+    span_starts = [rows[0]["t"]] + [e for (_s, e) in breaks]
+    span_ends = [s for (s, _e) in breaks] + [eov]
+    last_idx = len(span_starts) - 1
+
     games = []
-    for i, (s, _e) in enumerate(spaced):
-        if i + 1 < len(spaced):
-            games.append({"start": s, "end": spaced[i + 1][0]})
-        else:
-            games.append({"start": s, "end": eov, "unfinished": True})
+    for idx, (span_start, span_end) in enumerate(zip(span_starts, span_ends)):
+        # Pin the start to the first sample where play is actually underway,
+        # skipping the few seconds of players walking back onto the court.
+        start_t = span_start
+        for r in rows:
+            if r["t"] < span_start:
+                continue
+            if r["t"] > span_end:
+                break
+            if r["n"] >= active_min_n:
+                start_t = r["t"]
+                break
+
+        if (span_end - start_t) < min_game_sec:
+            continue  # too short to be a real game (warmup/transition blip)
+
+        game = {"start": start_t, "end": span_end}
+        # Only the EOV-terminated span is "unfinished" — it didn't end with
+        # a clean court-empty changeover (recording cut off mid-session).
+        if idx == last_idx:
+            game["unfinished"] = True
+        games.append(game)
 
     if verbose:
         print(f"\nGame segments:", flush=True)
@@ -583,11 +388,27 @@ def main():
                    help="Skip YOLO and load per-frame data from a previously "
                         "dumped CSV. Useful for fast iteration on segmentation.")
 
+    # === Segmentation knobs (map to the UI) ===
+    p.add_argument("--warmup", type=float, default=DEFAULT_WARMUP_SEC,
+                   help=f"Ignore activity before this many seconds — skips "
+                        f"pre-session warmup before the first game "
+                        f"(default {DEFAULT_WARMUP_SEC})")
+    p.add_argument("--break-sec", type=float, default=DEFAULT_BREAK_SEC,
+                   help=f"Court must stay empty this long (seconds) to count "
+                        f"as a between-games break (default {DEFAULT_BREAK_SEC})")
+    p.add_argument("--empty-max-n", type=int, default=DEFAULT_EMPTY_MAX_N,
+                   help=f"Court is 'empty' when <= this many persons are "
+                        f"inside the polygon (default {DEFAULT_EMPTY_MAX_N} — "
+                        f"tolerates one straggler at the net)")
+    p.add_argument("--active-min-n", type=int, default=DEFAULT_ACTIVE_MIN_N,
+                   help=f"Play is 'underway' when >= this many persons are on "
+                        f"court; pins the game-start moment after a break "
+                        f"(default {DEFAULT_ACTIVE_MIN_N})")
+    p.add_argument("--min-game", type=float, default=DEFAULT_MIN_GAME_SEC,
+                   help=f"Drop active stretches shorter than this (seconds) "
+                        f"(default {DEFAULT_MIN_GAME_SEC})")
+
     # Legacy motion-detector knobs — accepted for backward compat but ignored.
-    p.add_argument("--warmup", type=float, default=None,
-                   help=argparse.SUPPRESS)
-    p.add_argument("--min-game", type=float, default=None,
-                   help=argparse.SUPPRESS)
     p.add_argument("--min-gap", type=float, default=None,
                    help=argparse.SUPPRESS)
     p.add_argument("--long-break", type=float, default=None,
@@ -660,7 +481,12 @@ def main():
                         f"{r['quadrants_occupied']}\n")
         print(f"Dumped per-frame detection data to {dump_path}", flush=True)
 
-    games = segment_games(rows)
+    games = segment_games(rows,
+                          warmup_sec=args.warmup,
+                          break_sec=args.break_sec,
+                          empty_max_n=args.empty_max_n,
+                          active_min_n=args.active_min_n,
+                          min_game_sec=args.min_game)
     write_srt(games, out_path,
               pad_before=args.pad_before, pad_after=args.pad_after)
 

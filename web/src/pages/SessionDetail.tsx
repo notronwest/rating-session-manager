@@ -87,12 +87,9 @@ export default function SessionDetail() {
   } | null>(null);
   const [videoFiles, setVideoFiles] = useState<VideoFile[]>([]);
 
-  // Detection parameters
-  const [warmup, setWarmup] = useState("600");
-  const [minGap, setMinGap] = useState("15");
-  const [longBreak, setLongBreak] = useState("45");
-  const [restartLookahead, setRestartLookahead] = useState("30");
-  const [minGame, setMinGame] = useState("360");
+  // Detection has no user-facing knobs. A game boundary is simply: the court
+  // goes empty (all players walk off) for a few seconds; the next game starts
+  // when they come back on. The thresholds live as defaults in detect_games.py.
 
   // Inline label edit — toggleable input in place of the <h1> title.
   const [editingLabel, setEditingLabel] = useState(false);
@@ -217,13 +214,7 @@ export default function SessionDetail() {
       const res = await fetch(`/api/sessions/${id}/detect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          warmup: parseFloat(warmup),
-          min_gap: parseFloat(minGap),
-          long_break: parseFloat(longBreak),
-          restart_lookahead: parseFloat(restartLookahead),
-          min_game: parseFloat(minGame),
-        }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (data.segments) setEditSegments(data.segments);
@@ -1533,28 +1524,11 @@ export default function SessionDetail() {
 
                 {/* Detection */}
                 <div id="detect-card" style={{ marginTop: 20 }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#444" }}>Game Detection</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
-          {[
-            { label: "Warmup (sec)", value: warmup, set: setWarmup },
-            { label: "Min Gap (sec)", value: minGap, set: setMinGap },
-            { label: "Long Break (sec)", value: longBreak, set: setLongBreak },
-            { label: "Restart Look (sec)", value: restartLookahead, set: setRestartLookahead },
-            { label: "Min Game (sec)", value: minGame, set: setMinGame },
-          ].map((p) => (
-            <div key={p.label}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#666", display: "block", marginBottom: 4 }}>
-                {p.label}
-              </label>
-              <input
-                type="number"
-                value={p.value}
-                onChange={(e) => p.set(e.target.value)}
-                style={inputStyle}
-              />
-            </div>
-          ))}
-        </div>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: "#444" }}>Game Detection</h3>
+        <p style={{ fontSize: 12, color: "#888", margin: "0 0 16px" }}>
+          Finds each game automatically: a game ends when all players leave the court for a
+          few seconds, and the next one starts when they come back on. Just press Detect.
+        </p>
         <div style={{ marginTop: 8 }}>
           {session.segments ? (
             <>

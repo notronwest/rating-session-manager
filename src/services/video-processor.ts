@@ -10,10 +10,13 @@ const SCRIPTS_DIR = path.resolve(__dirname, "../../scripts/videos");
 export interface DetectOptions {
   videoPath: string;
   roiPath?: string;
+  /** Ignore activity before this many seconds (skip pre-session warmup). */
   warmup?: number;
-  minGap?: number;
-  longBreak?: number;
-  restartLookahead?: number;
+  /** Court must stay empty this long (seconds) to count as a game break. */
+  breakSec?: number;
+  /** Court is "empty" when <= this many persons are inside the polygon. */
+  emptyMaxN?: number;
+  /** Drop active stretches shorter than this (seconds). */
   minGame?: number;
 }
 
@@ -89,9 +92,8 @@ export function detectGames(
 
     const args = [script, opts.videoPath, "--roi", roiPath, "--out", srtPath];
     if (opts.warmup !== undefined) args.push("--warmup", String(opts.warmup));
-    if (opts.minGap !== undefined) args.push("--min-gap", String(opts.minGap));
-    if (opts.longBreak !== undefined) args.push("--long-break", String(opts.longBreak));
-    if (opts.restartLookahead !== undefined) args.push("--restart-lookahead", String(opts.restartLookahead));
+    if (opts.breakSec !== undefined) args.push("--break-sec", String(opts.breakSec));
+    if (opts.emptyMaxN !== undefined) args.push("--empty-max-n", String(opts.emptyMaxN));
     if (opts.minGame !== undefined) args.push("--min-game", String(opts.minGame));
 
     onLog(`Video: ${path.basename(opts.videoPath)}`);

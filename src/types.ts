@@ -50,9 +50,8 @@ export interface GameSegment {
 
 export interface DetectRequest {
   warmup?: number;
-  min_gap?: number;
-  long_break?: number;
-  restart_lookahead?: number;
+  break_sec?: number;
+  empty_max_n?: number;
   min_game?: number;
 }
 
