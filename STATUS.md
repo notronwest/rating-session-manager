@@ -26,8 +26,8 @@ Last updated: **2026-06-18**
   `--break-sec`, `--empty-max-n`, `--active-min-n`, `--min-game`.
 - Synthetic segmentation test passes (3 games, mid-game lull ignored, warmup
   skipped, straggler-in-break handled); `tsc` + `vite build` clean.
-- Landed as **[PR #37](https://github.com/notronwest/rating-session-manager/pull/37)** (open at time of writing).
-- **Next:** merge #37, then on the Mac Mini `git pull && npm run build`,
+- Landed as **[PR #37](https://github.com/notronwest/rating-session-manager/pull/37)** — **merged** to `main` (`0551f80`).
+- **Next:** on the Mac Mini `git pull && npm run build`,
   Clear Segments, re-Detect — that's the first end-to-end run on the real
   June 17 video (not present on the dev laptop). If the boundary is slightly
   off, optionally pin game start to the first serve (right-foreground side).
