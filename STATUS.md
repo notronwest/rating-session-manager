@@ -21,7 +21,7 @@ Last updated: **2026-06-19**
   in scroll offset, so boundary editing works at any zoom.
 - Verified live on the real 2h20m `Thursday 4_2_2026` session (7 segments):
   track 1008→4032px at 4×, scrollbar appears, markers tighten, Fit resets.
-- **Next:** uncommitted on `main` — branch + PR pending (awaiting go-ahead).
+- Landed as PR #39 (squash-merged to `main`).
 
 ## 2026-06-19 — "Reset tags" button per game in tagging UI
 
