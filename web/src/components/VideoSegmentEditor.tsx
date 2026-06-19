@@ -46,10 +46,22 @@ function formatDisplay(sec: number): string {
 export default function VideoSegmentEditor({ videoPath, segments, onSegmentsChange }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [dragging, setDragging] = useState<{ segIdx: number; edge: "start" | "end" } | null>(null);
+  // Horizontal zoom for the timeline. 1 = whole video fits the panel width;
+  // higher values widen the inner track and reveal a horizontal scrollbar so
+  // a 2+ hour recording's segment edges are grabbable at pixel scale. All
+  // segment/playhead positions stay percentage-based against the (now wider)
+  // track, and the click/drag math reads getBoundingClientRect() which already
+  // accounts for scroll offset — so nothing downstream needs to know the zoom.
+  const [zoom, setZoom] = useState(1);
+  const ZOOM_MIN = 1;
+  const ZOOM_MAX = 32;
+  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, z * 2));
+  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, z / 2));
 
   const videoUrl = `/api/videos/stream?path=${encodeURIComponent(videoPath)}`;
 
@@ -71,6 +83,33 @@ export default function VideoSegmentEditor({ videoPath, segments, onSegmentsChan
       v.removeEventListener("pause", onPause);
     };
   }, []);
+
+  // Keep the playhead within the visible scroll window as it advances (only
+  // matters when zoomed in, where the track is wider than the panel). Nudges
+  // scroll when the playhead drifts within 10% of either edge; leaves manual
+  // scrolling alone otherwise.
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc || duration === 0 || zoom <= 1) return;
+    const playheadX = (currentTime / duration) * sc.scrollWidth;
+    const margin = sc.clientWidth * 0.1;
+    if (playheadX < sc.scrollLeft + margin) {
+      sc.scrollLeft = Math.max(0, playheadX - margin);
+    } else if (playheadX > sc.scrollLeft + sc.clientWidth - margin) {
+      sc.scrollLeft = playheadX - sc.clientWidth + margin;
+    }
+  }, [currentTime, duration, zoom]);
+
+  // On a zoom change, recenter the view on the playhead so zooming in feels
+  // like it homes in on where you're working rather than jumping to 0:00.
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc || duration === 0) return;
+    const playheadX = (currentTime / duration) * sc.scrollWidth;
+    sc.scrollLeft = Math.max(0, playheadX - sc.clientWidth / 2);
+    // currentTime intentionally omitted: recenter only when zoom changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom, duration]);
 
   const seekTo = useCallback((sec: number) => {
     if (videoRef.current) videoRef.current.currentTime = sec;
@@ -186,6 +225,17 @@ export default function VideoSegmentEditor({ videoPath, segments, onSegmentsChan
         <span style={{ fontSize: 13, fontFamily: "monospace", color: "#333", minWidth: 90 }}>
           {formatDisplay(currentTime)} / {formatDisplay(duration)}
         </span>
+        {/* Timeline zoom */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 8 }}>
+          <button onClick={zoomOut} disabled={zoom <= ZOOM_MIN} style={ctrlBtnStyle} title="Zoom timeline out">−</button>
+          <span style={{ fontSize: 12, color: "#666", minWidth: 30, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+            {zoom}×
+          </span>
+          <button onClick={zoomIn} disabled={zoom >= ZOOM_MAX} style={ctrlBtnStyle} title="Zoom timeline in">+</button>
+          {zoom !== 1 && (
+            <button onClick={() => setZoom(1)} style={ctrlBtnStyle} title="Fit whole video">Fit</button>
+          )}
+        </div>
         <div style={{ flex: 1 }} />
         {playheadInSegment ? (
           <button onClick={splitAtPlayhead} style={{ ...ctrlBtnStyle, color: "#e37400", borderColor: "#e37400" }}>
@@ -198,13 +248,18 @@ export default function VideoSegmentEditor({ videoPath, segments, onSegmentsChan
         )}
       </div>
 
-      {/* Timeline */}
+      {/* Timeline — scroll container holds the (possibly wider-than-panel)
+          zoomable track. timelineRef stays on the inner track so the click /
+          drag fraction math keeps working: getBoundingClientRect().left is
+          viewport-relative and already folds in the horizontal scroll. */}
+      <div ref={scrollRef} style={{ overflowX: zoom > 1 ? "auto" : "hidden", overflowY: "hidden" }}>
       <div
         ref={timelineRef}
         onClick={handleTimelineClick}
         style={{
           position: "relative", height: 48, background: "#f5f5f5",
           cursor: "pointer", userSelect: "none",
+          width: `${zoom * 100}%`,
         }}
       >
         {/* Segment blocks */}
@@ -269,18 +324,23 @@ export default function VideoSegmentEditor({ videoPath, segments, onSegmentsChan
           />
         )}
 
-        {/* Time markers */}
-        {duration > 0 && Array.from({ length: Math.floor(duration / 300) + 1 }, (_, i) => i * 300).map((t) => (
-          <div
-            key={t}
-            style={{
-              position: "absolute", bottom: 0, left: `${(t / duration) * 100}%`,
-              fontSize: 9, color: "#999", transform: "translateX(-50%)",
-            }}
-          >
-            {formatDisplay(t)}
-          </div>
-        ))}
+        {/* Time markers — interval tightens as you zoom so the track stays
+            labeled at higher magnification (5m → 2m → 1m → 30s). */}
+        {duration > 0 && (() => {
+          const interval = zoom >= 16 ? 30 : zoom >= 8 ? 60 : zoom >= 4 ? 120 : 300;
+          return Array.from({ length: Math.floor(duration / interval) + 1 }, (_, i) => i * interval).map((t) => (
+            <div
+              key={t}
+              style={{
+                position: "absolute", bottom: 0, left: `${(t / duration) * 100}%`,
+                fontSize: 9, color: "#999", transform: "translateX(-50%)",
+              }}
+            >
+              {formatDisplay(t)}
+            </div>
+          ));
+        })()}
+      </div>
       </div>
 
       {/* Segment warnings */}
