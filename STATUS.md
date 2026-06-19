@@ -7,6 +7,22 @@ Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
 Last updated: **2026-06-19**
 
+## 2026-06-19 — Zoomable segment-editor timeline
+
+- **Problem:** game detection is unreliable, so segments get hand-edited a
+  lot — but a 2+ hour recording crammed into one panel width makes the drag
+  handles too finicky to grab.
+- **Fix:** added horizontal zoom to
+  [`web/src/components/VideoSegmentEditor.tsx`](./web/src/components/VideoSegmentEditor.tsx).
+  `−` / `+` / `Fit` controls (1×–32×), track widens inside a horizontal
+  scroll container, view recenters on playhead per zoom + auto-follows during
+  playback, and time-marker interval tightens with zoom (5m→2m→1m→30s).
+  Drag/click math untouched — it reads `getBoundingClientRect()` which folds
+  in scroll offset, so boundary editing works at any zoom.
+- Verified live on the real 2h20m `Thursday 4_2_2026` session (7 segments):
+  track 1008→4032px at 4×, scrollbar appears, markers tighten, Fit resets.
+- **Next:** uncommitted on `main` — branch + PR pending (awaiting go-ahead).
+
 ## 2026-06-19 — "Reset tags" button per game in tagging UI
 
 - **Problem:** in the in-app tagging panel, slot picks are exclusive within
