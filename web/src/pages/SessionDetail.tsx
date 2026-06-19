@@ -539,11 +539,35 @@ export default function SessionDetail() {
       }
       const verb = data.alreadyOnRoster ? "already on roster" : data.created ? "created & added" : "added";
       setAddPlayerMsg(`${data.candidate.displayName} — ${verb}.`);
-      await fetchTagging();
+      // Refresh both the roster chips (session) and the tagging candidates.
+      await Promise.all([fetchSession(), fetchTagging()]);
     } catch (err) {
       setAddPlayerMsg((err as Error).message);
     } finally {
       setAddingPlayer(false);
+    }
+  };
+
+  // Remove a player from THIS session's roster (player_names). Drops them as a
+  // tagging candidate; does NOT delete their rating-hub profile or any tags
+  // already saved on games. PATCHes the trimmed list.
+  const [editingPlayers, setEditingPlayers] = useState(false);
+  const [playersSaving, setPlayersSaving] = useState(false);
+  const removePlayerFromSession = async (name: string) => {
+    if (!session) return;
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const next = (session.player_names || []).filter((n) => norm(n) !== norm(name));
+    setPlayersSaving(true);
+    setAddPlayerMsg(null);
+    try {
+      await fetch(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player_names: next.length ? next : null }),
+      });
+      await Promise.all([fetchSession(), fetchTagging()]);
+    } finally {
+      setPlayersSaving(false);
     }
   };
   const setPick = (gameId: string, playerIndex: number, playerId: string) => {
@@ -1432,29 +1456,75 @@ export default function SessionDetail() {
         <PipelineSteps status={session.status} />
       </div>
 
-      {/* Players */}
-      {session.player_names && session.player_names.length > 0 && (
-        <div style={cardStyle}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Players</h2>
-          <div style={{ display: "flex", gap: 8 }}>
-            {session.player_names.map((name, i) => (
-              <span
-                key={i}
-                style={{
-                  padding: "4px 12px",
-                  background: "#e8f0fe",
-                  borderRadius: 16,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: "#1a73e8",
-                }}
-              >
-                {name}
-              </span>
-            ))}
-          </div>
+      {/* Players — session roster. Editable: add (search-or-create) / remove.
+          Drives who can be tagged in this session's games. */}
+      <div style={cardStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600 }}>Players</h2>
+          <button
+            onClick={() => { setEditingPlayers((v) => !v); setAddPlayerMsg(null); }}
+            style={{
+              padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+              border: "1px solid #ddd", background: editingPlayers ? "#1a73e8" : "#fff",
+              color: editingPlayers ? "#fff" : "#1a73e8", fontWeight: 500,
+            }}
+          >
+            {editingPlayers ? "Done" : "Edit"}
+          </button>
+          {playersSaving && <span style={{ fontSize: 12, color: "#999" }}>Saving…</span>}
         </div>
-      )}
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {(session.player_names || []).map((name, i) => (
+            <span
+              key={i}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: editingPlayers ? "4px 6px 4px 12px" : "4px 12px",
+                background: "#e8f0fe", borderRadius: 16, fontSize: 13,
+                fontWeight: 500, color: "#1a73e8",
+              }}
+            >
+              {name}
+              {editingPlayers && (
+                <button
+                  onClick={() => removePlayerFromSession(name)}
+                  disabled={playersSaving}
+                  title={`Remove ${name} from this session`}
+                  style={{
+                    border: "none", background: "#c5d9fb", color: "#1a4fb0",
+                    borderRadius: "50%", width: 18, height: 18, lineHeight: "16px",
+                    fontSize: 13, cursor: playersSaving ? "default" : "pointer", padding: 0,
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+          {(session.player_names || []).length === 0 && (
+            <span style={{ fontSize: 13, color: "#999" }}>No players yet.</span>
+          )}
+        </div>
+
+        {editingPlayers && (
+          <div style={{ marginTop: 12 }}>
+            <AddPlayer
+              compact
+              busy={addingPlayer}
+              placeholder="Add a player by name…"
+              onSubmit={addPlayerToSession}
+            />
+            {addPlayerMsg && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#5f6368" }}>{addPlayerMsg}</div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
+              Removing a player only takes them off this session — it doesn't delete
+              their rating-hub profile or any tags already saved on games.
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Split Video (collapsible) — video file + detection + segments + editor + clips */}
       {(() => {

@@ -7,6 +7,23 @@ Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
 Last updated: **2026-06-19**
 
+## 2026-06-19 — Editable session roster (Players card)
+
+- **Problem:** the session-detail "Players" card only displayed the roster
+  (`session.player_names`) as read-only chips — no way to fix a wrong roster.
+- **Fix:** made the Players card editable in
+  [`web/src/pages/SessionDetail.tsx`](./web/src/pages/SessionDetail.tsx).
+  An **Edit / Done** toggle reveals an `×` on each chip (remove) and the
+  shared `AddPlayer` search-or-create combobox (add). Add reuses
+  `POST /api/sessions/:id/players` (create/reuse profile + roster append);
+  remove `PATCH`es the trimmed `player_names`. Both refresh the roster chips
+  **and** tagging candidates. Removal only de-rosters — it doesn't delete the
+  rating-hub profile or saved tags (noted inline). Empty roster now renders
+  the card (with "No players yet") instead of hiding it.
+- Verified live on the real `5.0+ Group Play 20260617` session: removed
+  "Andrew Schage" (persisted to DB), re-added via search-or-create
+  (persisted), chips updated live, roster restored to original.
+
 ## 2026-06-19 — Manual players (add subs/guests, sync to rating-hub)
 
 - **Problem:** players who aren't in CourtReserve (subs, guests) had no way
