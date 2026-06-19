@@ -21,7 +21,7 @@ Last updated: **2026-06-19**
   picks.
 - Typecheck clean. Not exercised live (tagging UI needs a session with
   uploaded pb.vision vids + imported games).
-- **Next:** not committed/PR'd yet — open a PR off a branch.
+- Landed as PR #38 (squash-merged to `main`).
 
 ## 2026-06-18 — Game detection rewritten around empty-court breaks
 
