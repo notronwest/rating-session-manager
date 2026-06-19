@@ -565,6 +565,29 @@ export default function SessionDetail() {
     });
   };
 
+  // Clears every slot pick for ONE game back to empty so the coach can
+  // re-pick from scratch. Needed because picks are exclusive within a
+  // game (a player chosen in one slot is disabled in the others), so a
+  // mis-assignment can leave you unable to "deselect" — reset breaks the
+  // deadlock. Only touches pending picks/badges; persisted tags aren't
+  // unassigned until a save with new picks. Marks dirty so Save lights up.
+  const resetGameTags = (gameId: string) => {
+    const game = taggingGames?.find((g) => g.gameId === gameId);
+    if (!game) return;
+    const keys = game.slots.map((s) => `${gameId}:${s.playerIndex}`);
+    setTaggingPicks((prev) => {
+      const next = { ...prev };
+      for (const k of keys) delete next[k];
+      return next;
+    });
+    setSuggestedBadges((prev) => {
+      const next = { ...prev };
+      for (const k of keys) delete next[k];
+      return next;
+    });
+    setTaggingDirty(true);
+  };
+
   // Per-slot "this pick came from auto-suggest" badge map. Keyed the
   // same as taggingPicks. Confidence drives the badge colour: ≥0.85
   // green, ≥0.70 amber, otherwise red.
@@ -2281,11 +2304,27 @@ export default function SessionDetail() {
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {taggingGames.map((game, gIdx) => (
                 <div key={game.gameId} style={{ borderTop: gIdx === 0 ? "none" : "1px solid #eee", paddingTop: gIdx === 0 ? 0 : 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#444", marginBottom: 8 }}>
-                    Game {gIdx + 1}{" "}
-                    <span style={{ fontWeight: 400, color: "#999", fontFamily: "monospace", fontSize: 11 }}>
-                      vid={game.vid}
-                    </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#444" }}>
+                      Game {gIdx + 1}{" "}
+                      <span style={{ fontWeight: 400, color: "#999", fontFamily: "monospace", fontSize: 11 }}>
+                        vid={game.vid}
+                      </span>
+                    </div>
+                    {game.slots.some((s) => taggingPicks[`${game.gameId}:${s.playerIndex}`]) && (
+                      <button
+                        type="button"
+                        onClick={() => resetGameTags(game.gameId)}
+                        title="Clear all player picks for this game so you can re-pick from scratch"
+                        style={{
+                          marginLeft: "auto", padding: "3px 8px", fontSize: 11,
+                          color: "#b00020", background: "#fff",
+                          border: "1px solid #f5c6c6", borderRadius: 4, cursor: "pointer",
+                        }}
+                      >
+                        Reset tags
+                      </button>
+                    )}
                   </div>
                   {/* Each player can only fill ONE slot per game — doubles
                       is 4 players, exclusive. Per slot we compute the

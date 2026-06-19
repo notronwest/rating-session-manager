@@ -5,7 +5,23 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
-Last updated: **2026-06-18**
+Last updated: **2026-06-19**
+
+## 2026-06-19 — "Reset tags" button per game in tagging UI
+
+- **Problem:** in the in-app tagging panel, slot picks are exclusive within
+  a game — picking a player disables them in the other 3 slots, and the 4th
+  slot auto-fills once 3 are set. A mis-assignment could lock out the player
+  you actually wanted ("already in this game") with no way to back out.
+- **Fix:** added a **Reset tags** button to each game's header
+  ([`web/src/pages/SessionDetail.tsx`](./web/src/pages/SessionDetail.tsx)).
+  `resetGameTags(gameId)` clears that game's slot picks + CLIP suggested
+  badges and marks dirty. Button only shows when ≥1 slot has a pick. Scoped
+  to pending picks — persisted tags aren't unassigned until a save with new
+  picks.
+- Typecheck clean. Not exercised live (tagging UI needs a session with
+  uploaded pb.vision vids + imported games).
+- **Next:** not committed/PR'd yet — open a PR off a branch.
 
 ## 2026-06-18 — Game detection rewritten around empty-court breaks
 
