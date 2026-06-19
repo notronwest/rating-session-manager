@@ -7,6 +7,33 @@ Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
 Last updated: **2026-06-19**
 
+## 2026-06-19 — Manual players (add subs/guests, sync to rating-hub)
+
+- **Problem:** players who aren't in CourtReserve (subs, guests) had no way
+  to get a rating-hub profile, so they couldn't be tagged in games they
+  played.
+- **Fix (search-or-create, two surfaces):**
+  - New helper [`src/players/manual.ts`](./src/players/manual.ts) —
+    `findOrCreatePlayer(orgId, name)` (fuzzy name/pbvision-alias match, mints
+    unique slug, inserts `is_active` row with no `cr_member_id`) +
+    `getPlayerById`.
+  - `POST /api/members` — create/reuse a global profile (Members page).
+  - `POST /api/sessions/:id/players` — `{displayName}` or `{playerId}`:
+    create/reuse a player **and** append their canonical name to
+    `session.player_names` so they become a tagging candidate and pass the
+    `POST /tagging` roster guard. Idempotent.
+  - Shared combobox [`web/src/components/AddPlayer.tsx`](./web/src/components/AddPlayer.tsx)
+    (debounced `/api/members/search`, reuse-existing or create-new). Wired
+    into the tagging panel ("Missing a player?") and a new Members-page card.
+- Verified end-to-end against real data: reuse path (no dup row), case-
+  insensitive match, empty-name guard (400), roster append + idempotency,
+  and the added player surfacing as a candidate **with a resolved id** on a
+  complete session (then restored the test session's roster). Members-page
+  autocomplete shows existing matches + "Create new".
+- **Next:** brand-new-profile insert path is covered by the shared helper
+  (mirrors the proven member-sync insert) but wasn't exercised against the
+  live DB to avoid writing a throwaway row.
+
 ## 2026-06-19 — Zoomable segment-editor timeline
 
 - **Problem:** game detection is unreliable, so segments get hand-edited a

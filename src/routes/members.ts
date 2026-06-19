@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getSupabase, getOrgId } from "../supabase.js";
 import { syncMembers, SyncError } from "../members/sync.js";
+import { findOrCreatePlayer } from "../players/manual.js";
 
 const router = Router();
 
@@ -44,6 +45,26 @@ router.get("/search", async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ members: [], error: msg });
+  }
+});
+
+// POST /api/members — Create (or reuse) a player profile manually, for
+// people who aren't in CourtReserve. Body: { displayName }. Search-or-create:
+// if a player already matches the name (or a pbvision alias), that row is
+// returned untouched; otherwise a new is_active row with no cr_member_id is
+// inserted. The new profile is immediately readable by rating-hub.
+router.post("/", async (req, res) => {
+  const displayName = typeof req.body?.displayName === "string" ? req.body.displayName.trim() : "";
+  if (!displayName) {
+    return res.status(400).json({ error: "displayName is required" });
+  }
+  try {
+    const orgId = await getOrgId();
+    const { player, created } = await findOrCreatePlayer(orgId, displayName);
+    res.status(created ? 201 : 200).json({ player, created });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
   }
 });
 

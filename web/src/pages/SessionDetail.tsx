@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import VideoSegmentEditor from "../components/VideoSegmentEditor";
+import AddPlayer from "../components/AddPlayer";
 
 interface GameSegment {
   index: number;
@@ -515,6 +516,36 @@ export default function SessionDetail() {
   // taggingDirty flips true on any pick change, false after a successful save.
   // Drives the Save Tagging button's "✓ Saved" vs "Save Tagging" state.
   const [taggingDirty, setTaggingDirty] = useState(false);
+
+  // Add-player (sub/guest who wasn't on the CourtReserve booking). Creates or
+  // reuses a rating-hub profile and appends them to this session's roster so
+  // they become a tagging candidate. Refetches tagging to surface the new
+  // dropdown option.
+  const [addingPlayer, setAddingPlayer] = useState(false);
+  const [addPlayerMsg, setAddPlayerMsg] = useState<string | null>(null);
+  const addPlayerToSession = async (sel: { playerId?: string; displayName: string }) => {
+    setAddingPlayer(true);
+    setAddPlayerMsg(null);
+    try {
+      const res = await fetch(`/api/sessions/${id}/players`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sel),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAddPlayerMsg(data.error || res.statusText);
+        return;
+      }
+      const verb = data.alreadyOnRoster ? "already on roster" : data.created ? "created & added" : "added";
+      setAddPlayerMsg(`${data.candidate.displayName} — ${verb}.`);
+      await fetchTagging();
+    } catch (err) {
+      setAddPlayerMsg((err as Error).message);
+    } finally {
+      setAddingPlayer(false);
+    }
+  };
   const setPick = (gameId: string, playerIndex: number, playerId: string) => {
     // Pre-compute the auto-fill target (if any) so we can clear its
     // suggested-badge in the same render pass we drop the picked slot's.
@@ -2296,6 +2327,29 @@ export default function SessionDetail() {
               border: "1px solid #b8dec4", borderRadius: 6,
             }}>
               ✨ {suggestResult}
+            </div>
+          )}
+
+          {/* Add a player who wasn't on the booking (sub/guest). Creates or
+              reuses a rating-hub profile and adds them to this session's
+              roster so they appear in the slot dropdowns below. */}
+          {taggingGames && taggingGames.length > 0 && (
+            <div style={{
+              marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid #eee",
+              display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+            }}>
+              <span style={{ fontSize: 12, color: "#5f6368", whiteSpace: "nowrap" }}>
+                Missing a player?
+              </span>
+              <AddPlayer
+                compact
+                busy={addingPlayer}
+                placeholder="Add a sub/guest by name…"
+                onSubmit={addPlayerToSession}
+              />
+              {addPlayerMsg && (
+                <span style={{ fontSize: 12, color: "#5f6368" }}>{addPlayerMsg}</span>
+              )}
             </div>
           )}
 
