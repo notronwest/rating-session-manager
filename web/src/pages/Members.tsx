@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import AddPlayer from "../components/AddPlayer";
 
 type Inserted = { display_name: string; cr_member_id: string; slug: string; email: string | null };
 
@@ -28,6 +29,8 @@ export default function Members() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [count, setCount] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const fetchCount = async () => {
     const res = await fetch("/api/members");
@@ -36,6 +39,35 @@ export default function Members() {
   };
 
   useEffect(() => { fetchCount(); }, []);
+
+  const addPlayer = async (sel: { playerId?: string; displayName: string }) => {
+    // Members page only creates global profiles, so always send displayName.
+    setAdding(true);
+    setAddMsg(null);
+    try {
+      const res = await fetch("/api/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: sel.displayName }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAddMsg({ ok: false, text: data.error || "Create failed" });
+        return;
+      }
+      setAddMsg({
+        ok: true,
+        text: data.created
+          ? `Created “${data.player.display_name}”.`
+          : `“${data.player.display_name}” already existed — reused.`,
+      });
+      fetchCount();
+    } catch (e) {
+      setAddMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const runSync = async (dryRun: boolean) => {
     setSyncing(true);
@@ -95,6 +127,24 @@ export default function Members() {
         <div style={{ fontSize: 12, color: "#999" }}>
           Runs the CourtReserve Members Report (up to ~2 minutes), inserts new players into Supabase, and updates existing players with any missing email or CourtReserve member ID. Matches are made on email → cr_member_id → display name, in that order. A Chromium window briefly opens on the server's desktop — CourtReserve's Cloudflare check blocks fully-headless scraping.
         </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Add a player manually</div>
+        <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
+          For players who aren't in CourtReserve (subs, guests). Creates a rating-hub
+          profile so they can be tagged in the games they played. Searches existing
+          players first to avoid duplicates.
+        </div>
+        <AddPlayer onSubmit={addPlayer} busy={adding} placeholder="Player name…" />
+        {addMsg && (
+          <div style={{
+            marginTop: 10, fontSize: 13,
+            color: addMsg.ok ? "#137333" : "#b00020",
+          }}>
+            {addMsg.text}
+          </div>
+        )}
       </div>
 
       {syncing && (

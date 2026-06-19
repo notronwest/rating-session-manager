@@ -23,6 +23,7 @@ import { archiveAllCompletedSessions } from "../services/archive.js";
 import { matchAvatars } from "../services/avatar-matcher.js";
 import { sendDiscordAlert } from "../services/discord-alert.js";
 import { getSupabase, getOrgId } from "../supabase.js";
+import { findOrCreatePlayer, getPlayerById, type PlayerRow } from "../players/manual.js";
 import type { Session, GameSegment, SessionStatus } from "../types.js";
 
 const router = Router();
@@ -1166,6 +1167,67 @@ router.get("/:id/tagging", async (req, res) => {
       });
 
     res.json({ candidates, games: responseGames });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/sessions/:id/players — add a player to THIS session's roster so
+// they show up as a tagging candidate and pass the POST /tagging guard. Used
+// when someone played who wasn't on the CourtReserve booking (a sub/guest).
+//
+// Body (one of):
+//   { displayName: "Jane Doe" }   — search-or-create a player by name
+//   { playerId: "uuid" }          — add an existing rating-hub player
+//
+// The player's canonical display_name is appended to session.player_names
+// (the roster the tagging flow resolves against). No-op if already present.
+// Returns { candidate: { displayName, id }, created, playerNames }.
+router.post("/:id/players", async (req, res) => {
+  try {
+    const session = await getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const orgId = await getOrgId();
+    const addLog = makeAddLog(session.id);
+
+    const rawName = typeof req.body?.displayName === "string" ? req.body.displayName.trim() : "";
+    const playerId = typeof req.body?.playerId === "string" ? req.body.playerId.trim() : "";
+    if (!rawName && !playerId) {
+      return res.status(400).json({ error: "displayName or playerId is required" });
+    }
+
+    let player: PlayerRow;
+    let created = false;
+    if (playerId) {
+      const found = await getPlayerById(orgId, playerId);
+      if (!found) return res.status(404).json({ error: `playerId ${playerId} not found in this org` });
+      player = found;
+    } else {
+      const result = await findOrCreatePlayer(orgId, rawName);
+      player = result.player;
+      created = result.created;
+    }
+
+    // Append the canonical display_name to the roster (case/space-insensitive
+    // dedupe) so the candidate resolves to this exact player on save.
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const names = [...(session.player_names || [])];
+    const already = names.some((n) => normalize(n) === normalize(player.display_name));
+    if (!already) {
+      names.push(player.display_name);
+      await updateSession(session.id, { player_names: names });
+      addLog(
+        `Added ${created ? "new player" : "player"} "${player.display_name}" to session roster${created ? " (created profile)" : ""}.`,
+      );
+    }
+
+    res.status(created ? 201 : 200).json({
+      candidate: { displayName: player.display_name, id: player.id },
+      created,
+      alreadyOnRoster: already,
+      playerNames: names,
+    });
   } catch (err) {
     sendError(res, err);
   }
