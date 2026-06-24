@@ -5,7 +5,30 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
-Last updated: **2026-06-19**
+Last updated: **2026-06-24**
+
+## 2026-06-24 — Lengthened court ROI to stop mid-game splits
+
+- **Problem:** game detection cut games mid-rally even when nobody left the
+  court. Root cause: [`roi.json`](./scripts/videos/roi.json) traced only the
+  in-bounds court (the four *baseline* corners). `detect_games.py` counts a
+  player as on-court only if their feet fall inside the polygon, so a serving
+  player (and partner) standing **behind the baseline** weren't counted. When
+  enough hung back, the in-court count fell to ≤1 for ≥12s → a false BREAK →
+  game split.
+- **Fix:** extended the polygon past both baselines along the court's long
+  axis (≈22% toward camera, ≈13% far end for perspective), leaving the
+  sidelines alone so it won't grab adjacent courts. New points:
+  `[925,620] [1186,416] [511,208] [320,248]` (tuned against `2026-05-14`).
+- **Confirmed working:** the "Configure Court ROI" UI saves via
+  `PUT /api/videos/roi` straight into the `roi.json` the detector reads
+  (per-session `roi_path` is never set, so the global file always wins).
+- **Caveats:** ROI is global and assumes a fixed camera — re-tune in the
+  configurator if a recording used a different angle. Break rule
+  (`≤1 person ≥12s`) is still dropout-sensitive; next lever is raising
+  **Break seconds** (12→20) or lowering **empty-court max** in the UI.
+- **Next:** re-run a ~5-min YOLO detection pass on the recording that showed
+  the bad cut to confirm it's gone (not yet run — need which session).
 
 ## 2026-06-19 — Editable session roster (Players card)
 
