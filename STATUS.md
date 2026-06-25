@@ -5,9 +5,33 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
-Last updated: **2026-06-24**
+Last updated: **2026-06-25**
 
-## 2026-06-24 — Lengthened court ROI to stop mid-game splits
+## 2026-06-25 — Reverted the lengthened ROI (it regressed detection)
+
+- The 2026-06-24 ROI change (PR #42) **broke production detection** and was
+  reverted in **PR #43**. `roi.json` is back to the original production
+  polygon `[821,573] [1082,369] [573,236] [382,276]`.
+- **What went wrong:** PR #42 was tuned against the local `2026-05-14`
+  *sample* clip, which uses a **different camera angle** than the production
+  "Road to 4.5" / Group Play recordings. Every prior session detected 4–12
+  games correctly with the original ROI; the first session run after #42
+  ("Road to 4.5 Week 5", `videos/2026-06-24 09-51-44.mov`) collapsed to 2
+  short segments (2m + 4m across 95 min).
+- **Lesson:** the single global `roi.json` is camera-specific. Never tune it
+  against a clip whose camera differs from the sessions being detected. The
+  production session videos are **not on this machine** (they live on the
+  recording machine, under `videos/processed/`), so ROI tuning must be done
+  **there** via the Configure Court ROI UI against a real session frame.
+- **Next:** on the recording machine — `git pull`, then Clear Segments &
+  re-Detect "Road to 4.5 Week 5". If it's still bad, the Week 5 camera likely
+  moved vs prior weeks; re-trace the court in Configure Court ROI on a Week 5
+  frame (all 4 players visible) and re-detect. The original "mid-game cut"
+  report is still open and should be addressed via break-threshold tuning
+  (Break seconds / empty-court max) — camera-independent — not by editing the
+  global polygon blind.
+
+## 2026-06-24 — Lengthened court ROI to stop mid-game splits (REVERTED — see above)
 
 - **Problem:** game detection cut games mid-rally even when nobody left the
   court. Root cause: [`roi.json`](./scripts/videos/roi.json) traced only the
