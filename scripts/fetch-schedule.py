@@ -28,7 +28,7 @@ if "CR_EMAIL" in os.environ and "CR_USERNAME" not in os.environ:
 if "CR_BASE_URL" in os.environ and "CR_LOGIN_URL" not in os.environ:
     os.environ["CR_LOGIN_URL"] = os.environ["CR_BASE_URL"].rstrip("/") + "/Account/Login"
 
-from cr_client import browser_session, fetch_schedule  # noqa: E402
+from courtreserve_api import browser_session, fetch_schedule  # noqa: E402
 
 
 def main():
