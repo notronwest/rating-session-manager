@@ -5,7 +5,39 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
-Last updated: **2026-06-25**
+Last updated: **2026-07-14**
+
+## 2026-07-14 — pb.vision dropped Mux → deterministic public GCS MP4
+
+- **Diagnosed two unrelated failures** from a live sync log (session
+  `3a7a6e17…`): (1) every rating-hub webhook returned **401 Unauthorized**,
+  and (2) the auto Mux fetch reported **9 errors / 0 updated**.
+- **pb.vision no longer uses Mux.** Inspected their video page — zero
+  `<mux-player>`, no `stream.mux.com` requests, `<video>` plays a blob/MSE
+  source. Real media is a **public, CORS-open, deterministic** GCS MP4:
+  `https://storage.googleapis.com/pbv-pro/<vid>/max.mp4` (200/206,
+  `video/mp4`, `access-control-allow-origin: *`, Range-seekable). No
+  login/scrape needed — derivable from the vid alone.
+- **Migration is complete.** Tested all 61 historical Mux-era vids (back to
+  2026-04-19, from the `session-manager.db` backup) + today's 3 → **64/64
+  serve on GCS, zero misses.** No old video stranded on Mux, so retiring our
+  scraper is safe from a coverage standpoint.
+- **Consequence:** `scripts/pbvision-mux.py` + `src/services/mux-sync.ts` are
+  obsolete — they'll error on every video forever ("playback ID not found").
+  The "9 errors" are not our bug.
+- **Decision:** rating-hub will **derive** the GCS URL from the vid itself;
+  session-manager sends no new payload field (the webhook already sends
+  `videoId`). **No session-manager code changed this session.**
+- **Next (ordered):**
+  1. **Fix the 401** — re-sync `RATING_HUB_WEBHOOK_SECRET` here with what the
+     rating-hub `pbvision-webhook` edge function expects. This is the real
+     blocker; nothing imports until it matches.
+  2. **rating-hub** switches its embed from `games.mux_playback_id` (Mux
+     player) to the derived GCS MP4 in a plain `<video>`.
+  3. **Only then** retire `pbvision-mux.py`, `mux-sync.ts`, the background
+     auto-fetch ([sessions.ts:1589](src/routes/sessions.ts:1589)), and the
+     "Fetch Mux IDs" button here. Optional interim: silence the auto-fetch so
+     Sync stops logging 9 errors, while leaving the files until step 2 lands.
 
 ## 2026-06-25 — Reverted the lengthened ROI (it regressed detection)
 

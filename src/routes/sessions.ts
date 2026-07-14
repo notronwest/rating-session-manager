@@ -1571,35 +1571,18 @@ router.post("/:id/sync-rating-hub", async (req, res) => {
         `Sync complete: ${result.totalGamesLinked} game(s) linked, ` +
           `${result.perVideo.filter((v) => v.webhookFired).length} webhook(s) fired`,
       );
-      // Respond immediately — the sync itself is done. Then kick off the
-      // Mux-playback-ID scrape in the BACKGROUND (not awaited): it drives
-      // Playwright and can take minutes for a multi-game session, so
-      // blocking the sync response on it would make "Sync now" feel
-      // frozen. By firing it here (right after games land in rating-hub,
-      // before the coach starts tagging) the IDs are typically populated
-      // by the time tagging is done — so players can watch their games
-      // without a separate manual step. Idempotent + locked, so it won't
-      // collide with a manual "Fetch Mux IDs" click. Progress + any
-      // errors stream to the same session log the UI polls.
       res.json(result);
 
-      const vids = (session.pbvision_video_ids || []).filter(Boolean) as string[];
-      if (vids.length > 0) {
-        const bgLog = makeAddLog(session.id);
-        bgLog("Auto-fetching Mux playback IDs in the background…");
-        fetchAndStoreMuxIds(vids, { onLog: bgLog })
-          .then((out) => {
-            if (out.busy) return; // another fetch was already running
-            bgLog(
-              `Auto Mux fetch done: ${out.summary.updated} game(s) updated, ` +
-                `${out.summary.skipped} skipped, ${out.summary.errors} error(s).`,
-            );
-          })
-          .catch((err) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            bgLog(`Auto Mux fetch failed (non-fatal): ${msg}`);
-          });
-      }
+      // Background Mux-playback-ID scrape DISABLED 2026-07-14: pb.vision
+      // dropped Mux and now serves video from a deterministic public GCS
+      // MP4 (https://storage.googleapis.com/pbv-pro/<vid>/max.mp4), so
+      // scripts/pbvision-mux.py finds no playback ID on any video and the
+      // auto-fetch logged "9 error(s)" on every Sync. rating-hub will
+      // derive the GCS URL from the vid itself, so this step is obsolete.
+      // The scraper (mux-sync.ts / pbvision-mux.py) and the manual
+      // "Fetch Mux IDs" endpoint are intentionally left in place until
+      // rating-hub switches its player off games.mux_playback_id; retire
+      // them then. See STATUS.md 2026-07-14 for the ordered plan.
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const code = err instanceof SyncRatingHubError ? err.code : "unknown";
