@@ -5,8 +5,25 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
-Last updated: **2026-07-14**
+Last updated: **2026-07-16**
 
+## 2026-07-16 — Re-traced court ROI on a real production frame (detection confirmed)
+
+- Replaced the global `roi.json` polygon with a fresh trace done **on the
+  recording machine against a real session frame** (the workflow STATUS
+  prescribed on 2026-06-25 after the PR #42/#43 revert). New points:
+  `[1014,714] [1055,348] [391,242] [147,303]` — same camera/resolution
+  coordinate space as the original production polygon (max ~1055×714).
+- **Confirmed:** re-ran YOLO game detection on a real session; it detects
+  correctly. This supersedes the reverted PR #42 "lengthen past baselines"
+  approach — the fix was a proper re-trace, not extending the old polygon.
+- **Note:** ROI stays global + camera-specific. If a future recording moves
+  the camera, re-trace via the Configure Court ROI UI on a fresh frame — do
+  not edit the polygon blind. The "mid-game cut" lever, if it recurs, is
+  break-threshold tuning (Break seconds / empty-court max), which is
+  camera-independent.
+- **Next:** none required for ROI. Open item from 2026-06-25 (Mux playback ID
+  fetch + tagging-completion polling for the webhook) still stands.
 ## 2026-07-14 — pb.vision dropped Mux → deterministic public GCS MP4
 
 - **Diagnosed two unrelated failures** from a live sync log (session
