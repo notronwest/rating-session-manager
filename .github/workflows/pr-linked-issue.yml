@@ -1,0 +1,34 @@
+name: PR links an issue
+
+# Enforces the WMPC convention: every PR must CLOSE a board card with a GitHub
+# closing keyword — `Closes #N` / `Fixes #N` / `Resolves #N` — so GitHub
+# actually LINKS the issue (Part of / Refs are plain mentions GitHub does NOT
+# link, so they don't count). Prerequisite/partial work gets its OWN small
+# tracking issue and Closes that (add `Part of #<feature>` for context).
+# No secrets, no checkout — reads the PR body from the event. Always enforced;
+# re-runs on body edits, so adding the keyword clears it without a new commit.
+#
+# Canonical copy: wmpc-meta/templates/pr-linked-issue.yml (new repos get it via
+# scripts/claude-bootstrap.sh). See wmpc-meta/conventions/backlog.md.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an issue reference in the PR body
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s' "$BODY" | grep -iqE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+'; then
+            echo "✓ PR closes a board issue."
+          else
+            echo "::error::This PR must CLOSE a board issue. Add a closing keyword — 'Closes #<n>' (or Fixes/Resolves) — so GitHub links it. Prerequisite work gets its OWN small tracking issue and Closes that ('Part of #n' alone is NOT enough — GitHub won't link it). See wmpc-meta/conventions/backlog.md."
+            exit 1
+          fi

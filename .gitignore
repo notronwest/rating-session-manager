@@ -19,3 +19,7 @@ yolov8*.pt
 .pbvision-profile/
 __pycache__/
 *.pyc
+
+# Per-machine Claude session history (bootstrap-generated) — not shared
+**/.claude/history/
+CLAUDE.md.tmp
