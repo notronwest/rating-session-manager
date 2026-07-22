@@ -5,7 +5,82 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
-Last updated: **2026-07-14**
+Last updated: **2026-07-22**
+
+## 2026-07-22 — Schedule sync moved off Python → courtreserve-api HTTP service
+
+- **Problem:** the dashboard "Sync with CourtReserve" button spawned
+  `scripts/fetch-schedule.py`, which imports `cr_client` from the sibling
+  `courtreserve-scheduler/` repo. On any machine without that sibling (e.g. the
+  Mac mini) it died with `ModuleNotFoundError: No module named 'cr_client'`
+  (and with system `python3` instead of the venv it fails one import later on
+  `dotenv`). Fragile cross-repo Python coupling.
+- **Fix:** `refreshScheduleFromCr()` in
+  [`src/services/cr-sync.ts`](./src/services/cr-sync.ts) now does an
+  authenticated `fetch` to the shared **courtreserve-api** service
+  (`GET {CRAPI_URL}/schedule?start=<today>&end=<today>`, header
+  `X-API-Key: {CRAPI_KEY}`) and writes the returned `items` array to
+  `data/schedule.json` — the same cache everything downstream already reads, so
+  no other code changed. No Python / Playwright / sibling repo on this side.
+  60s timeout; typed `CrSyncError` codes (`crapi_not_configured`,
+  `crapi_unreachable`, `crapi_timeout`, `crapi_unauthorized`, `crapi_error`,
+  `crapi_bad_json`) instead of a raw traceback.
+- **Config:** new env vars `CRAPI_URL` (default `http://localhost:8787`) and
+  `CRAPI_KEY` (== the service's `CRAPI_KEY`). Added to `.env.template` + `.env`.
+  On the mini, set `CRAPI_URL` to the service (localhost or LAN IP:8787) and
+  `CRAPI_KEY` to match — see `../courtreserve-api/deploy/README.md`.
+- Also refreshed the Discord failure alert + the "no schedule data" hint to
+  point at courtreserve-api instead of the old Playwright profile.
+- `tsc` + `vite build` clean; smoke-tested happy path (sends key, requests
+  `/schedule?start=7/22/2026&…`, writes items) + not-configured + 401 paths.
+- **Still on Python (follow-up):** `npm run sync:members` →
+  `scripts/scrape-members.py` still imports `cr_client`. courtreserve-api can
+  serve this too (`/memberships/records`) — migrate it the same way next.
+- **Left in place:** `scripts/fetch-schedule.py` stays as a manual CLI fallback
+  (venv + sibling required); the app no longer calls it.
+
+## 2026-07-14 — Root-caused the webhook 401 (secret value mismatch)
+
+- The `401 Unauthorized` on every rating-hub webhook is a **pure secret
+  value mismatch**, not a format/scheme bug. Confirmed by reading the
+  deployed function source: **rating-hub = the `third-shot-academy` repo**,
+  `supabase/functions/pbvision-webhook/index.ts:609-616` does an exact match
+  — `Authorization` must equal `` `Bearer ${WEBHOOK_SECRET}` `` where
+  `WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET")`.
+- Our `webhook.ts` sends exactly that scheme, so it's correct. Probed the
+  live endpoint: our `.env` secret (ends `022b`), a valid service-role JWT,
+  AND no-auth ALL return `{"error":"Unauthorized"}` → the deployed
+  `WEBHOOK_SECRET` is simply a value we don't have. The `if (WEBHOOK_SECRET)`
+  guard means it only started enforcing once someone set/rotated that secret
+  on the deployed side without updating our `.env`.
+- **The correct value lives only in the Supabase secret store** (project
+  `cjtfhegtgbfwccnruood` → Edge Functions → Secrets → `WEBHOOK_SECRET`), not
+  in any repo file — so it can't be read from disk.
+- **Next (fix is the user's infra call, two options):**
+  - **A:** copy the deployed `WEBHOOK_SECRET` into `RATING_HUB_WEBHOOK_SECRET`
+    in each session-manager machine's `.env`, then `npm run build` to restart.
+  - **B (one-shot, fixes all machines):** from the third-shot-academy repo,
+    `supabase secrets set WEBHOOK_SECRET=<value ending 022b> --project-ref
+    cjtfhegtgbfwccnruood` to align the deployed secret to what the machines
+    already have.
+  - Until aligned, nothing imports ("0 game(s) linked" is downstream of this).
+
+## 2026-07-14 — Committed bootstrap artifacts + new "PR must close an issue" CI gate
+
+- The `wmpc-meta` bootstrap hook regenerates managed files on every `git
+  pull`, but this repo had never committed them — so the working tree looked
+  dirty (`+1,431`) on every machine. Sorted it in **[PR #48](https://github.com/notronwest/rating-session-manager/pull/48)** (closes #47):
+  - **Committed** `.github/workflows/pr-linked-issue.yml` and the `wmpc-block`
+    managed sections in `CLAUDE.md` (engineering-standard, ui-work) — shared
+    org artifacts, matching sibling `club-dashboard`. Idempotent START/END
+    markers mean tracking them *stops* the churn.
+  - **Gitignored** `**/.claude/history/` + `CLAUDE.md.tmp`; removed the stale
+    tmp. Fresh `git pull` on a clean checkout now leaves `git status` clean.
+- **⚠️ New CI gate now on `main`:** `pr-linked-issue.yml` requires **every
+  PR body to CLOSE an issue** with a keyword (`Closes #N` / `Fixes #N` /
+  `Resolves #N`) — `Part of #N` alone does NOT count. Any future PR here
+  (incl. retiring the Mux scraper) needs a tracking issue + closing keyword
+  or its check fails.
 
 ## 2026-07-14 — pb.vision dropped Mux → deterministic public GCS MP4
 
