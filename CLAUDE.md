@@ -253,7 +253,15 @@ venv/bin/python scripts/fetch-schedule.py --days 7  # Next 7 days
 # Required
 VIDEO_DIR=/path/to/video/files        # Optional — defaults to <project>/videos
 
-# CourtReserve (for scraping — reads from courtreserve-scheduler/.env too)
+# courtreserve-api HTTP service — the app's schedule sync source. The service
+# (sibling ../courtreserve-api) owns the CR login + browser and runs on the
+# club Mac mini; this app just makes an authenticated LAN fetch.
+CRAPI_URL=http://localhost:8787        # service base (localhost on the mini, or http://<mini-ip>:8787)
+CRAPI_KEY=your-courtreserve-api-key    # == the service's CRAPI_KEY, sent as X-API-Key
+
+# CourtReserve creds — ONLY still used by the legacy Python scripts
+# (scripts/scrape-members.py, scripts/fetch-schedule.py). The app's schedule
+# sync no longer needs them.
 CR_EMAIL=your-email@example.com
 CR_PASSWORD=your-password
 CR_BASE_URL=https://app.courtreserve.com
@@ -261,6 +269,13 @@ CR_BASE_URL=https://app.courtreserve.com
 # Optional
 PORT=3001                              # Express API port (default 3001)
 ```
+
+**Schedule sync path:** the dashboard "Sync with CourtReserve" button →
+`refreshScheduleFromCr()` → `GET {CRAPI_URL}/schedule` on the shared
+**courtreserve-api** service → writes `data/schedule.json`. No Python /
+Playwright / `courtreserve-scheduler` sibling on this side. (Member sync,
+`npm run sync:members`, still shells out to `scripts/scrape-members.py` +
+`cr_client` — a pending migration to courtreserve-api's `/memberships/records`.)
 
 ## Moving to a New Machine
 

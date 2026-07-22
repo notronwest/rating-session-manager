@@ -48,7 +48,7 @@ const router = Router();
 router.get("/", (_req, res) => {
   const schedulePath = path.join(DATA_DIR, "schedule.json");
   if (!fs.existsSync(schedulePath)) {
-    return res.json({ items: [], error: "No schedule data. Run: python3 scripts/fetch-schedule.py" });
+    return res.json({ items: [], error: "No schedule data yet. Click Sync to fetch it from courtreserve-api." });
   }
 
   const raw = fs.readFileSync(schedulePath, "utf-8");
@@ -101,16 +101,16 @@ router.post("/sync", async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     const code = err instanceof CrSyncError ? err.code : "unknown";
 
-    // Fire-and-forget Discord alert. The most likely cause of a sync
-    // failure is the CR Playwright profile losing its session (auth
-    // cookie expiry, Cloudflare reset, etc.) — operators want to know
-    // about that as soon as it happens, even if the dashboard click
-    // showed an error chip locally.
+    // Fire-and-forget Discord alert. Schedule refresh now goes through the
+    // shared courtreserve-api service, so the usual causes are the service
+    // being down / unreachable on the LAN, a bad CRAPI_KEY, or the service's
+    // own CR login needing to re-authenticate — operators want to know as
+    // soon as it happens, even if the dashboard click showed an error chip.
     void sendDiscordAlert({
       title: "CourtReserve sync failed",
       level: "error",
       message:
-        "Couldn't refresh today's CourtReserve schedule. The Playwright profile in `courtreserve-scheduler/` likely needs to re-authenticate (Cloudflare cookie expired, magic-link expired, etc.).",
+        "Couldn't refresh today's CourtReserve schedule from the `courtreserve-api` service. It may be down/unreachable on the LAN, the `CRAPI_KEY` may be wrong, or the service's own CR login may need to re-authenticate.",
       fields: [
         { name: "Error code", value: "`" + code + "`" },
         { name: "Details", value: "```\n" + msg.slice(0, 900) + "\n```" },
@@ -120,7 +120,7 @@ router.post("/sync", async (req, res) => {
         {
           name: "Fix",
           value:
-            "On the recording machine: open `courtreserve-scheduler/` and re-run its login flow, or run `npm run sync:members -- --headed` from this project to drive Chromium headed against CR.",
+            "Check `courtreserve-api` on the club Mac mini: `curl http://<mini>:8787/health`, confirm `CRAPI_URL`/`CRAPI_KEY` here match the service, and re-run its CR login if the service reports an auth failure.",
         },
       ],
       dedupeKey: `cr-sync-failed:${code}`,

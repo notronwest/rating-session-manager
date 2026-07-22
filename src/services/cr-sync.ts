@@ -1,9 +1,11 @@
 // CourtReserve → session-manager auto-create flow.
 //
 // Two pieces:
-//   1. refreshScheduleFromCr() spawns scripts/fetch-schedule.py to update
-//      data/schedule.json with today's CR events. Slow (~10–30s — opens
-//      Chromium against CR via the courtreserve-scheduler sibling).
+//   1. refreshScheduleFromCr() calls the shared courtreserve-api HTTP service
+//      (GET /schedule) to update data/schedule.json with today's CR events.
+//      courtreserve-api owns the CR login + browser and runs on the club Mac
+//      mini; consumers just make an authenticated LAN fetch — no Python,
+//      Playwright, or courtreserve-scheduler sibling on this side.
 //   2. syncSessionsFromSchedule() reads the cached schedule, picks out
 //      rating events, and creates a session_manager_sessions row for any
 //      that don't already exist. Idempotent: dedupes on (booking_time,
@@ -12,7 +14,6 @@
 // The combined entry point syncFromCourtReserve() runs both in sequence
 // — the dashboard button calls this.
 
-import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -20,9 +21,16 @@ import { listSessions, createSession } from "../db/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..");
-const FETCH_SCHEDULE_PY = path.join(ROOT, "scripts", "fetch-schedule.py");
-const VENV_PYTHON = path.join(ROOT, "venv", "bin", "python");
 const SCHEDULE_JSON = path.join(ROOT, "data", "schedule.json");
+
+// courtreserve-api HTTP service (see ../courtreserve-api). CRAPI_URL is the
+// service base, e.g. http://localhost:8787 on the mini or http://<mini-ip>:8787
+// from another LAN host; CRAPI_KEY is the shared secret sent as X-API-Key.
+const CRAPI_URL = (process.env.CRAPI_URL || "").replace(/\/+$/, "");
+const CRAPI_KEY = process.env.CRAPI_KEY || "";
+// The service opens a real browser against CR per request (~10–30s), so give
+// the fetch generous headroom before aborting.
+const CRAPI_TIMEOUT_MS = 60_000;
 
 // Same heuristics src/routes/schedule.ts uses to filter rating events.
 const RATING_KEYWORDS = ["rating", "rated", "assessment", "eval"];
@@ -80,45 +88,80 @@ export class CrSyncError extends Error {
   }
 }
 
+/** Today's date in CR's `M/D/YYYY` (no leading zeros), local time. */
+function crDateToday(): string {
+  const now = new Date();
+  return `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}`;
+}
+
 /**
- * Spawn scripts/fetch-schedule.py. Resolves on success, rejects with
- * CrSyncError on non-zero exit. Streams stdout/stderr into onLog.
+ * Refresh today's CR schedule via the courtreserve-api HTTP service and write
+ * it to data/schedule.json (the cache syncSessionsFromSchedule + the schedule
+ * routes read). Resolves on success, rejects with CrSyncError on any failure.
  */
-export function refreshScheduleFromCr(
+export async function refreshScheduleFromCr(
   opts: { onLog?: (line: string) => void } = {},
 ): Promise<void> {
   const onLog = opts.onLog ?? (() => {});
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(FETCH_SCHEDULE_PY)) {
-      reject(new CrSyncError("script_missing", `fetch-schedule.py not found at ${FETCH_SCHEDULE_PY}`));
-      return;
-    }
-    const python = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : "python3";
-    const proc = spawn(python, [FETCH_SCHEDULE_PY], {
-      cwd: ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
+
+  if (!CRAPI_URL || !CRAPI_KEY) {
+    throw new CrSyncError(
+      "crapi_not_configured",
+      "CRAPI_URL and CRAPI_KEY must be set to reach the courtreserve-api service (see .env.template).",
+    );
+  }
+
+  const date = crDateToday();
+  const url = `${CRAPI_URL}/schedule?start=${encodeURIComponent(date)}&end=${encodeURIComponent(date)}`;
+  onLog(`Fetching schedule for ${date} from courtreserve-api…`);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CRAPI_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "X-API-Key": CRAPI_KEY },
+      signal: controller.signal,
     });
-    let stderrTail = "";
-    const forward = (chunk: Buffer) => {
-      chunk
-        .toString()
-        .split(/\r?\n/)
-        .forEach((line: string) => {
-          if (line.trim()) onLog(line);
-        });
-    };
-    proc.stdout.on("data", forward);
-    proc.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      stderrTail = (stderrTail + text).slice(-4096);
-      forward(chunk);
-    });
-    proc.on("error", (err) => reject(new CrSyncError("spawn_failed", err.message)));
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new CrSyncError("fetch_failed", `fetch-schedule.py exited with code ${code}\n${stderrTail}`));
-    });
-  });
+  } catch (err) {
+    const aborted = err instanceof Error && err.name === "AbortError";
+    throw new CrSyncError(
+      aborted ? "crapi_timeout" : "crapi_unreachable",
+      aborted
+        ? `courtreserve-api did not respond within ${CRAPI_TIMEOUT_MS / 1000}s at ${CRAPI_URL}.`
+        : `Could not reach courtreserve-api at ${CRAPI_URL}: ${(err as Error).message}`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (res.status === 401) {
+    throw new CrSyncError("crapi_unauthorized", "courtreserve-api rejected CRAPI_KEY (401).");
+  }
+  if (!res.ok) {
+    const body = (await res.text().catch(() => "")).slice(0, 500);
+    throw new CrSyncError(
+      "crapi_error",
+      `courtreserve-api /schedule returned HTTP ${res.status}${body ? `: ${body}` : ""}`,
+    );
+  }
+
+  let items: unknown;
+  try {
+    const payload = (await res.json()) as { items?: unknown };
+    items = payload?.items;
+  } catch (err) {
+    throw new CrSyncError("crapi_bad_json", `courtreserve-api returned invalid JSON: ${(err as Error).message}`);
+  }
+
+  if (!Array.isArray(items)) {
+    throw new CrSyncError("crapi_bad_json", "courtreserve-api /schedule response had no `items` array.");
+  }
+
+  fs.mkdirSync(path.dirname(SCHEDULE_JSON), { recursive: true });
+  fs.writeFileSync(SCHEDULE_JSON, JSON.stringify(items, null, 2), "utf-8");
+  onLog(`Wrote ${items.length} schedule items to data/schedule.json.`);
 }
 
 export interface CreatedSessionInfo {
