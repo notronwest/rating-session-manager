@@ -7,6 +7,38 @@ Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
 Last updated: **2026-07-22**
 
+## 2026-07-22 — Member sync moved off Python → courtreserve-api (finishes the migration)
+
+- **Problem:** the Members page "Sync now" (CourtReserve → Supabase) spawned
+  `scripts/scrape-members.py`, which imports `cr_client` from the
+  `courtreserve-scheduler/` sibling — same `ModuleNotFoundError: No module
+  named 'cr_client'` the schedule sync hit, on any box without that sibling.
+  This was the follow-up flagged in the schedule-sync migration.
+- **Fix:** `src/members/sync.ts` `fetchMembers()` now fetches
+  `GET {CRAPI_URL}/memberships/records` from the shared **courtreserve-api**
+  service (`X-API-Key`), replacing the `scrape-members.py` spawn. That feed is
+  **one row per membership assignment since inception**, so we **dedupe to one
+  row per member** by CR member number, filling a missing email from a later
+  row. Same reconcile-against-`players` logic downstream (match email →
+  cr_member_id → name; insert new, backfill missing fields). No Python /
+  Playwright / sibling on this side. 180s timeout; typed `SyncError` codes
+  (`crapi_not_configured`, `crapi_unreachable`, `crapi_timeout`,
+  `crapi_unauthorized`, `crapi_error`, `crapi_bad_json`).
+- **Coverage note (chosen tradeoff):** `/memberships/records` covers everyone
+  who's held a membership plan; membership-less people aren't in it, but
+  subs/guests already go through the "Add a player manually" flow. (The
+  alternative — a full Members-Report `/members` endpoint on courtreserve-api —
+  was deferred as more work across two repos.)
+- **Config:** reuses the existing `CRAPI_URL` / `CRAPI_KEY` (no new env). The
+  `headed` option on `syncMembers`/the route is now a no-op (the browser runs
+  on the service).
+- `tsc` + `vite build` clean. Dry-run smoke test against a mock feed: 6
+  assignment rows → 3 distinct members, reconciled against the real 1000
+  players; `crapi_not_configured` + 401 paths verified.
+- **Left in place:** `scripts/scrape-members.py` stays as an orphaned manual
+  fallback (venv + sibling required); the app no longer calls it. With this, no
+  app code path imports `cr_client` anymore.
+
 ## 2026-07-22 — Schedule sync moved off Python → courtreserve-api HTTP service
 
 - **Problem:** the dashboard "Sync with CourtReserve" button spawned
