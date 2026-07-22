@@ -1,20 +1,38 @@
-// Shared sync logic: scrape CourtReserve members, reconcile against
-// Supabase `players`, inserting new rows and filling in missing email /
-// cr_member_id / display_name on existing rows. Used by both the CLI
-// (scripts/sync-members.ts) and POST /api/members/sync.
+// Shared sync logic: pull the CourtReserve member roster from the shared
+// courtreserve-api service, reconcile against Supabase `players`, inserting new
+// rows and filling in missing email / cr_member_id / display_name on existing
+// rows. Used by both the CLI (scripts/sync-members.ts) and POST /api/members/sync.
+//
+// Source: courtreserve-api GET /memberships/records — one row per membership
+// assignment since inception, so we dedupe to one row per member (by CR member
+// number, preferring a row that carries an email). No Python / Playwright /
+// courtreserve-scheduler sibling on this side.
 
-import { spawn } from "child_process";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { getSupabase, getOrgId } from "../supabase.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..", "..");
-const SCRAPER = path.join(ROOT, "scripts", "scrape-members.py");
-const VENV_PYTHON = path.join(ROOT, "venv", "bin", "python");
+// courtreserve-api HTTP service (see ../courtreserve-api). Same config the
+// schedule sync uses — CRAPI_URL base + CRAPI_KEY shared secret (X-API-Key).
+const CRAPI_URL = (process.env.CRAPI_URL || "").replace(/\/+$/, "");
+const CRAPI_KEY = process.env.CRAPI_KEY || "";
+// The members report drives a real browser scrape on the service (up to ~2 min),
+// so allow a generous timeout before aborting.
+const CRAPI_TIMEOUT_MS = 180_000;
 
-type CRMember = Record<string, string | undefined>;
+// One CR membership-assignment record from /memberships/records (subset we use).
+interface CrapiMemberRecord {
+  member_number: string | number | null;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+}
+
+// One deduped member, reconciled below against the players table.
+interface MemberRow {
+  firstName: string;
+  lastName: string;
+  crId: string;
+  email: string;
+}
 
 type Player = {
   id: string;
@@ -25,6 +43,7 @@ type Player = {
 };
 
 export type SyncOptions = {
+  /** @deprecated no-op — the browser now runs on the courtreserve-api service, not here. */
   headed?: boolean;
   dryRun?: boolean;
   onLog?: (line: string) => void;
@@ -62,55 +81,88 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
-// CR exports use slightly different column labels from version to version
-// ("Email", "Email Address", etc.). Pick the first non-empty variant.
-function getField(m: CRMember, ...keys: string[]): string {
-  for (const k of keys) {
-    const v = m[k];
-    if (v && typeof v === "string" && v.trim()) return v.trim();
+// Pull the full membership-assignment feed from courtreserve-api and dedupe it
+// to one row per member (keyed by CR member number, preferring a row that
+// carries an email). Throws SyncError on any config/transport/parse failure.
+async function fetchMembers(onLog: (line: string) => void): Promise<MemberRow[]> {
+  if (!CRAPI_URL || !CRAPI_KEY) {
+    throw new SyncError(
+      "crapi_not_configured",
+      "CRAPI_URL and CRAPI_KEY must be set to reach the courtreserve-api service (see .env.template).",
+    );
   }
-  return "";
-}
 
-function runScrape(opts: { headed: boolean; onLog: (line: string) => void }): Promise<CRMember[]> {
-  return new Promise((resolve, reject) => {
-    const python = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : "python3";
-    const args = [SCRAPER];
-    if (opts.headed) args.push("--headed");
-    const proc = spawn(python, args, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  const url = `${CRAPI_URL}/memberships/records`;
+  onLog("Fetching member roster from courtreserve-api…");
 
-    let stdout = "";
-    let stderrTail = "";
-    proc.stdout.on("data", (chunk) => (stdout += chunk.toString()));
-    proc.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      stderrTail += text;
-      if (stderrTail.length > 4096) stderrTail = stderrTail.slice(-4096);
-      text.split(/\r?\n/).forEach((line: string) => {
-        if (line.trim()) opts.onLog(line);
-      });
-    });
-    proc.on("error", reject);
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        return reject(new SyncError("scrape_failed", `scrape-members.py exited with code ${code}\n${stderrTail}`));
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (e) {
-        reject(new SyncError("parse_failed", `Failed to parse scraper output as JSON: ${(e as Error).message}`));
-      }
-    });
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CRAPI_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { "X-API-Key": CRAPI_KEY }, signal: controller.signal });
+  } catch (err) {
+    const aborted = err instanceof Error && err.name === "AbortError";
+    throw new SyncError(
+      aborted ? "crapi_timeout" : "crapi_unreachable",
+      aborted
+        ? `courtreserve-api did not respond within ${CRAPI_TIMEOUT_MS / 1000}s at ${CRAPI_URL}.`
+        : `Could not reach courtreserve-api at ${CRAPI_URL}: ${(err as Error).message}`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (res.status === 401) {
+    throw new SyncError("crapi_unauthorized", "courtreserve-api rejected CRAPI_KEY (401).");
+  }
+  if (!res.ok) {
+    const body = (await res.text().catch(() => "")).slice(0, 500);
+    throw new SyncError(
+      "crapi_error",
+      `courtreserve-api /memberships/records returned HTTP ${res.status}${body ? `: ${body}` : ""}`,
+    );
+  }
+
+  let items: unknown;
+  try {
+    const payload = (await res.json()) as { items?: unknown };
+    items = payload?.items;
+  } catch (err) {
+    throw new SyncError("crapi_bad_json", `courtreserve-api returned invalid JSON: ${(err as Error).message}`);
+  }
+  if (!Array.isArray(items)) {
+    throw new SyncError("crapi_bad_json", "courtreserve-api /memberships/records response had no `items` array.");
+  }
+
+  // Dedupe: many assignment rows per member. Keep one per CR member number,
+  // filling in a missing email from a later row when the first one we saw lacked it.
+  const byMember = new Map<string, MemberRow>();
+  for (const rec of items as CrapiMemberRecord[]) {
+    const crId = rec?.member_number == null ? "" : String(rec.member_number).trim();
+    const firstName = (rec?.first_name || "").trim();
+    const lastName = (rec?.last_name || "").trim();
+    const email = (rec?.email || "").trim().toLowerCase();
+    if (!crId || (!firstName && !lastName)) continue;
+
+    const existing = byMember.get(crId);
+    if (!existing) {
+      byMember.set(crId, { firstName, lastName, crId, email });
+    } else if (!existing.email && email) {
+      existing.email = email;
+    }
+  }
+
+  const rows = [...byMember.values()];
+  onLog(`courtreserve-api returned ${(items as unknown[]).length} assignment rows → ${rows.length} distinct members.`);
+  return rows;
 }
 
 export async function syncMembers(options: SyncOptions = {}): Promise<SyncResult> {
-  const { headed = false, dryRun = false, onLog = () => {} } = options;
+  const { dryRun = false, onLog = () => {} } = options;
 
   const orgId = await getOrgId();
-  onLog("Running CR members scrape...");
-  const crMembers = await runScrape({ headed, onLog });
-  onLog(`Scraped ${crMembers.length} members from CourtReserve`);
+  const crMembers = await fetchMembers(onLog);
+  onLog(`Fetched ${crMembers.length} members from courtreserve-api`);
 
   const { data: players, error: pErr } = await getSupabase()
     .from("players")
@@ -136,12 +188,9 @@ export async function syncMembers(options: SyncOptions = {}): Promise<SyncResult
   let skipped = 0;
 
   for (const m of crMembers) {
-    const first = getField(m, "First Name");
-    const last = getField(m, "Last Name");
-    const crId = getField(m, "Member #", "MemberNumber");
-    const emailRaw = getField(m, "Email", "Email Address");
-    const email = emailRaw ? emailRaw.toLowerCase() : "";
-    const fullName = `${first} ${last}`.trim();
+    const crId = m.crId;
+    const email = m.email;
+    const fullName = `${m.firstName} ${m.lastName}`.trim();
 
     if (!fullName || !crId) continue;
 

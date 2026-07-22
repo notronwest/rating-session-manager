@@ -270,12 +270,16 @@ CR_BASE_URL=https://app.courtreserve.com
 PORT=3001                              # Express API port (default 3001)
 ```
 
-**Schedule sync path:** the dashboard "Sync with CourtReserve" button →
-`refreshScheduleFromCr()` → `GET {CRAPI_URL}/schedule` on the shared
-**courtreserve-api** service → writes `data/schedule.json`. No Python /
-Playwright / `courtreserve-scheduler` sibling on this side. (Member sync,
-`npm run sync:members`, still shells out to `scripts/scrape-members.py` +
-`cr_client` — a pending migration to courtreserve-api's `/memberships/records`.)
+**CR sync paths (both via courtreserve-api — no Python / Playwright / sibling):**
+- **Schedule** — dashboard "Sync with CourtReserve" → `refreshScheduleFromCr()`
+  → `GET {CRAPI_URL}/schedule` → writes `data/schedule.json`.
+- **Members** — Members page "Sync now" / `npm run sync:members` →
+  `src/members/sync.ts` `fetchMembers()` → `GET {CRAPI_URL}/memberships/records`
+  → deduped to one row per member → reconciled into Supabase `players`.
+
+The legacy `scripts/fetch-schedule.py` + `scripts/scrape-members.py` (which
+import `cr_client`) remain only as manual CLI fallbacks; no app code path uses
+them anymore.
 
 ## Moving to a New Machine
 
