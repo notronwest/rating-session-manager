@@ -2581,6 +2581,45 @@ export default function SessionDetail() {
             </div>
           )}
 
+          {/* Footer Save action — mirrors the header Save Tagging control so a
+              coach who has just tagged the last game doesn't have to scroll
+              back to the top of the panel to save. Same handler, enabled/
+              disabled logic, and ✓ Saved state as the header button. */}
+          {taggingGames && taggingGames.length > 0 && (
+            <div style={{
+              marginTop: 16, paddingTop: 16, borderTop: "1px solid #eee",
+              display: "flex", justifyContent: "flex-end",
+            }}>
+              {taggingResult?.ok && !taggingDirty && !taggingSaving ? (
+                <span
+                  title="All picks saved to rating-hub"
+                  style={{
+                    padding: "8px 18px", background: "#e6f4ea", color: "#137333",
+                    border: "1px solid #b8dec4", borderRadius: 6, fontSize: 14,
+                    fontWeight: 600, display: "inline-flex", alignItems: "center",
+                  }}
+                >
+                  ✓ Saved
+                </span>
+              ) : (
+                <button
+                  onClick={applyTagging}
+                  disabled={taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0 || !taggingDirty}
+                  style={
+                    taggingSaving || taggingLoading || !taggingGames || taggingGames.length === 0 || !taggingDirty
+                      ? { ...btnDisabledStyle, background: "#7c3aed" }
+                      : { ...btnStyle, background: "#7c3aed" }
+                  }
+                  title={taggingDirty
+                    ? "Save the picked names to rating-hub. Only changed slots are written."
+                    : "No unsaved changes — pick a player to enable."}
+                >
+                  {taggingSaving ? "Saving…" : "Save Tagging"}
+                </button>
+              )}
+            </div>
+          )}
+
           {taggingResult && (
             <div
               style={{
