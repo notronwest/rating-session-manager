@@ -7,6 +7,20 @@ Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted.**
 Last updated: **2026-07-22**
 
+## 2026-07-22 — Tag Players panel: added a footer "Save Tagging" button
+
+- The Tag Players panel (SessionDetail) only had its Save control in the header
+  toolbar, so after tagging the last of N games a coach had to scroll all the
+  way back up to save. Added a **second "Save Tagging" button at the bottom** of
+  the panel (below the last game's slots, above the result banner).
+- It's a 1:1 duplicate of the header control — same `applyTagging` handler, same
+  disabled expression (`!taggingDirty || saving || loading || no games`), same
+  `✓ Saved` chip state — so no new state and both stay in lockstep.
+- Verified live at 390px on a real 8-game session: two Save Tagging buttons
+  render (header + footer), no horizontal overflow, and both flip
+  disabled→enabled together on a pick change; `tsc` + `vite build` clean, no
+  console errors.
+
 ## 2026-07-22 — Member sync moved off Python → courtreserve-api (finishes the migration)
 
 - **Problem:** the Members page "Sync now" (CourtReserve → Supabase) spawned
