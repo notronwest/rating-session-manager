@@ -26,6 +26,7 @@ not a code change.
 | Branding | **Third Shot Academy.** |
 | Access scope | **On-site now, anywhere later.** LAN streams straight off the NAS; off-site is served from cloud storage. |
 | Retention | **The grant expires (default 30 days); the file stays on the NAS.** Limits exposure without destroying the archive. Re-issuing is a staff action. |
+| Off-site storage | **Cloudflare R2** (Ron, 2026-08-26) — used as an *ephemeral cache*, not an archive: an N-day lifecycle rule auto-deletes objects, and the footprint is reported with a hard spend cap. See [*Off-site cost*](#off-site-cost--r2-as-an-ephemeral-cache-reported-and-capped). |
 
 ## The shape
 
@@ -80,9 +81,49 @@ upload bandwidth for files nobody fetches remotely, and undercuts the reason for
 buying the NAS. The grant row carries a `cloud_key` that is null until the first
 remote fetch populates it.
 
-> **Open — which bucket.** Cloudflare **R2** (zero egress fees, already in the
-> Cloudflare account) vs **Supabase Storage** (one fewer vendor, integrates with
-> the same RLS). R2 is the better economics for video. Not decided.
+> **Decided (Ron, 2026-08-26): Cloudflare R2.** Zero egress fees — downloads cost
+> nothing — already in the Cloudflare account, best video economics; Supabase
+> Storage was the alternative and R2 wins on egress alone. The catch with R2 is
+> *silent accumulation*, so it ships as a reported, capped, self-expiring cache —
+> see the next section.
+
+### Off-site cost — R2 as an ephemeral cache, reported and capped
+
+R2's only real cost driver here is **stored GB-months**: egress is free, and the
+per-operation tiers are effectively free at this volume. The failure mode is
+therefore *silent accumulation* — videos pile up and the bill creeps. Three
+guards prevent that, in order of importance:
+
+1. **The bucket is an ephemeral cache, not an archive.** The NAS is the durable
+   copy; R2 holds only videos actually requested off-site, and only for a while. A
+   **bucket lifecycle rule auto-deletes every object `R2_RETENTION_DAYS` after
+   upload** (default **30**, matching the grant window). Server-side, no cron —
+   the footprint cannot grow unbounded because objects expire on their own. If a
+   video is requested off-site again after expiry, lazy-upload just re-pushes it
+   (`cloud_key` is re-populated). So on R2 the file is transient; on the NAS it
+   stays.
+2. **Every byte is reported — the footprint is never a surprise.**
+   - Each lazy upload records the object size to `video_access_log`
+     (`bytes_sent`, `path='cloud'`) and updates a running **cloud-footprint gauge**
+     (total objects and total GB in R2 — the billable number).
+   - The **weekly digest** (infra-intake #10) gains a line: *current R2 footprint
+     (GB / objects), projected monthly cost, uploads this week.* Projected cost =
+     `max(0, GB − 10) × $0.015` — literally **$0 while under the 10 GB free tier**,
+     and a real dollar figure the moment it isn't.
+   - A **Discord alert** (`services/discord-alert.ts`) fires when the footprint
+     crosses `R2_SOFT_LIMIT_GB` (default **8** — warns *before* the free tier ends),
+     so the first signal is a ping, not a bill.
+3. **A hard cap that fails closed.** Past `R2_HARD_LIMIT_GB` (default **25** — a
+   few dollars/month, deliberately low) lazy-upload **stops pushing new objects**:
+   the off-site request serves a "temporarily unavailable off-site — downloading on
+   club wifi still works" page and alerts, rather than silently growing the bill.
+   Same fail-closed posture as the rest of the design (infra-intake #8); Ron raises
+   the cap once he's seen real usage.
+
+All three limits (`R2_RETENTION_DAYS`, `R2_SOFT_LIMIT_GB`, `R2_HARD_LIMIT_GB`) are
+`.env` config with the conservative defaults above, documented in `.env.template`,
+so the feature ships **spend-visible and spend-bounded by default** — nothing to
+remember to switch on.
 
 ## Data model (Supabase, source of truth)
 
@@ -153,11 +194,13 @@ internet. The A record points at the mini's **LAN IP**. On club wifi the phone
 resolves it, connects locally, and gets a genuine green padlock. Traffic never
 leaves the building.
 
-> **Open — the off-site half.** A public A record pointing at a private IP is
-> unreachable from outside, which is *correct* for the LAN path but means the
-> off-site path needs its own public origin (the cloud-storage signed URL, or a
-> Cloudflare Tunnel for the page itself while bytes come from R2). Decide with
-> the bucket choice.
+> **Open — the off-site public origin (narrowed).** A public A record pointing at a
+> private IP is unreachable from outside, which is *correct* for the LAN path but
+> means the off-site path needs its own public origin. With R2 chosen, the bytes
+> come from a **short-lived R2 pre-signed URL** (no LAN exposure, egress-free); the
+> page itself is served either from that same public hostname over a Cloudflare
+> Tunnel or as a small static front-end. Which of those two for the *page* is the
+> remaining step-5 call — the *bytes* question is settled.
 
 A **Cloudflare Tunnel for the video bytes is the wrong tool**: it would route
 every on-site download out to Cloudflare's edge and back, turning a free LAN
@@ -193,9 +236,12 @@ since this runs unattended in front of customers.
    [`../src/supabase.ts`](../src/supabase.ts)) plus the Resend key for the code
    email. Both in the mini's gitignored `.env`, never in the repo.
 10. **Observability.** `video_access_log` is the record. A weekly digest of
-    grants issued vs downloads completed, and a Discord alert (reusing
-    `services/discord-alert.ts`) when the NAS mount is missing or the code-send
-    path fails — the two failures a customer would otherwise discover for us.
+    grants issued vs downloads completed, **plus the R2 footprint (GB / objects) and
+    projected monthly cost**, and a Discord alert (reusing
+    `services/discord-alert.ts`) when the NAS mount is missing, the code-send path
+    fails, **or the R2 footprint crosses `R2_SOFT_LIMIT_GB`** — the failures a
+    customer, or the bill, would otherwise reveal for us. Full cost model in
+    [*Off-site cost*](#off-site-cost--r2-as-an-ephemeral-cache-reported-and-capped).
 
 ## Privacy — the thing to get right
 
@@ -224,8 +270,11 @@ never asked to be recorded and are not the grant holder.
 2. **Schema + staff grant creation** — the tables and a way to issue a grant.
 3. **The gated page + code flow, LAN only** — the customer-visible feature.
 4. **Hostname + DNS-01 certificate** — required before any customer sees it.
-5. **Lazy cloud upload for the off-site path** — last; the on-site experience is
-   complete without it.
+5. **Lazy cloud upload for the off-site path (R2)** — last; the on-site experience
+   is complete without it. Includes the R2 bucket + **lifecycle rule**, the
+   footprint gauge, weekly-digest cost line, soft alert, and hard cap. Ship all of
+   the cost guards *with* the upload, not after — the point is that it is
+   spend-bounded from the first uploaded byte.
 
 Steps 1–4 deliver the whole on-site experience. Step 5 is a genuine add-on, not a
 prerequisite.
