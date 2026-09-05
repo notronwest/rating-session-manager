@@ -71,8 +71,15 @@ If courtreserve-scheduler is not present, the video processing features still wo
 
 ## Architecture
 
-- Express API on port 3001 serves `/api/*` endpoints
+- Express API on port 3001 serves `/api/*` endpoints — and, when the built SPA
+  exists (`../www/$APP_NAME`, override `WEB_DIST`), serves it too with an SPA
+  fallback, so one process is a complete origin
 - Vite dev server on port 3000 proxies `/api` to Express
+- Public access: a Cloudflare Tunnel on the mini publishes Express at
+  `https://session.wmpc.app` behind **Cloudflare Access** (the app has no login
+  of its own). Requests arriving via Cloudflare must carry a valid Access JWT or
+  get 403 (fail closed; LAN/localhost never gated) —
+  `src/middleware/cf-access.ts`, runbook `deploy/cloudflared/README.md`
 - Supabase stores session state and logs (replaces the old local SQLite DB).
   All session-manager state is tagged with `org_id`, so multiple coaches /
   machines can collaborate against the same Supabase project.
@@ -84,9 +91,12 @@ If courtreserve-scheduler is not present, the video processing features still wo
 
 ```
 setup.sh                     # One-command setup for new machines
+deploy/cloudflared/          # Cloudflare Tunnel: setup.sh (run on the mini) + README runbook
 .env.template                # Template for environment variables (copied to .env by setup.sh)
 src/
-  server.ts                  # Express entry point
+  server.ts                  # Express entry point (API + serves the built SPA)
+  middleware/
+    cf-access.ts             # Cloudflare Access JWT gate for tunnel traffic
   types.ts                   # Shared TypeScript types
   db/
     index.ts                 # Supabase-backed sessions + logs repository
@@ -268,6 +278,15 @@ CR_BASE_URL=https://app.courtreserve.com
 
 # Optional
 PORT=3001                              # Express API port (default 3001)
+WEB_DIST=/abs/path                     # Where Express finds the built SPA (default ../www/$APP_NAME)
+
+# Cloudflare Access — REQUIRED on the mini once the tunnel publishes the app at
+# https://session.wmpc.app. The server refuses requests that arrived via
+# Cloudflare unless they carry a valid Access JWT; with these unset that is
+# every tunnel request (fail closed). LAN / localhost are never gated.
+CF_ACCESS_TEAM_DOMAIN=wmpc             # Zero Trust team name (→ <team>.cloudflareaccess.com)
+CF_ACCESS_AUD=<64-hex AUD tag>         # Access application → Overview → Application Audience Tag
+# CF_ACCESS_DISABLE=1                  # local debugging only — never on the mini
 ```
 
 **CR sync paths (both via courtreserve-api — no Python / Playwright / sibling):**

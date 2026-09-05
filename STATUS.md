@@ -4,8 +4,44 @@ Append-only session handoff log. **Read this first; append a dated entry
 before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
-design tokens adopted.**
-Last updated: **2026-07-22**
+design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
+not yet run on the mini).**
+Last updated: **2026-09-05**
+
+## 2026-09-05 — Publish at https://session.wmpc.app via Cloudflare Tunnel (#62)
+
+- **Ask:** make the app reachable off the club LAN. Same recipe as
+  courtreserve-api (`crapi.wmpc.app`) / qbo-api (`qbo.wmpc.app`): an outbound
+  `cloudflared` tunnel on the mini, **own** tunnel name `session`, config
+  `~/.cloudflared/config-session.yml`, LaunchAgent `com.wmpc.cloudflared-session`
+  — so it can't clobber the other two. New `deploy/cloudflared/{setup.sh,README.md}`.
+- **Single origin:** the LAN splits the SPA (Caddy) from `/api` (Express), but a
+  tunnel wants one origin, so `src/server.ts` now also serves the built SPA
+  (`../www/$APP_NAME`, override `WEB_DIST`) with an SPA fallback, hashed assets
+  cached immutable, `index.html` no-cache. Tunnel → `localhost:3001`. Caddy/LAN
+  untouched; dev unchanged (dir absent → API only).
+- **Security (the judgment call):** the app has **no login**, so the public
+  hostname must sit behind **Cloudflare Access**, and the server enforces it:
+  new `src/middleware/cf-access.ts` verifies the `Cf-Access-Jwt-Assertion` JWT
+  (`jose`, team JWKS + AUD) on any request carrying Cloudflare headers. **Fail
+  closed** — with `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` unset, tunnel traffic
+  is 403; LAN/localhost never gated; `/api/health` exempt (and omits `videoDir`
+  publicly). `CF_ACCESS_DISABLE=1` for local debugging only.
+- **Verified locally** (`tsc`, `vite build`, server on :3011): `/`, `/members`,
+  `/sessions/:id` → SPA 200; `/api/nope` → 404 (not swallowed); LAN health
+  unchanged; CF-flagged requests → 403 in all three modes (not configured / no
+  token / bad token); asset + index cache headers as intended. Not yet run on the
+  mini — that is the next step.
+- **Docs:** `DEPLOYMENT.md` gains the `tunnel` target (+ notes that the public
+  URL is only as reboot-durable as the API); `CLAUDE.md` env vars + architecture;
+  `.env.template` documents the two `CF_ACCESS_*` vars. `story` label created
+  in the repo (didn't exist); issue #62 on the board.
+- **Next (Ron, on the mini):** `git pull && npm run build`, then
+  `bash deploy/cloudflared/setup.sh`; create the Access app for
+  `session.wmpc.app` (allow `@whitemountainpickleball.com`), put its AUD tag +
+  team name in `.env`, `npm run restart`; test from a phone on cellular. Then
+  fix the stale `launchd/ai.wmpc.sessions.plist` so the API (and so the public
+  URL) survives a reboot — separate card.
 
 ## 2026-07-22 — Tag Players panel: added a footer "Save Tagging" button
 
