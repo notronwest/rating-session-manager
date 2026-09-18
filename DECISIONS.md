@@ -131,6 +131,36 @@ them without reading daemon. daemon needs to see everything.
 **Forbids.** Recording a decision only in STATUS.md. Editing a superseded record instead of
 adding a new one. Hand-editing a repo's `DECISIONS.md`.
 
+### D-0018 — Issues and PRs pass through written-standard gates, not Ron; a separate review agent enforces them
+
+*2026-09-18 · scope: `agents/chief-of-staff/**, agents/builder/**, agents/reviewer/**` · source: Ron 2026-09-18 ("I can no longer be the bottleneck for issues that need review"); builds on D-0015*
+
+**Decision.** Ron is not the review bottleneck. Quality is enforced by **gates against written standards**, not his eye — he sees only the hard calls.
+
+- **Author (Rachel / CoS)** writes tickets to a standard and owns the ticket **lifecycle**: author → set Agent Ready → triage if it blocks (re-file, decompose, re-queue), escalating architecture calls to daemon (D-0015). She writes for a human — scannable and structured, never a wall of text (the clarity principle applies to agent output, not just UI).
+- **Pre-build gate (Builder)** validates a ticket *before* spending a build — right repo, acceptance criteria, unambiguous. A bad ticket is commented + routed, never built blind (as it did for the mis-filed Pro 2+2, qbo-api #29 → courtreserve-api #209).
+- **PR-review gate — ONE new agent, separate from the Builder** (the builder never grades its own homework). It reviews every Builder PR for **correctness AND design**, against the *written* standards: the design principles in `wmpc-meta/design-system/DESIGN_SYSTEM.md` (HIG + Material; branding is the expression layer) and each repo's `DECISIONS.md`. It reuses the existing code-review / ultrareview capability. **Its first job when built: drain the current In Review queue.** Clean → ready/merge; genuinely uncertain → escalate to Ron.
+- **Calibration (fleet-wide):** act on the clear, escalate only the uncertain — the same non-blocking model as D-0015 and the CoS whitelist.
+
+**Why.** The bottleneck was never "no reviewer" — it was that the standards lived only in Ron's head, so only he could judge. Externalizing them (the design-principles doc, this register, per-repo `DECISIONS.md`) makes review delegable. A separate reviewer keeps the builder honest. And **gates, not personas**: the one new standing agent (PR review) is justified by separation of concerns; everything else is a gate or role on an agent we already have — that is the line that keeps this an AI-native pipeline instead of a cosplay of a human org.
+
+**Forbids.** Don't route routine issue/PR review through Ron. Don't let the Builder approve its own PRs. Don't add a standing agent where a gate on an existing one suffices. No gate enforces *taste* — it enforces the written standard; if a standard is missing, write it (don't guess), and if it's an architecture call, route it through daemon (D-0015).
+
+### D-0019 — One marketing-api service owns Canva + Meta; the CoS drafts assets and posts, publishing to public is gated
+
+*2026-09-18 · scope: `agents/chief-of-staff/**` · source: Ron 2026-09-18 (connect Rachel to Canva + FB/IG to streamline comms)*
+
+**Decision.** Canva (branded assets) and Meta / Facebook + Instagram (distribution) are the same workstream as email marketing — one **content spine**, with the CoS as the single operator across every channel.
+
+- **One service, not a repo per platform.** A `marketing-api` service (runs on the mini, like qbo-api) owns the Canva Connect + Meta Graph creds and wraps both APIs; the existing email-marketing spine (Resend / campaigns) folds in over time. No second marketing service.
+- **Two new gated CoS capabilities** in `cos_whitelist`, seeded **draft-only**: `build_assets` (Canva — autofill brand templates, resize, export; create/draft, never a paid Canva action) and `draft_social` (compose FB/IG posts as drafts). **Publishing to public social is the gated set** — a `cos_approvals` row (`action_kind` `ship_prod`); Ron approves, then it posts. Never auto-post publicly.
+- **Reuse existing designs.** Ron's existing Canva designs (signs, etc.) become **brand templates** with named variable slots; the CoS autofills + exports every size via the API. The design stays Ron's; production becomes the CoS's.
+- **On-brand.** Assets and posts obey the design principles (`wmpc-meta/design-system/DESIGN_SYSTEM.md`, D-0018) and each entity's brand voice (WMPC vs TSA — two entities, D-0009). A skill layers the craft on top of the service.
+
+**Why.** The fleet's pattern is one service per external system, creds on the mini, CoS access gated (D-0008, D-0014). Consolidating Canva + Meta into one marketing service — rather than a repo per tool — keeps the content spine coherent and lets Rachel run all comms from one place. Public posting and any spend stay draft-first / approval, because they are outward-facing and irreversible — the same rule as her newsletter sends.
+
+**Forbids.** No auto-posting to public social, and no paid Canva or paid-ads action, without a Ron approval. No creds in the repo (mini env only). No per-platform repo sprawl — extend `marketing-api`, don't add a second service.
+
 ## Proposed (not binding yet)
 
 _None._
