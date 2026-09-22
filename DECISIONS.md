@@ -163,7 +163,7 @@ adding a new one. Hand-editing a repo's `DECISIONS.md`.
 
 ## Proposed (not binding yet)
 
-_None._
+- D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
 
 ## Superseded (history)
 
