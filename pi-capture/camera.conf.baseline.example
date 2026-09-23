@@ -1,0 +1,12 @@
+{
+  "court": "court4",
+  "source": "tcp",
+  "input_url": "tcp://pi5-baseline.local:8555",
+  "input_fps": "30",
+  "cv_relay": "",
+  "youtube_key": "PUT-THE-YOUTUBE-STREAM-KEY-HERE",
+  "output_dir": "/Users/wmpc/wmpc-video",
+  "active_start": "06:00",
+  "active_end": "22:00",
+  "control_port": 8080
+}
