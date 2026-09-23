@@ -3,7 +3,7 @@
   "source": "tcp",
   "input_url": "tcp://pi5-baseline.local:8555",
   "input_fps": "30",
-  "cv_relay": "udp://127.0.0.1:9002",
+  "cv_relay": "",
   "youtube_key": "PUT-THE-YOUTUBE-STREAM-KEY-HERE",
   "output_dir": "/Users/wmpc/wmpc-video",
   "active_start": "06:00",

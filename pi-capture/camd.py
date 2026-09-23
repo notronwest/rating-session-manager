@@ -9,8 +9,9 @@ a small HTTP control. It supports two SOURCE modes:
   * source="tcp"    — ingests an EXISTING H.264-over-TCP feed instead of opening a camera.
     Used for the BASELINE camera already set up: a Pi 5 (`pi5-baseline.local:8555`) emits a
     raw H.264 elementary stream; camd runs on the mini, consumes that feed, and replaces the
-    hand-run OBS + `fanout.sh` chain — streaming to YouTube, recording to the NAS on demand,
-    and (optionally) relaying an mpegts leg to the existing computer-vision consumer.
+    hand-run OBS — streaming to YouTube and recording to the NAS on demand. (An optional
+    mpegts CV relay leg exists for a computer-vision consumer but is off by default;
+    `fanout.sh` is retired.)
 
 In both modes camd is told WHEN to act by the mini (it watches the Court Reserve schedule
 and calls /record/start|stop at session boundaries) or by a human via the same API. This
