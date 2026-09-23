@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- LaunchAgent: run camd on the mini in TCP-ingest mode for the BASELINE camera.
-     Consumes the Pi 5 feed (tcp://pi5-baseline.local:8555), streams to YouTube, records to the
+     Consumes the Pi 5 feed (tcp://10.0.0.120:8555, the Court4Cam Pi), streams to YouTube, records to the
      NAS on demand, relays the CV leg — replacing hand-run OBS + court-vision/fanout.sh.
      KeepAlive restarts it if it dies; the daemon self-heals the pipeline internally too.
      Install (as the mini user), AFTER placing camera.baseline.conf and stopping OBS+fanout:
