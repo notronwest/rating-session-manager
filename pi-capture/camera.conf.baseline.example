@@ -2,7 +2,6 @@
   "court": "court4",
   "source": "tcp",
   "input_url": "tcp://10.0.0.120:8555",
-  "input_fps": "30",
   "cv_relay": "",
   "youtube_key": "PUT-THE-YOUTUBE-STREAM-KEY-HERE",
   "output_dir": "/Users/wmpc/wmpc-video",

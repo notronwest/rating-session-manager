@@ -83,6 +83,14 @@ don't touch the Pi — we point camd at the feed it already emits and retire OBS
 > hand-run OBS is stopped at cutover and camd takes over — streaming to YouTube and recording to
 > the NAS on demand, all `-c copy` (no transcode → no ~17% frame drop).
 
+> **Two Sequoia gotchas that cost real time at the first cutover, both handled in code:**
+> 1. **Timestamps** — a raw H.264 elementary stream has no PTS, and FLV/RTMP + mp4 muxers reject
+>    packets with no PTS (`Packet is missing PTS`, the copy dies). OBS never hit this because it
+>    re-encoded; our `-c copy` doesn't, so camd adds `-use_wallclock_as_timestamps 1` to stamp the
+>    input. 2. **Local Network Privacy** (macOS 15) — a launchd daemon must be granted Local Network
+>    access to reach LAN IPs; without it every connection fails as *"No route to host"* even though
+>    the shell (which has the grant) reaches the Pi fine. See the deploy step below.
+
 **On the mini:**
 
 1. **ffmpeg present:** `brew install ffmpeg` (the plist's `PATH` points at `/opt/homebrew/bin`).
@@ -94,7 +102,13 @@ don't touch the Pi — we point camd at the feed it already emits and retire OBS
    - `cv_relay` — leave `""`. (Only set an mpegts UDP target here if a computer-vision consumer is
      ever running again; camd will keep that leg alive alongside the stream.)
 3. **Source** the daemon: `sudo mkdir -p /opt/wmpc/pi-capture/pi-capture-src && sudo cp *.py /opt/wmpc/pi-capture/pi-capture-src/`.
-4. **Cutover (live stream — do this deliberately):** quit **OBS** so the single TCP feed is free,
+4. **Grant Local Network access (macOS 15+, REQUIRED):** the launchd daemon can't reach the Pi's LAN
+   IP until it's allowed. System Settings → **Privacy & Security → Local Network** → enable the entry
+   for the daemon (`Python`/`ffmpeg`/`com.wmpc.camd`). If it isn't listed yet, run camd once in the
+   foreground (`/usr/bin/python3 /opt/wmpc/pi-capture/pi-capture-src/camd.py --config …`) to make it
+   register / prompt, click **Allow**, then Ctrl-C. Without this, camd fails every connect as
+   *"No route to host"* even though the shell reaches the Pi.
+5. **Cutover (live stream — do this deliberately):** quit **OBS** so the single TCP feed is free,
    then load camd:
    ```
    cp mini/com.wmpc.camd.plist ~/Library/LaunchAgents/
@@ -103,7 +117,7 @@ don't touch the Pi — we point camd at the feed it already emits and retire OBS
    ```
    Confirm the YouTube stream is live, then you're off OBS. `KeepAlive` restarts camd if it dies;
    camd self-heals the ffmpeg pipeline (and reconnects if the Pi feed blips).
-5. **Roll back** (if needed): `launchctl unload ~/Library/LaunchAgents/com.wmpc.camd.plist`, then
+6. **Roll back** (if needed): `launchctl unload ~/Library/LaunchAgents/com.wmpc.camd.plist`, then
    reopen OBS as before.
 
 Recording a session is the same API as any camera (`POST /record/start` → `/record/stop`); files
