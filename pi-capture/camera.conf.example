@@ -1,0 +1,9 @@
+{
+  "court": "teaching",
+  "output_dir": "/mnt/wmpc-video",
+  "youtube_key": "",
+  "active_start": "06:00",
+  "active_end": "22:00",
+  "control_port": 8080,
+  "rpicam_extra": "--width 1920 --height 1080 --framerate 30 --nopreview"
+}
