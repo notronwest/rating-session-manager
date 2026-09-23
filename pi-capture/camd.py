@@ -51,7 +51,6 @@ DEFAULTS = {
     "court": "court4",
     "source": "rpicam",                   # "rpicam" (open an on-Pi camera) | "tcp" (ingest a feed)
     "input_url": "",                      # source=="tcp": e.g. tcp://10.0.0.120:8555 (raw H.264; use the IP, not .local — launchd ffmpeg can't resolve mDNS)
-    "input_fps": "30",                    # source=="tcp": declared fps for the raw H.264 input (fixes 25↔30)
     "cv_relay": "",                       # optional mpegts UDP leg kept alive for CV, e.g. udp://127.0.0.1:9002
     "output_dir": "/mnt/wmpc-video",      # the NAS share, mounted on the host (SMB/cifs)
     "rtmp_base": "rtmp://a.rtmp.youtube.com/live2",
@@ -165,11 +164,12 @@ class Capture:
             outs.append(f'-c copy -f mpegts {shlex.quote(self.cfg["cv_relay"])}')
         outs_s = " ".join(outs)
         if self.cfg.get("source") == "tcp":
-            # ingest an existing raw-H.264-over-TCP feed (the baseline Pi). Declare the input fps
-            # so ffmpeg doesn't assume 25 on a 30fps source (the old fan-out's frame-drop bug).
+            # ingest an existing raw-H.264-over-TCP feed (the baseline Pi). A raw H.264 elementary
+            # stream carries NO timestamps, and the FLV/RTMP and mp4 muxers reject packets with no
+            # PTS ("Packet is missing PTS" → the copy dies). Stamp each packet by wall-clock on the
+            # input so -c copy produces valid, monotonic PTS/DTS for every output leg.
             src = shlex.quote(self.cfg.get("input_url", ""))
-            fps = shlex.quote(str(self.cfg.get("input_fps", "30")))
-            return f"ffmpeg -hide_banner -loglevel warning -fflags nobuffer -r {fps} -f h264 -i {src} {outs_s}"
+            return f"ffmpeg -hide_banner -loglevel warning -use_wallclock_as_timestamps 1 -f h264 -i {src} {outs_s}"
         # source == "rpicam": open the on-Pi camera and pipe it into one ffmpeg
         rp = f'rpicam-vid -t 0 --codec h264 --inline {self.cfg["rpicam_extra"]} -o -'
         ff = "ffmpeg -hide_banner -loglevel warning -f h264 -i - " + outs_s
