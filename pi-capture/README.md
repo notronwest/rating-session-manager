@@ -1,10 +1,16 @@
 # pi-capture — Track 1: the court-camera capture daemon
 
-Replaces OBS. One headless service (`camd.py`) runs on each court's Raspberry Pi and does
-what the club needs, driven by config + a tiny HTTP control API:
+Replaces OBS. One headless service (`camd.py`), driven by config + a tiny HTTP control API,
+covers every camera the club runs. It has two **source modes**:
 
-- **Teaching camera** → records a lesson to the NAS (no stream).
-- **Court-4 open play** → live-streams to YouTube **and** records the session on demand.
+- **`source: "rpicam"`** — opens an on-Pi camera. Used by:
+  - **Teaching camera** → records a lesson to the NAS (no stream).
+  - a future **court-native cam** → streams to YouTube **and** records on demand.
+- **`source: "tcp"`** — ingests an **existing** H.264-over-TCP feed instead of a camera. Used by
+  the **baseline camera already installed** (a Pi 5 at `pi5-baseline.local:8555`): camd runs on
+  the **mini**, consumes that feed, and replaces the hand-run **OBS + `court-vision/fanout.sh`**
+  chain — streaming to YouTube, recording to the NAS on demand, and relaying the CV leg. Because
+  every leg is `-c copy` (no transcode), this also removes the old fan-out's ~17% frame drop.
 
 `camd` never decides *when* to record — the **mini** does (it watches the Court Reserve
 schedule and calls `/record/start|stop` at session boundaries), or a person does via the
@@ -60,6 +66,44 @@ reboot-proof and keychain-backed (no password on disk):
    launchctl load ~/Library/LaunchAgents/com.wmpc.nas-mount.plist
    ```
    `~/wmpc-video` is now `VIDEO_DIR`. (The mini auto-logs-in, so the LaunchAgent runs on boot.)
+
+## Baseline camera — ingest the existing feed on the mini (replaces OBS)
+
+The baseline camera is **already installed**: a **Pi 5** (`pi5-baseline.local`) emitting a raw
+H.264 elementary stream over TCP on **:8555**. Today that feed is consumed by
+`court-vision/scripts/fanout.sh` on the mini, split to **OBS** (`udp://127.0.0.1:9001`, started by
+hand → YouTube) and a **CV** consumer (`udp://127.0.0.1:9002`). We don't touch the Pi — we point
+camd at the feed it already emits and retire OBS + fanout.
+
+> **Only one consumer can read the Pi's single TCP feed.** So camd *becomes* that consumer:
+> `fanout.sh` and hand-run OBS are stopped at cutover, and camd reproduces the legs that still
+> matter (YouTube + the CV relay) plus on-demand NAS recording — all `-c copy`.
+
+**On the mini:**
+
+1. **ffmpeg present:** `brew install ffmpeg` (the plist's `PATH` points at `/opt/homebrew/bin`).
+2. **Config** from `camera.conf.baseline.example` → `/opt/wmpc/pi-capture/mini/camera.baseline.conf`.
+   Set:
+   - `youtube_key` — **the stream key currently in OBS** (Settings → Stream → copy it out). This is
+     the one secret; it lives only in this root-readable file, never in the repo.
+   - `cv_relay` — keep `udp://127.0.0.1:9002` **if the CV consumer is still in use**; set `""` to
+     drop that leg. (camd defaults it on so nothing CV-dependent breaks.)
+   - `output_dir` — the mini's NAS mount (e.g. `/Users/wmpc/wmpc-video`).
+3. **Source** the daemon: `sudo mkdir -p /opt/wmpc/pi-capture/pi-capture-src && sudo cp *.py /opt/wmpc/pi-capture/pi-capture-src/`.
+4. **Cutover (live stream — do this deliberately):** stop the old path so the TCP feed is free —
+   quit **OBS**, and stop `fanout.sh` (`pkill -f fanout.sh`). Then load camd:
+   ```
+   cp mini/com.wmpc.camd.plist ~/Library/LaunchAgents/
+   launchctl load ~/Library/LaunchAgents/com.wmpc.camd.plist
+   curl -s localhost:8080/status | jq        # source:"tcp", streaming:true, pipeline_up:true
+   ```
+   Confirm the YouTube stream is live, then you're off OBS. `KeepAlive` restarts camd if it dies;
+   camd self-heals the ffmpeg pipeline (and reconnects if the Pi feed blips).
+5. **Roll back** (if needed): `launchctl unload ~/Library/LaunchAgents/com.wmpc.camd.plist`, then
+   restart `fanout.sh` + OBS as before.
+
+Recording a session is the same API as any camera (`POST /record/start` → `/record/stop`); files
+land on the NAS under `output_dir/court4/<date>/`.
 
 ## Control API (what the mini / dashboard / a person calls)
 `POST /record/start {"name":"optional-label"}` · `POST /record/stop` · `POST /stream/start` ·

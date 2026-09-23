@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """camd — the WMPC court-camera capture daemon (Track 1).
 
-Runs headless on a Raspberry Pi (Camera Module 3, hardware H.264), replacing OBS. One
-service does both jobs the club needs, driven by config + a small HTTP control:
+Runs headless, replacing OBS. One service does the jobs the club needs, driven by config +
+a small HTTP control. It supports two SOURCE modes:
 
-  * TEACHING camera  → records a lesson to the NAS (no live stream).
-  * COURT-4 open play → live-streams to YouTube AND records the session on demand.
+  * source="rpicam" — drives an on-Pi camera (Camera Module, hardware H.264). Used by the
+    TEACHING camera (record a lesson to the NAS, no stream) and a future court-native cam.
+  * source="tcp"    — ingests an EXISTING H.264-over-TCP feed instead of opening a camera.
+    Used for the BASELINE camera already set up: a Pi 5 (`pi5-baseline.local:8555`) emits a
+    raw H.264 elementary stream; camd runs on the mini, consumes that feed, and replaces the
+    hand-run OBS + `fanout.sh` chain — streaming to YouTube, recording to the NAS on demand,
+    and (optionally) relaying an mpegts leg to the existing computer-vision consumer.
 
-Nothing here decides WHEN to record — that is the mini's job (it watches the Court Reserve
-schedule and calls /record/start|stop at session boundaries), or a human via the same API.
-This daemon just does what it's told and keeps the pipeline alive.
+In both modes camd is told WHEN to act by the mini (it watches the Court Reserve schedule
+and calls /record/start|stop at session boundaries) or by a human via the same API. This
+daemon just does what it's told and keeps the pipeline alive.
 
-## The single-camera constraint
-A Pi camera can be opened by ONE process at a time, so we can't run "stream" and "record" as
-two captures. Instead ONE `rpicam-vid` feeds ONE `ffmpeg`, and ffmpeg fans out to the RTMP
-stream and/or a file. Changing what's wanted (start recording, stop streaming) rebuilds that
-one pipeline — a ~1s blip on toggle, which only happens at session boundaries.
+## The single-capture constraint
+A camera (or a single-consumer TCP feed) can be read by ONE process at a time, so we can't
+run "stream" and "record" as two captures. Instead ONE source feeds ONE `ffmpeg`, and ffmpeg
+fans out (`-c copy`, no re-encode) to the RTMP stream, a file, and/or the CV relay. Changing
+what's wanted (start recording, stop streaming) rebuilds that one pipeline — a ~1s blip on
+toggle, which only happens at session boundaries. Copying rather than re-encoding is also
+why this fixes the old fan-out's ~17% frame drop: nothing is transcoded.
 
 ## Fail-safe
 - Missing camera/tools, or an ffmpeg that dies, is logged and retried by the reconcile loop;
@@ -41,7 +48,11 @@ from pathlib import Path
 
 DEFAULTS = {
     "court": "court4",
-    "output_dir": "/mnt/wmpc-video",      # the NAS share, mounted on the Pi (SMB/cifs)
+    "source": "rpicam",                   # "rpicam" (open an on-Pi camera) | "tcp" (ingest a feed)
+    "input_url": "",                      # source=="tcp": e.g. tcp://pi5-baseline.local:8555 (raw H.264)
+    "input_fps": "30",                    # source=="tcp": declared fps for the raw H.264 input (fixes 25↔30)
+    "cv_relay": "",                       # optional mpegts UDP leg kept alive for CV, e.g. udp://127.0.0.1:9002
+    "output_dir": "/mnt/wmpc-video",      # the NAS share, mounted on the host (SMB/cifs)
     "rtmp_base": "rtmp://a.rtmp.youtube.com/live2",
     "youtube_key": "",                    # empty => never stream (teaching camera)
     "active_start": "06:00",              # HH:MM local; pipeline held down outside this window
@@ -118,11 +129,14 @@ class Capture:
         with self.lock:
             return {
                 "court": self.cfg["court"],
+                "source": self.cfg.get("source", "rpicam"),
+                "input": self.cfg.get("input_url") if self.cfg.get("source") == "tcp" else "camera",
                 "active_window": f'{self.cfg["active_start"]}-{self.cfg["active_end"]}',
                 "in_active_hours": self._in_hours(),
                 "streaming": self.want_stream and self.cfg.get("youtube_key") != "" and self._in_hours(),
                 "recording": self.want_record,
                 "record_file": str(self.record_final) if self.want_record else None,
+                "cv_relay": self.cfg.get("cv_relay") or None,
                 "pipeline_up": self.proc is not None and self.proc.poll() is None,
                 "last_error": self.last_error,
             }
@@ -136,18 +150,28 @@ class Capture:
         active = self._in_hours()
         stream = active and self.want_stream and bool(self.cfg.get("youtube_key"))
         record = active and self.want_record
-        return (stream, record, str(self.record_tmp) if record else None)
+        cv = active and bool(self.cfg.get("cv_relay"))  # relay stays up whenever configured + in-hours
+        return (stream, record, cv, str(self.record_tmp) if record else None)
 
-    def _build_cmd(self, stream: bool, record: bool, tmp: str) -> str:
-        rp = f'rpicam-vid -t 0 --codec h264 --inline {self.cfg["rpicam_extra"]} -o -'
+    def _build_cmd(self, stream: bool, record: bool, cv: bool, tmp: str) -> str:
         outs = []
         if stream:
             key = self.cfg["youtube_key"]
             outs.append(f'-c copy -f flv {shlex.quote(self.cfg["rtmp_base"].rstrip("/") + "/" + key)}')
         if record:
             outs.append(f'-c copy -f mp4 -movflags +faststart {shlex.quote(tmp)}')
-        # one input, one or two outputs
-        ff = "ffmpeg -hide_banner -loglevel warning -f h264 -i - " + " ".join(outs)
+        if cv:
+            outs.append(f'-c copy -f mpegts {shlex.quote(self.cfg["cv_relay"])}')
+        outs_s = " ".join(outs)
+        if self.cfg.get("source") == "tcp":
+            # ingest an existing raw-H.264-over-TCP feed (the baseline Pi). Declare the input fps
+            # so ffmpeg doesn't assume 25 on a 30fps source (the old fan-out's frame-drop bug).
+            src = shlex.quote(self.cfg.get("input_url", ""))
+            fps = shlex.quote(str(self.cfg.get("input_fps", "30")))
+            return f"ffmpeg -hide_banner -loglevel warning -fflags nobuffer -r {fps} -f h264 -i {src} {outs_s}"
+        # source == "rpicam": open the on-Pi camera and pipe it into one ffmpeg
+        rp = f'rpicam-vid -t 0 --codec h264 --inline {self.cfg["rpicam_extra"]} -o -'
+        ff = "ffmpeg -hide_banner -loglevel warning -f h264 -i - " + outs_s
         return f"{rp} | {ff}"
 
     def reconcile(self) -> None:
@@ -160,11 +184,11 @@ class Capture:
             if self.proc is not None:
                 self._kill()
             self._finalize_record_if_done(key)
-            stream, record, tmp = key
-            if not stream and not record:
+            stream, record, cv, tmp = key
+            if not stream and not record and not cv:
                 self.current_key = key
-                return  # nothing wanted — camera idle
-            cmd = self._build_cmd(stream, record, tmp)
+                return  # nothing wanted — source idle
+            cmd = self._build_cmd(stream, record, cv, tmp)
             try:
                 if record and tmp:
                     Path(tmp).parent.mkdir(parents=True, exist_ok=True)
@@ -262,8 +286,10 @@ def main(argv=None) -> int:
     t.start()
 
     srv = ThreadingHTTPServer(("0.0.0.0", int(cfg["control_port"])), Handler)
-    print(json.dumps({"camd": "up", "court": cfg["court"], "port": cfg["control_port"],
-                      "streams": bool(cfg.get("youtube_key")), "output_dir": cfg["output_dir"]}))
+    print(json.dumps({"camd": "up", "court": cfg["court"], "source": cfg.get("source", "rpicam"),
+                      "input": cfg.get("input_url") if cfg.get("source") == "tcp" else "camera",
+                      "port": cfg["control_port"], "streams": bool(cfg.get("youtube_key")),
+                      "cv_relay": cfg.get("cv_relay") or None, "output_dir": cfg["output_dir"]}))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

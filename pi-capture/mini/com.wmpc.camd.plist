@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent: run camd on the mini in TCP-ingest mode for the BASELINE camera.
+     Consumes the Pi 5 feed (tcp://pi5-baseline.local:8555), streams to YouTube, records to the
+     NAS on demand, relays the CV leg — replacing hand-run OBS + court-vision/fanout.sh.
+     KeepAlive restarts it if it dies; the daemon self-heals the pipeline internally too.
+     Install (as the mini user), AFTER placing camera.baseline.conf and stopping OBS+fanout:
+       sudo mkdir -p /opt/wmpc/pi-capture && sudo cp -R . /opt/wmpc/pi-capture/pi-capture-src
+       cp com.wmpc.camd.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.wmpc.camd.plist
+     Verify: curl -s localhost:8080/status | jq -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.wmpc.camd</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/opt/wmpc/pi-capture/pi-capture-src/camd.py</string>
+    <string>--config</string>
+    <string>/opt/wmpc/pi-capture/mini/camera.baseline.conf</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- ffmpeg from Homebrew; adjust if installed elsewhere -->
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/wmpc-camd.err</string>
+  <key>StandardOutPath</key><string>/tmp/wmpc-camd.out</string>
+</dict>
+</plist>
