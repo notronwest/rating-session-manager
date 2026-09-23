@@ -7,7 +7,7 @@ covers every camera the club runs. It has two **source modes**:
   - **Teaching camera** → records a lesson to the NAS (no stream).
   - a future **court-native cam** → streams to YouTube **and** records on demand.
 - **`source: "tcp"`** — ingests an **existing** H.264-over-TCP feed instead of a camera. Used by
-  the **baseline camera already installed** (a Pi 5 at `pi5-baseline.local:8555`): camd runs on
+  the **baseline camera already installed** (a Pi 5, hostname `Court4Cam`, at `10.0.0.120:8555`): camd runs on
   the **mini**, consumes that feed, and replaces the **hand-run OBS** — streaming to YouTube and
   recording to the NAS on demand (an optional CV relay leg is available but off by default). Because
   every leg is `-c copy` (no transcode), this also removes the old fan-out's ~17% frame drop.
@@ -69,10 +69,15 @@ reboot-proof and keychain-backed (no password on disk):
 
 ## Baseline camera — ingest the existing feed on the mini (replaces OBS)
 
-The baseline camera is **already installed**: a **Pi 5** (`pi5-baseline.local`) emitting a raw
+The baseline camera is **already installed**: a **Pi 5** (hostname `Court4Cam`, `10.0.0.120`) emitting a raw
 H.264 elementary stream over TCP on **:8555**. Today **OBS** on the mini reads that feed and
 streams it to YouTube by hand. (`court-vision/fanout.sh` is **retired** — no longer used.) We
 don't touch the Pi — we point camd at the feed it already emits and retire OBS.
+
+> **Use the Pi's IP in `input_url`, not its `.local` mDNS name.** camd runs under launchd, and
+> launchd-spawned ffmpeg cannot resolve `.local` names (it fails with *"Failed to resolve
+> hostname"* even when the shell can `ping` it) — so give the Pi a **DHCP reservation** on the Orbi
+> (here `10.0.0.120`) and use that IP. This bit us during the first cutover.
 
 > **Only one consumer can read the Pi's single TCP feed.** So camd *becomes* that consumer:
 > hand-run OBS is stopped at cutover and camd takes over — streaming to YouTube and recording to

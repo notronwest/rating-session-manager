@@ -7,7 +7,7 @@ a small HTTP control. It supports two SOURCE modes:
   * source="rpicam" — drives an on-Pi camera (Camera Module, hardware H.264). Used by the
     TEACHING camera (record a lesson to the NAS, no stream) and a future court-native cam.
   * source="tcp"    — ingests an EXISTING H.264-over-TCP feed instead of opening a camera.
-    Used for the BASELINE camera already set up: a Pi 5 (`pi5-baseline.local:8555`) emits a
+    Used for the BASELINE camera already set up: a Pi 5 (`Court4Cam`, 10.0.0.120:8555) emits a
     raw H.264 elementary stream; camd runs on the mini, consumes that feed, and replaces the
     hand-run OBS — streaming to YouTube and recording to the NAS on demand. (An optional
     mpegts CV relay leg exists for a computer-vision consumer but is off by default;
@@ -50,7 +50,7 @@ from pathlib import Path
 DEFAULTS = {
     "court": "court4",
     "source": "rpicam",                   # "rpicam" (open an on-Pi camera) | "tcp" (ingest a feed)
-    "input_url": "",                      # source=="tcp": e.g. tcp://pi5-baseline.local:8555 (raw H.264)
+    "input_url": "",                      # source=="tcp": e.g. tcp://10.0.0.120:8555 (raw H.264; use the IP, not .local — launchd ffmpeg can't resolve mDNS)
     "input_fps": "30",                    # source=="tcp": declared fps for the raw H.264 input (fixes 25↔30)
     "cv_relay": "",                       # optional mpegts UDP leg kept alive for CV, e.g. udp://127.0.0.1:9002
     "output_dir": "/mnt/wmpc-video",      # the NAS share, mounted on the host (SMB/cifs)
