@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- LaunchAgent: run camd on the mini in TCP-ingest mode for the BASELINE camera.
+<!-- LaunchDaemon (ROOT): run camd on the mini in TCP-ingest mode for the BASELINE camera.
      Consumes the Pi 5 feed (tcp://10.0.0.120:8555, the Court4Cam Pi), streams to YouTube, records to the
      NAS on demand, relays the CV leg — replacing hand-run OBS + court-vision/fanout.sh.
      KeepAlive restarts it if it dies; the daemon self-heals the pipeline internally too.
-     Install (as the mini user), AFTER placing camera.baseline.conf and stopping OBS+fanout:
+
+     MUST be a root LaunchDaemon, NOT a user LaunchAgent: macOS 15 (Sequoia) Local Network Privacy
+     blocks a user-agent's ffmpeg from reaching the Pi's LAN IP (every connect fails "No route to
+     host" while the shell, which holds the grant, reaches it fine). A root system daemon is not
+     subject to that user-space gate, so it just works — and a boot-time daemon is the right shape
+     for an always-on streamer (starts before login, survives logout).
+
+     Install (owned by root):
        sudo mkdir -p /opt/wmpc/pi-capture && sudo cp -R . /opt/wmpc/pi-capture/pi-capture-src
-       cp com.wmpc.camd.plist ~/Library/LaunchAgents/
-       launchctl load ~/Library/LaunchAgents/com.wmpc.camd.plist
+       sudo cp com.wmpc.camd.plist /Library/LaunchDaemons/
+       sudo launchctl load /Library/LaunchDaemons/com.wmpc.camd.plist
      Verify: curl -s localhost:8080/status | jq -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
