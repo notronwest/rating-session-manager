@@ -142,7 +142,9 @@ Update it there first, then update summaries here.
 This project owns everything from scheduling through pb.vision upload:
 
 1. Schedule — CourtReserve scraping, rating-event detection
-2. Record — coordinate camera capture
+2. Record — coordinate camera capture. The capture daemon itself (`camd`,
+   the Pi emitters, the recordings sync) is **fleet infrastructure** in
+   `../daemon/infrastructure/pi-capture/`, not in this repo (D-0030).
 3. Split — detect + export per-game clips from session recording
 4. Upload — push clips to pb.vision via their Partner API
 5. Wait for AI processing
