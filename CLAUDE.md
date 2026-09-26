@@ -390,7 +390,47 @@ there until merged (why DB and UX ship as separate PRs — see the migration
 convention).
 <!-- wmpc-block:environments:v1 END -->
 
-<!-- wmpc-block:engineering-standard:v2 START -->
+
+<!-- wmpc-block:ui-work:v2 START -->
+## UI work — required before any visual change
+
+Before ANY change to visual/UI code (a page, component, layout, nav, or style)
+— this is a gate, not a suggestion:
+
+- **Consult our design system FIRST.** `../wmpc-meta/design-system/` (tokens) +
+  this repo's `docs/DESIGN_PREFERENCES.md` govern look, spacing, layout, and
+  brand. Reuse existing components and tokens; do not invent one-off styles.
+- **Component behavior + accessibility: follow shadcn/ui + Radix conventions**
+  (accessible primitives, keyboard + ARIA, focus management) — but **style with
+  our design tokens, NOT Tailwind.** This stack uses inline styles + a minimal
+  index.css, no CSS framework; a Tailwind/shadcn migration is a separate,
+  deliberate project, not something to introduce inside an unrelated UI change.
+- **Mobile-first is non-negotiable.** Design AND verify at **390px width FIRST**,
+  then scale up. A UI change that has not been checked at 390px is NOT done.
+- **Mockups run in a real, interactive preview — not a chat-inline widget.**
+  When Ron asks to "do a mockup," render the **whole page** with the change
+  inline in a **clickable browser preview** (the app's dev server on the real
+  route, or a full standalone HTML page duplicated from the real one) so the UX
+  can be *felt* before we build. Never a `show_widget` / inline SVG-or-HTML blob.
+  Full rule under **Engineering standard → Mockups**.
+- **Uncovered pattern?** Fetch the specific Radix / shadcn (or Material 3) doc
+  for that component rather than freelancing or guessing at the design.
+- **Never overwhelm the user — guide them, don't dump the whole surface.** A
+  config screen is a design failure when it's a **wall of granular controls the
+  user has to reverse-engineer** — the *Stripe restricted-key permissions screen*
+  anti-pattern: dozens of ungrouped toggles, two unexplained columns ("Permissions
+  vs Connect Permissions"), no search, and a primary field ambiguous enough to
+  look like a filter. Instead: **sensible defaults**; a **preset for the common
+  task** (one click does the 90% case); **search/filter** on any long list;
+  **plain-language labels** (no unexplained jargon or ambiguous columns);
+  **progressive disclosure** (advanced/rare options collapsed by default); and
+  **bulk actions** for repetitive rows. There should be one **obvious primary
+  path**; the long tail is opt-in. If a screen forces the user to understand the
+  whole domain model just to make one choice, it needs redesigning — flag it, don't
+  ship it.
+<!-- wmpc-block:ui-work:v2 END -->
+
+<!-- wmpc-block:engineering-standard:v3 START -->
 ## Engineering standard
 
 Operate as a **senior full-stack engineer**, not a code generator. This is the
@@ -439,46 +479,46 @@ posture for all code work in this repo (interactive sessions and the Builder):
   auth / tenancy boundaries.
 - **Surface tradeoffs.** Flag risks, migrations, and breaking changes; ask
   before large refactors or irreversible actions.
+- **Give the Chief of Staff a surface.** Anything this repo builds that holds
+  club data or does club work must be usable by the CoS **unattended**, in the
+  same change — not only by Ron in a UI. That means: a documented entry point
+  she can run on the mini (CLI / module, under the repo's host guard if it
+  writes); for claude.ai / Cowork scheduled runs, a `wmpc-mcp` tool with
+  read-only annotations so the client auto-approves it; and, when it acts, the
+  `cos_whitelist` key that governs it. Intake question 11 in
+  `daemon/infrastructure/INFRA-INTAKE.md`.
 
 This raises the floor; it does not override this repo's specific conventions
 above (branch/PR discipline, mobile-first, design tokens, docs-in-the-same-change).
-<!-- wmpc-block:engineering-standard:v2 END -->
+<!-- wmpc-block:engineering-standard:v3 END -->
 
-<!-- wmpc-block:ui-work:v2 START -->
-## UI work — required before any visual change
+<!-- wmpc-block:deployment:v1 START -->
+## Deployment — read `DEPLOYMENT.md` before touching anything that ships
 
-Before ANY change to visual/UI code (a page, component, layout, nav, or style)
-— this is a gate, not a suggestion:
+This repo has a root **[`DEPLOYMENT.md`](./DEPLOYMENT.md)**: the one-screen map
+of what ships from here, what triggers it, where it lands, which variable scope
+it builds against, how to verify, and how to roll back. It opens with a fenced
+YAML block tagged `# wmpc-deployment: v1` — **parse that block** instead of
+guessing; don't infer the deploy shape from `wrangler.*`, a plist, or a CI
+workflow.
 
-- **Consult our design system FIRST.** `../wmpc-meta/design-system/` (tokens) +
-  this repo's `docs/DESIGN_PREFERENCES.md` govern look, spacing, layout, and
-  brand. Reuse existing components and tokens; do not invent one-off styles.
-- **Component behavior + accessibility: follow shadcn/ui + Radix conventions**
-  (accessible primitives, keyboard + ARIA, focus management) — but **style with
-  our design tokens, NOT Tailwind.** This stack uses inline styles + a minimal
-  index.css, no CSS framework; a Tailwind/shadcn migration is a separate,
-  deliberate project, not something to introduce inside an unrelated UI change.
-- **Mobile-first is non-negotiable.** Design AND verify at **390px width FIRST**,
-  then scale up. A UI change that has not been checked at 390px is NOT done.
-- **Mockups run in a real, interactive preview — not a chat-inline widget.**
-  When Ron asks to "do a mockup," render the **whole page** with the change
-  inline in a **clickable browser preview** (the app's dev server on the real
-  route, or a full standalone HTML page duplicated from the real one) so the UX
-  can be *felt* before we build. Never a `show_widget` / inline SVG-or-HTML blob.
-  Full rule under **Engineering standard → Mockups**.
-- **Uncovered pattern?** Fetch the specific Radix / shadcn (or Material 3) doc
-  for that component rather than freelancing or guessing at the design.
-- **Never overwhelm the user — guide them, don't dump the whole surface.** A
-  config screen is a design failure when it's a **wall of granular controls the
-  user has to reverse-engineer** — the *Stripe restricted-key permissions screen*
-  anti-pattern: dozens of ungrouped toggles, two unexplained columns ("Permissions
-  vs Connect Permissions"), no search, and a primary field ambiguous enough to
-  look like a filter. Instead: **sensible defaults**; a **preset for the common
-  task** (one click does the 90% case); **search/filter** on any long list;
-  **plain-language labels** (no unexplained jargon or ambiguous columns);
-  **progressive disclosure** (advanced/rare options collapsed by default); and
-  **bulk actions** for repetitive rows. There should be one **obvious primary
-  path**; the long tail is opt-in. If a screen forces the user to understand the
-  whole domain model just to make one choice, it needs redesigning — flag it, don't
-  ship it.
-<!-- wmpc-block:ui-work:v2 END -->
+Why this exists: the fleet runs **six different deployment shapes** (Pages
+auto-build, `wrangler deploy`, GitHub-Actions Supabase pushes, launchd services
+on the club Mac mini, Cloudflare Tunnels, Caddy static) and they are routinely
+confused for each other — including cases where the same command means very
+different things (`./setup.sh` on the mini is a deploy **and** a production
+schema migration).
+
+**You must:**
+
+- **Read `DEPLOYMENT.md` first** for any question about how this repo ships, and
+  before running any deploy, migration, or `setup.sh`.
+- **Update it in the SAME change** as anything that alters how the repo ships —
+  a new target, a branch→environment change, a new secret, a moved host, a
+  retired target. It must never lag the system.
+- **Never invent a fact into it.** `unknown` / `TODO` is a correct value; a
+  plausible-looking URL, host, or branch mapping gets trusted and acted on.
+
+Canonical convention: `../wmpc-meta/conventions/deployment-doc.md`.
+Pillar: `daemon/docs/change-discipline.md`.
+<!-- wmpc-block:deployment:v1 END -->
