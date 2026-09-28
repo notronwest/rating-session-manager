@@ -76,27 +76,6 @@ Shot Academy's database through a shared project ref.
 **Forbids.** Hand-editing `.mcp.json`. Committing management tokens. A write-capable PROD
 Supabase MCP entry.
 
-### D-0010 — Customer video is owned by rating-session-manager, served from the NAS behind an emailed code
-
-*2026-08-26 · scope: `src/routes/videos.ts, **/video*/**, **/recordings/**` · source: daemon STATUS 2026-08-26 (later); rating-session-manager PR #61 (design, issue #60)*
-
-**Decision.** rating-session-manager is the only repo that touches video. It already runs
-Express on the mini with a Supabase service-role client, and club-dashboard is a backend-less
-SPA that cannot serve files. Customers reach their videos through an emailed six-digit code,
-not a magic link, on a download screen that shows only their sessions, with every access
-logged and Third Shot Academy branding. Storage is on-site now (LAN off the NAS, `VIDEO_DIR`
-pointed at the mount) and anywhere later (cloud). A grant expires after 30 days by default;
-the file stays on the NAS.
-
-**Why.** A magic link breaks on a LAN-only host when the phone fetches mail over cellular, and
-link-preview scanners consume single-use links. The NAS path needs no code.
-
-**Applies to.** Any lesson-recording, streaming, or video-delivery proposal. Extending
-delivery to the cloud or to a streaming source is a supersession of this record, argued
-against these reasons, not a fresh design.
-
-**Forbids.** A second repo serving or storing customer video. A magic-link gate.
-
 ### D-0014 — Anything we build gives the Chief of Staff unattended access
 
 *2026-09-14 · scope: `infrastructure/INFRA-INTAKE.md, agents/chief-of-staff/**, **/cos_whitelist*` · source: daemon STATUS 2026-09-14; daemon #100; wmpc-meta #25 (engineering-standard block v3)*
@@ -161,10 +140,48 @@ adding a new one. Hand-editing a repo's `DECISIONS.md`.
 
 **Forbids.** No auto-posting to public social, and no paid Canva or paid-ads action, without a Ron approval. No creds in the repo (mini env only). No per-platform repo sprawl — extend `marketing-api`, don't add a second service.
 
+### D-0030 — Camera control is fleet infrastructure; D-0010 governs video delivery, not capture
+
+*2026-09-25 · scope: `**/video*/**, **/recordings/**, **/camd*, **/camera*, worker/**` · source: Ron 2026-09-25, escalated after club-dashboard VETOed the camera tab citing D-0010; daemon STATUS 2026-09-25 (evening)*
+
+**Decision.** D-0010's delivery rules stand, restated unchanged: **rating-session-manager is
+the only repo that serves or stores customer video.** Customers reach their videos through an
+emailed six-digit code, not a magic link, on a download screen showing only their sessions,
+every access logged, Third Shot Academy branding; storage on the NAS now (`VIDEO_DIR`) and
+anywhere later; a grant expires after 30 days by default and the file stays.
+
+**What changes:** *operating the cameras* is **not** delivery. **Camera capture and control
+are fleet infrastructure** — `camd` and the Pi emitters live in daemon's `infrastructure/`,
+and the operator surface (status, go live, start/stop recording) belongs in **club-dashboard**,
+the cockpit Ron actually uses. A recording camd writes to the NAS becomes customer video the
+moment rating-session-manager grants access to it, and only then does D-0010 apply.
+
+**Transport is a Worker, never a key in the browser.** `camd` has no authentication and stays
+bound to the mini. It is reached only from the mini's own localhost. The dashboard calls a
+**Cloudflare Worker** that holds `CRAPI_KEY` as a server-side secret and verifies the caller's
+Supabase JWT against `is_dashboard_admin` — the `wmpc-image-upload` pattern already proven in
+this repo. courtreserve-api exposes `/cameras*` proxy routes mapping a court name through a
+**server-side allowlist** of localhost ports; no caller-supplied host or port is ever proxied.
+
+**Why.** The veto was correct: `CRAPI_KEY` is one shared static secret that also authorizes
+`/book`, `/move`, `/cancel`, `/accounts/*/payment-method` and billing, and a Pages SPA can only
+carry it as a build-time `VITE_*` baked into a public bundle — publishing the mini's master key
+to anyone who reads source, strictly worse than the unauthenticated camd it was meant to hide.
+But D-0010's reasons are about *getting a finished file to a member's phone* (LAN hosts, mail
+scanners, single-use links); none of them bear on whether an operator can see a camera's status
+or press record. Reading D-0010 to cover capture would put the club's camera controls in the
+customer-video repo for reasons that were never about capture.
+
+**Forbids.** A second repo serving or storing customer video (unchanged from D-0010). A
+magic-link gate (unchanged). `CRAPI_KEY`, the Supabase service-role key, or any other
+privileged secret in a browser bundle. Publishing `camd` through a tunnel or any public
+route. Proxying a caller-supplied host or port. A camera action that reaches the mini without
+passing `is_dashboard_admin`.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
 
 ## Superseded (history)
 
-_None._
+- D-0010 — Customer video is owned by rating-session-manager, served from the NAS behind an emailed code (2026-08-26) → superseded by D-0030
