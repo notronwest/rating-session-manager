@@ -140,6 +140,42 @@ adding a new one. Hand-editing a repo's `DECISIONS.md`.
 
 **Forbids.** No auto-posting to public social, and no paid Canva or paid-ads action, without a Ron approval. No creds in the repo (mini env only). No per-platform repo sprawl — extend `marketing-api`, don't add a second service.
 
+### D-0029 — Camera media stays on the LAN; only control and metadata cross the tunnel
+
+*2026-09-26 · scope: `**/camd*, **/camera*, worker-cameras/**, **/preview*` · source: Ron 2026-09-26 — "Can't we build a local viewer that picks up the stream the same way the mac mini picks up the stream?"*
+
+**Decision.** There are two planes and they take different paths. **Control and metadata**
+— camera status, start/stop recording, upcoming lessons — cross the Cloudflare tunnel:
+dashboard → Worker (holds `CRAPI_KEY`, checks `is_dashboard_admin`) → courtreserve-api →
+camd on localhost. **Media does not.** The live camera picture and audio level are served by
+**camd itself on the club LAN** (`GET /preview.mjpg` on camd's existing HTTP server; camd
+binds `0.0.0.0`), consumed by a browser on club WiFi. No HLS packager, no media through the
+tunnel, no second reader of the camera feed. A dashboard served from Cloudflare may *link* to
+the LAN view and must degrade to a plain "available on club WiFi" message off-site, never a
+dead embed.
+
+**Why.** The feed is **single-consumer** — a camera or an H.264-over-TCP stream has exactly
+one reader, and a second connection is refused. camd is already that reader and already fans
+out multiple outputs from one ffmpeg (the pre-existing `cv_relay` leg proves it), so a preview
+is another output leg rather than a second consumer. And the *purpose* decides the boundary:
+the preview exists so someone can **angle a camera**, which happens standing at the club, on
+the LAN. Pushing it through the tunnel would buy remote access nobody needs at the cost of an
+HLS packager, segment hosting, streaming through two proxies, and seconds of latency that make
+pan-and-tilt adjustment useless. Control is the opposite: knowing whether a camera is
+recording, and starting one, is worth having from anywhere. Verified 2026-09-26 that a laptop
+on the LAN reads `http://10.0.0.5:8080/status` directly, so the LAN path needs nothing built
+to exist.
+
+**Note on process.** The multi-repo table (`PROCESS.md`) was **not** convened: Ron originated
+this himself, and it strictly *removes* work from every affected repo rather than imposing
+any. A future session that finds it constraining should say so rather than assume consent.
+
+**Forbids.** Streaming camera media through the Cloudflare tunnel or a Worker. Standing up an
+HLS or WebRTC path for the angling preview. Opening a second reader against a camera's feed
+instead of adding an output leg to camd's existing pipeline. Exposing camd publicly — it has
+no authentication and stays LAN-bound (D-0030). Presenting a LAN-only view in a
+Cloudflare-served page without a reachability check and an honest off-site message.
+
 ### D-0030 — Camera control is fleet infrastructure; D-0010 governs video delivery, not capture
 
 *2026-09-25 · scope: `**/video*/**, **/recordings/**, **/camd*, **/camera*, worker/**` · source: Ron 2026-09-25, escalated after club-dashboard VETOed the camera tab citing D-0010; daemon STATUS 2026-09-25 (evening)*
@@ -178,6 +214,42 @@ privileged secret in a browser bundle. Publishing `camd` through a tunnel or any
 route. Proxying a caller-supplied host or port. A camera action that reaches the mini without
 passing `is_dashboard_admin`.
 
+### D-0041 — Camera timestamps come from the Pi (MPEG-TS); recordings and streams stream-copy
+
+*2026-09-28 · scope: `**/camd*, **/camera*.conf, **/pi-camera*, **/recordings/**` · source: Ron 2026-09-28 — "the mini should just replace OBS so the pi's don't have to do anything other than stream"; then "Go on item 1, and set the pi back to 30"; teaching "same configuration", "30fps"*
+
+**Decision.** A court camera's Pi emits its video in a container that carries the camera's own
+timestamps — **MPEG-TS** from `rpicam-vid --codec libav --libav-format mpegts` — and camd ingests it
+as `input_format: mpegts` with **no wallclock stamping**. With real timestamps, every output leg
+**stream-copies** (`-c:v copy`): the YouTube stream, the lesson recording, the CV relay. The Pi
+runs **1080p30** (the IMX708 has no 1080p60 sensor mode; 60 fps forces a 1536×864 readout
+upscaled to 1080p, 30 fps uses 2304×1296 downscaled — measured with `rpicam-hello -v 2`) and a
+bitrate chosen for its link and for YouTube (Court 4: **6.8 Mbps**, the figure YouTube itself
+asked for; teaching: **4 Mbps** because its uplink measures 9.1 Mbps). Re-encoding on the mini
+(`video_mode`/`record_video_mode: encode`) stays available as a fallback, not a default.
+
+**Why.** D-0031 re-encoded lesson recordings because copied recordings played back jumpy. The
+cause was never the copy: a raw H.264 elementary stream carries **no timestamps**, so camd
+stamped frames with `-use_wallclock_as_timestamps`, i.e. their **arrival time over WiFi**.
+Measured 2026-09-28: the Court 4 Pi's link stalls 100–550 ms every ~5 s; the wallclock pipeline
+logged `More than 1000 frames duplicated` within 4 minutes even with source and output both at
+30 fps (~15 %); raw H.264 + `-framerate` cannot feed a copy leg at all (0-byte FLV, "Packet is
+missing PTS"). With MPEG-TS the same feed shows every frame delta at exactly 0.0333 s, copy to
+FLV/mp4 muxes cleanly, an encode leg reports dup=0 drop=0, and the live stream's ffmpeg log has
+stayed empty since the switch (08:59). A WiFi stall now arrives as an honest pause with correct
+timestamps instead of a drop-then-duplicate storm — which is what OBS's media source did on its
+own clock, and why "the Pi as a raw source into OBS had no issues". Stream-copy also removes the
+second encode, so viewers get the Pi's bits, not a re-encode of an upscaled, re-timed copy.
+
+**Forbids.** Stamping arrival time on a source that already carries timestamps. Flipping a Pi to
+MPEG-TS without its camd config (or the reverse) — the two must change together; the gap is the
+outage. Raising a Pi's frame rate above its sensor's native mode for the target resolution.
+Setting a Pi's bitrate above what its measured uplink carries (the teaching Pi at 8 Mbps
+delivered ~2 fps). Re-introducing a mini-side re-encode "for smoothness" without a measurement
+that names what the timestamps got wrong. Supersedes D-0031's rationale and default; D-0031's
+measured cautions about VideoToolbox (`-constant_bit_rate` halves bitrate, ~84 % delivery) still
+hold for the encode fallback.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
@@ -185,3 +257,4 @@ passing `is_dashboard_admin`.
 ## Superseded (history)
 
 - D-0010 — Customer video is owned by rating-session-manager, served from the NAS behind an emailed code (2026-08-26) → superseded by D-0030
+- D-0031 — Lesson recordings are re-encoded at a pinned frame rate; smooth playback beats pristine bits (2026-09-26) → superseded by D-0041
