@@ -250,6 +250,71 @@ that names what the timestamps got wrong. Supersedes D-0031's rationale and defa
 measured cautions about VideoToolbox (`-constant_bit_rate` halves bitrate, ~84 % delivery) still
 hold for the encode fallback.
 
+### D-0046 — Court 4 stream switching: one keyframe-aligned switcher on the mini cuts the YouTube stream between camera feeds on a signal, re-timestamped onto one clock; recordings stay on the baseline feed; the first signal is all four players in the kitchen
+
+*2026-09-28 · scope: `**/camd*, **/switch*, **/camera*.conf, **/pi-camera*` · source: Ron 2026-09-28 — "this will become the kitchen cam on Court 4 … the goal of this cam will be to switch to it when all 4 players are in the kitchen"; "draft the decision record for the switcher"; 2026-09-29 "Lets go on to D-court4-switcher" → table run, draft revised*
+
+**Decision (active — Ron accepted 2026-09-29 after the table).** Court 4 gets a **switcher** on the mini, in
+`infrastructure/pi-capture/` beside camd: one process that is the **single reader** of every Court 4 Pi (today
+`Court4Cam` baseline, Wi-Fi, static 10.0.0.120, and `Court4Kitchen`, wired at 1000 Mbit, static 10.0.0.122 — both
+1080p30 MPEG-TS / libx264 6.8 Mbps / 2 s GOP with in-band SPS/PPS) and emits **one** MPEG-TS to camd's Court 4 input.
+camd keeps stream-copying to YouTube exactly as today; the kitchen camd (:8082 preview/record) is fed by the switcher's
+per-feed tap instead of opening the Pi itself, so no Pi ever has two readers (D-0027's one-emitter/one-reader shape).
+
+A cut is a **packet-level switch at the next keyframe of the target feed, re-timestamped**: the switcher owns one
+continuous output clock and rebases PTS/DTS/PCR of whichever feed is live onto it, and rewrites continuity counters.
+The Pis' own clocks never reach camd — a raw PTS jump is precisely the `timestamp discontinuity … new offset` storm
+that starved camd's preview leg and produced 44 watchdog kills on 2026-09-29, and the fail-safe must not depend on
+camd's 20 s watchdog. **The switcher detects its own stalls**: no packet from the selected feed for a bounded time
+(order 500 ms–1 s, measured) → cut back to baseline; if baseline is also dead, camd's watchdog is the backstop as
+today. Switching is never done by tearing down and re-opening the RTMP push. The switched output goes to the
+**stream leg only**. **Recordings stay on the baseline feed regardless of switch state** (`record` in camd reads
+the baseline tap): rating-session recordings need one continuous full-court angle for `detect_games.py`/PB Vision
+and become customer video under D-0030. A separate "as-streamed" recording is a later, opt-in leg, not this record.
+
+Cuts are requested through a small HTTP API on the switcher (`POST /switch/<feed>`, `GET /switch`) that is
+**localhost-only on the mini** and reached exactly the way every other camera control is (D-0030): browser →
+`worker-cameras` (server-side `CRAPI_KEY`, dashboard admin) → courtreserve-api `/cameras*` allowlist → localhost. No
+new LAN port. Sources are **manual** (the dashboard's Cameras section, or a curl on the mini) and **automatic**. The
+first automatic source is a **CV judge**, owned here as capture infrastructure, that watches the feeds' 4 fps
+downscaled preview taps and asserts *"all four players are in the kitchen"* with hysteresis (assert after N s all-in,
+drop after M s any-out; N, M measured on real play) inside a measured CPU budget on the mini. Manual always
+overrides automatic and is visible as state (`auto`/`manual:<feed>`). **Default and fail-safe is baseline.** Audio is
+unchanged (Court 4 is silent, D-0027).
+
+**Why.** Ron wants viewers to follow kitchen play: the baseline angle shows the whole court, the kitchen angle shows
+the exchange. Everything measured on 2026-09-28/29 makes the cheap version possible: both Pis emit the same encoder
+settings with real timestamps, camd already stream-copies, and the kitchen Pi is on the same gigabit switch as the
+mini's Ethernet port. Candidates considered: (1) a **TS relay that switches at IDR boundaries and re-timestamps**
+(keeps copy-through; the 2 s GOP bounds cut latency at ≤ 2 s); (2) a compositor (GStreamer `input-selector` /
+OBS-style) — decodes and re-encodes both feeds, the second encode this record set out to avoid; (3) ffmpeg with two
+inputs and a `select`/`overlay` filter — same cost as (2), and ffmpeg cannot swap live inputs without a restart,
+which drops the RTMP session. (1) is the recommendation. Accepted cost: while the switcher holds it open the kitchen
+Pi encodes continuously (Pi 5, software libx264 1080p30, ~7 Mbps over the wire) — its start-at-connect design stays,
+the switcher simply never disconnects. The **signal** is the hard part: player detection on a 4 fps preview is enough
+for "four bodies inside the kitchen polygon". The judge's polygon is a live, per-camera calibration and is NOT
+third-shot-academy's post-hoc kitchen band (`kitchenBandForTeam`, PB Vision positions); the two will disagree at the
+margins and nothing in TSA's stats depends on this judge.
+
+**Forbids.** Switching by tearing down and re-opening the RTMP push. Re-encoding on the mini to achieve a cut. More
+than one process pushing RTMP for a court, and more than one reader per Pi. Cutting mid-GOP. Passing a feed's native
+timestamps through a cut (every cut is rebased). Recording the switched output in place of the baseline recording.
+An automatic signal with no manual override and no fail-safe back to baseline. A switch API reachable off the mini's
+loopback other than through the D-0030 chain. Feeding the switcher two cameras with different encoder settings
+(resolution, GOP, profile) — a cut then forces a decoder re-init in the player. Building any of this before Ron
+accepts this record.
+
+**The table (2026-09-29, PROCESS.md fan-out; no veto).** *daemon* — CONCERN: single reader per Pi; a raw PTS jump is
+today's storm; the fail-safe cannot rest on the 20 s watchdog; the kitchen Pi would encode 24/7; the API must not be a
+new unauthenticated LAN port → all four folded in above. *rating-session-manager* — CONCERN: the record leg must be
+pinned to baseline or rating recordings break on ROI/PB Vision and ship to customers with angle jumps → folded in.
+*club-dashboard* — CONCERN: the API must ride the D-0030 chain (new Worker route = a manual `wrangler deploy`, UI
+for feed + auto/manual state at 390 px per D-0047, CoS-reachable per D-0014) → folded in; its other point ("the
+camera tab is not on `main`") was a stale checkout — #265/#314 are on `origin/main`. *third-shot-academy* — CONCERN:
+named with nothing to own; its kitchen geometry is a different artefact → dropped from `repos`, divergence noted.
+Goes to Ron because it adds unbudgeted dashboard work and a continuous encode on the kitchen Pi (PROCESS.md: not a
+daemon-only promotion).
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
