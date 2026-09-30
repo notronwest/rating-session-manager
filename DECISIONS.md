@@ -315,6 +315,62 @@ named with nothing to own; its kitchen geometry is a different artefact → drop
 Goes to Ron because it adds unbudgeted dashboard work and a continuous encode on the kitchen Pi (PROCESS.md: not a
 daemon-only promotion).
 
+### D-0049 — Reuse before you build — a component or surface that already exists is reused or shared, never copied; a second implementation is a defect the gates reject
+
+*2026-09-29 · scope: `every React/frontend product repo's web/src/** (components, pages, hooks, lib), agents/builder/**, agents/reviewer/**, docs/design-system.md, the wmpc-meta ui-work + engineering-standard CLAUDE blocks` · source: Ron 2026-09-29 — after finding the event-settings form had been built in scattered places and only shared late (tournament-manager #1006): "reusing components is imperative — this HAS to be in the application architecture framework — the code the agents are building on. This is rookie development. Let's not be rookies. I've worked too hard to have this kind of development be 'acceptable'."*
+
+**Decision.** In every frontend product repo, **reuse is the default and a second copy is a defect.**
+Before writing any component, page section, hook, or utility, you **search for one that already does
+the job** and, if it exists, you **reuse it** — or, if it *almost* fits, you **extend it or extract a
+shared version** (a `variant`/props, a shared hook, a shared lib function). You do **not** copy an
+existing surface into a new file and diverge it. This is a **gate enforced at three points**, not a
+style preference:
+
+1. **The CLAUDE block agents build on states it as a gate.** `wmpc-meta`'s `ui-work` and
+   `engineering-standard` blocks (synced into every repo's `CLAUDE.md`) carry the rule up front with
+   the concrete pre-write step: *grep the components/feature dir for the thing you're about to build;
+   if it exists, reuse; if it almost exists, extend or extract; never a second copy.*
+2. **The Builder's pre-build gate applies it.** Before implementing a UI/section/hook, the Builder
+   searches for an existing implementation. If one exists and the card would duplicate it, the
+   Builder **reuses or extracts-and-shares** it and **names that choice in the PR's Reviewer notes**
+   ("reuses `EventSettingsForm`", or "extracted `<X>` so the console and the wizard share it"). A
+   card that can only be met by duplicating an existing surface is a shaping problem → route it back,
+   don't build a copy.
+3. **The Reviewer rejects a duplicate.** A PR that introduces a second implementation of a component
+   or surface that already exists — same UI, same logic, copied and diverged — is **REQUEST CHANGES**
+   (cite this record and both files). Where it is genuinely unclear whether to extend vs extract,
+   **ESCALATE** (an architecture call, D-0015) rather than wave the copy through.
+
+**One surface, one component, mounted many ways.** The proven shape (tournament-manager #1006): a
+single editable component rendered in every place it is needed via a `variant`/`mode` prop —
+`EventSettingsForm` is the `/edit` page (`variant="page"`), the console Settings tab, **and** the
+Bracket Setup wizard's settings step (`variant="inline"`), all off one file. That is the target: the
+wizard did not get its own settings code; it mounts the same one. Divergence between a "page form" and
+a "console summary" of the same data is the anti-pattern this kills.
+
+**Why.** "Reuse before adding" already existed as a buried one-liner in the engineering block — which
+is exactly why it was not enforced: a reminder is install discipline, and install discipline fails the
+same way it failed for singletons (D-0002) and phone layout (D-0047). Agents generated a second copy
+of a settings surface because nothing in the gate stopped them, and it was only consolidated after the
+fact. Component reuse is the whole reason a React codebase stays maintainable; a portfolio of apps that
+each re-implement the same surface is the rookie failure Ron built the shop past. The fleet rule is
+**enforce in code, not by memory** — this applies it to component reuse.
+
+**Forbids.** No second implementation of a component/section/hook/util that already exists — reuse it,
+extend it, or extract a shared version. No copy-and-diverge of an existing page or surface into a new
+file. No agent marks a UI card done, and no reviewer approves it, when it ships a duplicate of an
+existing surface. This never blocks a *deliberate* shared-component extraction (that is the desired
+outcome) and never forces a genuinely new surface to contort into an ill-fitting existing one — when
+extend-vs-new is a real judgment call, it escalates, it does not copy.
+
+**Binds.** Extends the `engineering-standard` block's "reuse before adding" and the `ui-work` block's
+"reuse existing components and tokens"; sits beside **D-0047** (the phone gate) as the second
+code-enforced frontend-quality gate, and **D-0018** (gates, not Ron) as the enforcement model; relates
+to **Pillar 5 / `docs/design-system.md`** (shared vocabulary) — reuse is the component-level companion
+to token-level consistency. **Execute:** (1) strengthen the two wmpc-meta CLAUDE blocks; (2) the
+Builder pre-build + Reviewer-notes lines; (3) the Reviewer's duplicate-surface check; (4) a
+"Component reuse" section in `docs/design-system.md`.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
