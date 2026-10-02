@@ -371,6 +371,58 @@ to token-level consistency. **Execute:** (1) strengthen the two wmpc-meta CLAUDE
 Builder pre-build + Reviewer-notes lines; (3) the Reviewer's duplicate-surface check; (4) a
 "Component reuse" section in `docs/design-system.md`.
 
+### D-0052 — Approved work merges itself — Ron merges only promotions and the hard set; every unattended gate has a heartbeat and a staleness alarm
+
+*2026-10-01 · scope: `agents/reviewer/**, agents/builder/**, infrastructure/reviewer-dispatch/**, infrastructure/builder-dispatch/**, infrastructure/cos-dispatch/**, infrastructure/heartbeat/**, every repo's .github/workflows/**` · source: Ron 2026-10-01, on finding 33 cards In Review and 4 Blocked after the reviewer had been dead 11 days — "I am still frustrated to how we are here — STILL — when was the last time I spoke about this being the bottleneck — how do we fix it? What gates need to be in place. THIS WILL MAKE ME FAIL." Builds on D-0018 (2026-09-18, "I can no longer be the bottleneck"), D-0023, D-0028, D-0039.*
+
+**Decision.** D-0018 said *gates, not Ron* and built the reviewer — but left Ron as the **merge click on
+every PR**, and left the gates with **no way to say they had stopped**. Both are fixed in code:
+
+1. **A reviewed PR merges itself.** When the reviewer's verdict is **APPROVE**, CI is green, the PR is not
+   a draft and not `CONFLICTING`, the **reviewer merges it to `main`** (squash/merge per repo convention)
+   and moves the card to **Done**. No human click. In branch-routed repos `main` is TEST (D-0007), so a
+   migration or edge function riding the PR lands on TEST, where it belongs; **PROD is still reached only
+   by a `main`→`production` promotion PR, and that is Ron's.** In mini-hosted repos the merge lands code;
+   the mini apply (`setup.sh` / `migrate`) is the next automation to close, not a reason to hold the merge.
+2. **Ron's merge is the hard set only:** promotions to PROD; **wmpc-web** (its `main` is the live public
+   site — D-0051 keeps "live = Ron's merge"); anything the reviewer **ESCALATEs** (money paths, schema
+   deletion, a new external service, a decision it cannot ground in a written standard); and a money
+   executor's first live run (D-0039). Everything else is the system's to finish.
+3. **REQUEST CHANGES and CONFLICTING go back to the Builder, not to Ron.** A verdict of REQUEST CHANGES
+   or a PR that has gone `CONFLICTING` from `main` drift re-queues the card to the Builder's **rework
+   lane** (rebase/fix on the same branch, re-review). Ron never rebases.
+4. **Every unattended gate has a heartbeat, and silence is an alarm.** Each singleton (Builder, reviewer,
+   CoS dispatcher + listener, triage, the drains, fleet-sync) writes a **heartbeat on every completed
+   real run**. One fleet watchdog (on the always-on mini, itself a heartbeating singleton) posts a
+   deduped Discord alert when: a job has not completed a run in **2× its interval**; a lock is older
+   than its stale threshold (and reclaims it); an **In Review** card has no verdict after **24 h**; an
+   **Agent Ready** card has had no Builder spawn after **2 ticks**; a repo with board cards is **not in
+   `BUILDER-REPOS`**; a card's PR is merged but the card is not Done. The reviewer's 11 silent days
+   (2026-09-20 → 10-01: a stale lock, 43 "skip" lines a day, nobody told) is the failure this ends.
+5. **The standup's "Need you" is the only queue Ron works.** It lists exactly the hard-set items above
+   and the watchdog's alarms — nothing routine. If it is empty, Ron has nothing to merge.
+
+**Why.** Ron has said "I am the bottleneck" on 09-18, 09-20, 09-25, 09-26, 09-28 and again today, and
+each time we built a gate — then kept his click at the end of it, and never built the thing that tells us
+a gate died. So the pile came back twice over: once because every green PR still waited for him, and once
+because the reviewer stopped and looked idle. A gate Ron must still click is not a gate; a singleton that
+can stop without an alarm is not unattended. Fixing both is what "runs unattended, survives him being away
+a week, self-heals" (INFRA-INTAKE) has meant all along.
+
+**Forbids.** No PR waits on Ron's click once APPROVE + green, outside the hard set. No singleton without a
+heartbeat; no `mkdir` lock without a stale reclaim; no "idle" log line where "skipped because locked"
+is the truth. No card sits In Review or Agent Ready past the thresholds without an alarm. The reviewer
+never merges a draft, a CONFLICTING PR, a promotion, or a wmpc-web PR, and never merges on its own
+REQUEST CHANGES. The Builder still never merges (D-0018: nobody grades their own homework).
+
+**Binds.** Extends D-0018 (gates not Ron), D-0002 (singletons in code), D-0028/D-0039 (approved work
+executes), D-0043 (the board is the process). **Execute, in order:** (1) `infrastructure/heartbeat/` —
+heartbeat helper + watchdog + Discord alert, wired into every dispatcher (reviewer, builder, cos, triage,
+drains, fleet-sync) with their DESIGN.md INFRA-INTAKE answers updated; (2) reviewer: APPROVE → merge + card
+Done, REQUEST CHANGES / CONFLICTING → rework lane; (3) Builder: rework lane (rebase on the same branch);
+(4) the watchdog's board checks. Each ships as its own PR; the first live auto-merge is announced in the
+standup.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
