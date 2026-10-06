@@ -423,6 +423,151 @@ Done, REQUEST CHANGES / CONFLICTING → rework lane; (3) Builder: rework lane (r
 (4) the watchdog's board checks. Each ships as its own PR; the first live auto-merge is announced in the
 standup.
 
+### D-0059 — Open play is recorded continuously in wall-clock segments; footage nobody was granted has a retention clock
+
+*2026-10-06 · scope: `**/camd*, **/camera*, **/recordings/**, infrastructure/pi-capture/**, scripts/videos/**` · source: daemon drain 2026-10-06, closing SP-06 ("D-0010 supersession: continuous recording + stream"). Table run per PROCESS.md — rating-session-manager, third-shot-academy, club-dashboard, courtreserve-api: four CONCERNs, no VETO.*
+
+**Decision.** SP-06 asked for a D-0010 supersession before continuous recording could move. **That
+supersession already happened**: D-0030 took it on 2026-09-25, restated D-0010's delivery rules
+unchanged, and ruled that operating a camera is not delivering a video. SP-06's premise is retired
+and SP-06 is closed by this record. What D-0030 did *not* decide, and what is decided here, is
+capture with **no session boundary**:
+
+1. **A court is recorded whenever it is in use, not when a session is scheduled.** The recorder leg
+   is mandatory, not "recommended" (`infrastructure/feed-streaming/DESIGN.md`). camd stream-copies
+   it (D-0041, `-c:v copy`); no second reader is opened on a Pi (D-0027, D-0046).
+2. **Recording is cut into bounded wall-clock MPEG-TS segments on the NAS**, each named by court
+   and UTC start. A segment is the unit of retention, of indexing, and of upload. Continuous
+   capture never produces one unbounded file.
+3. **A segment is not customer video.** It becomes customer video the moment
+   rating-session-manager grants access to it, and only then do D-0010/D-0030's rules bind it —
+   six-digit code, own-sessions-only screen, access logged, 30-day grant.
+4. **Ungranted footage has a clock: 14 days, then it is deleted.** A segment that backs an analyzed
+   game, a granted session, or an open takedown request is exempt and keeps the existing retention.
+   The clock is enforced by a job on the mini, not by anyone remembering.
+5. **A game index points into segments; it never copies or re-encodes them.** A detected game is
+   `(court, start, end, segment, offset)`. Games that straddle a segment cut are stitched by the
+   indexer — a cut is not an end of play (see D-0060's note on `segment_games`).
+6. **Streams stay unlisted by default.** The 2026-10-05 consent answer stands: recording the court
+   runs on posted notice plus membership terms, analysis of a person runs on a standing per-member
+   flag, and the gate is a hard filter at ingest — a segment the pipeline cannot clear never leaves
+   the mini. Making a stream public is Ron's open decision, not a default.
+
+**Why.** Everything about delivery was already decided and nothing about *continuous* capture was.
+D-0010 and D-0030 both answer "how does a finished file reach a member's phone"; neither says what
+exists on the NAS at 11pm on a Tuesday when nobody booked anything, how long it lives, or who may
+look at it. Left unwritten, the answer defaults to "every court, forever, ungoverned" — which is the
+one version of this initiative a club buyer and a lawyer both refuse. A retention clock on ungranted
+footage is what makes continuous recording defensible: the club keeps what it analyzed and what a
+member bought, and loses the rest on a schedule it does not have to police. Segments rather than one
+file is the other half: the detector, the sampler, the retention job and the takedown path all need
+to name a bounded piece of footage, and a 6-hour growing file cannot be named. The 14-day figure is
+chosen to be longer than the gap between a night of play and the Monday review that samples it, and
+short enough that a mistake ages out before it becomes a disclosure.
+
+**Forbids.** Recording continuously without the retention job running — the clock ships with the
+recorder, not after it. Keeping ungranted footage past its window because it "might be useful".
+Serving or storing customer video outside rating-session-manager (D-0010, D-0030, unchanged). A
+second reader on a Pi, or a mini-side re-encode to make segmentation work (D-0041, D-0046). Treating
+a wall-clock segment boundary as the end of play. Publishing a stream publicly, or widening it beyond
+unlisted, without Ron's word. Analyzing a person whose standing flag is not set, at any point after
+ingest — the filter is at ingest and there is no second chance to apply it.
+
+### D-0060 — Who is at the club in a time window is one cached read owned by courtreserve-api; court attribution comes from the floor, not from Court Reserve
+
+*2026-10-06 · scope: `**/occupancy*, **/roster*, **/checkin*, **/schedule*, **/contacts*` · source: daemon drain 2026-10-06, serving SP-10, SP-11, SP-15 and the door-kiosk card. Table run per PROCESS.md: courtreserve-api raised the two concerns this record is built around (the resolver does not compose from existing reads; one Playwright browser lock serves booking writes too).*
+
+**Decision.** Three separate builds were about to ask the same question — player detection narrowing
+pb.vision candidates, game detection gating the detector to real play, and the door kiosk resolving a
+walk-in to a live booking. It is **one read, built once, owned by courtreserve-api.**
+
+1. **The read is served from a cache, never from Court Reserve.** A scheduled job materializes the
+   day's occurrences and their registrant rosters into `court_occupancy` in the shared Supabase
+   project; consumers read that table. **No consumer's query ever reaches Court Reserve.** Court
+   Reserve is read by one serialized Playwright session behind one browser lock on one residential
+   IP — the same lock `/book`, `/move` and `/cancel` hold. Putting a continuous consumer on that path
+   would queue game detection against live booking writes and look like a bot. The refresh interval
+   and a staleness field are part of the ticket, not an afterthought.
+2. **The read answers a time window, not a court.** `(instant) → the occurrences live right now and
+   who is registered to each`. This is reliable. **Court-level attribution from Court Reserve is
+   not**: `event_registrations.court` is null in all 3,732 rows and the event catalogue carries no
+   court field — `/courts/free` already documents its own court attribution as best case. So the
+   record is honest about its resolution: Court Reserve tells us **who is in the building and in what**,
+   and the **floor** tells us who is on court N — the rotation board or a court tap (SP-16), which is
+   also how a player gets a court, so it is not extra work. Vision assigns positions within the
+   candidates those two layers produce.
+3. **A consumer never re-implements it.** Candidate narrowing, the in-use gate and the kiosk resolver
+   are three readers of one table. (D-0049 binds component duplication inside a repo and does not
+   literally reach cross-repo service ownership — that is what this clause is for.)
+4. **The write path does not move.** Checking a member in stays on the existing Court Reserve click
+   path on the mini (`checkin.py`, whose `do_checkin()` already works); what is new is read-only and
+   is the now-window the resolver supplies, because `checkin.py` scans past occurrences only.
+5. **Reached the way every other mini capability is reached** (D-0030): browser → Worker holding
+   `CRAPI_KEY` and checking `is_dashboard_admin` → courtreserve-api → localhost. Server-side
+   allowlist; no caller-supplied host or port; no privileged secret in a browser bundle.
+6. **Unknown stays unknown.** When the cache is stale beyond its window or the window is ambiguous,
+   the read says so and the consumer degrades — the detector skips, the kiosk asks, detection records
+   nothing. It never guesses.
+
+**Why.** The three consumers arrived from three different cards on three different weeks, and each
+would have grown its own Court Reserve read; the third copy is where the fleet starts disagreeing
+with itself about who was on court 3 at 7:14. One table also turns courtreserve-api's hardest
+constraint into a non-issue: a cache is read a thousand times by anyone, while the browser lock is
+touched once per refresh by one job. And naming the resolution limit now is cheaper than discovering
+it in the pilot — the plan always said roster narrowing was court-level only; the null column proves
+it, so the rotation board stops being optional experiment two and becomes the court-level source of
+record.
+
+**Forbids.** A second Court Reserve read of sessions, occurrences or rosters in any repo. A consumer
+query that reaches Court Reserve live instead of the cache. Treating a Court Reserve court field as
+authoritative for which court a player was on. Serving this read without a staleness field, or
+letting a consumer read it without handling stale. Any path to the mini that skips the Worker and
+`is_dashboard_admin`. Writing a detection result from an ambiguous window.
+
+### D-0061 — Player tagging goes through one adapter and ships on the fallback; an unsent partner ask is never a build gate
+
+*2026-10-06 · scope: `**/tagging/**, **/pbvision*, **/importPbVision*, **/avatar*` · source: daemon drain 2026-10-06, closing SP-10's dependency ("SP-04 answer or fallback chosen"). The card itself names the fallback as daemon's call. Table run per PROCESS.md: third-shot-academy and rating-session-manager, CONCERN, no VETO.*
+
+**Decision.** SP-10 has been held since 2026-09-28 on a pb.vision Partner ask that is drafted and
+still unsent. **daemon takes the fallback, which the card names as daemon's to take, and the design
+proceeds today.**
+
+1. **One interface, two implementations.** Setting a player's name on a pb.vision video and position
+   goes through a single `PlayerTagger` port with exactly two implementations: `ui-driver`, which
+   drives pb.vision's own UI with Playwright on our own account against our own videos, and `api`,
+   which calls their endpoint if it ever exists. `ui-driver` ships now. If the Partner answer arrives,
+   `api` drops in behind the same interface and nothing above it changes.
+2. **`ui-driver` fails closed.** Any mismatch between the position it is tagging and the position it
+   believes it is on — a changed layout, a reordered avatar grid, a video id that does not match —
+   aborts the whole tagging run and records the failure. It never writes a name it is not certain of.
+3. **The build order is the deterministic layer first.** Candidates come from the one cached
+   occupancy read (D-0060) and the floor's court-level source; avatar matching against a per-member
+   gallery assigns positions *within* those candidates; a confidence gate decides whether the
+   assignment is recorded at all.
+4. **Below the threshold, nothing is written.** A "confirm these four" card goes to the club tablet or
+   to the players; a confirmation feeds the gallery so the next game is better. The record is never
+   wrong — unknown stays unknown. This is the calibration loop that made shot matching trustworthy
+   (third-shot-academy #60).
+5. **Ownership, unchanged.** rating-session-manager keeps holding the webhook until tagging completes
+   and owns the tagging loop. third-shot-academy owns the gallery, the matcher, the gate and the
+   confirm card — and the confirm card **reuses the existing confirm-modal pattern** rather than
+   adding a second one (D-0049).
+6. **The ask is still worth sending** and is still Ron's to send; daemon never sends outbound. It is
+   now an improvement, not a dependency.
+
+**Why.** The ask was the right ask and sitting on it is not a decision — it is eight days of a
+milestone spent waiting on an email. The dependency was never really on the endpoint: it was on
+knowing which of two shapes the code takes, and an adapter answers that without knowing. Driving a
+partner's UI is a pattern the fleet already runs against Court Reserve and it is brittle by nature,
+which is exactly why it goes behind an interface with a fail-closed contract instead of being
+threaded through the pipeline. The cost of being wrong is now one class, not a redesign.
+
+**Forbids.** Blocking a build on an unsent or unanswered partner ask when a fallback exists. Calling
+pb.vision's UI or API from anywhere but the adapter. A `ui-driver` that writes a name on a layout it
+did not verify, or that continues past a mismatch. Writing an assignment below the confidence
+threshold, or filling an unknown with a guess. Automating a partner account that is not ours. A
+second confirm-card component.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
