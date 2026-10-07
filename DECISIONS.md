@@ -568,6 +568,61 @@ did not verify, or that continues past a mismatch. Writing an assignment below t
 threshold, or filling an unknown with a guess. Automating a partner account that is not ours. A
 second confirm-card component.
 
+### D-0064 — Lesson analysis is a coaching plan, not computer vision; the Lesson Plan is TSA's lesson surface and pb.vision is not asked about lesson footage
+
+*2026-10-07 · scope: `**/lesson*/**, **/lesson_plan*, **/lessons*, **/transcri*, agents/chief-of-staff/initiatives/lesson-plan.md` · source: Ron 2026-10-07 — "I want all three — but I don't want to use PB.vision for the coaching analysis. The body movement and analysis is something we can add later. I am looking for a way for us to help coaches and students stay focused and move through a plan." Then "4. Yes" to the shape in STATUS 2026-10-07.*
+
+**Decision.** What Third Shot Academy does with a lesson is keep the coach and the student on a
+plan. The unit is the **Lesson Plan**: the student's ordered priorities (the existing
+draft / active / mastered lifecycle in TSA), one active at a time, with a goal and a horizon. A
+**lesson** is a dated entry on that plan, created automatically from the Court Reserve lesson
+booking through the one cached occupancy read (D-0060): the job that materializes `court_occupancy`
+includes lesson reservations with their instructor, participants, court when known, start and end,
+and the Court Reserve reservation/occurrence id as the stable key. courtreserve-api's existing live
+`/lessons/upcoming` Report Builder read is folded into that job, not kept as a second path to Court
+Reserve, holding the focus, what was done, the
+drills assigned, homework, the coach's note, and the recording attached by time. The student sees
+**one card**: today's focus, homework, the last lesson's clip and note, and how far along the plan
+they are. Progress is a priority moving to mastered, with open-play evidence from the existing game
+engine flowing in on its own.
+
+**Video's job is evidence on the lesson, not analysis of it.** Phase one does two things with the
+recording: the coach marks moments while reviewing, which become the lesson's clips; and the coach's
+mic audio on the recording is **transcribed locally on the mini** so the spoken cues draft the
+lesson write-up and homework for the coach to edit. Recordings stay where D-0010 and D-0041 put them
+and are delivered the way D-0010 says. The transcription job lives in rating-session-manager's
+NAS-side video work, runs **after the recording closes** (never during a lesson, when camd's legs own
+the mini's CPU), and a recording is matched to a lesson by **time window** against the cached
+occupancy read, because teaching recordings are started and stopped by hand and carry no booking
+id. **A lesson recording awaiting its write-up is a fourth exemption to D-0059's 14-day deletion**,
+alongside an analyzed game, a granted session and an open takedown request. **pb.vision is not sent lesson footage.** Body-movement
+analysis is a later evidence source on the same lesson object, decided separately when wanted.
+
+Three forks, settled: the plan **belongs to the student** and any assigned coach edits it, so it
+survives a change of coach; **transcription is in phase one** and is the only new plumbing; the
+student surface is **in the TSA app**, with a Front Desk card (D-0063) sent when a lesson is
+written up.
+
+**Why.** D-0024's Feed A assumed lessons went to pb.vision for movement and shot analysis. Nothing
+was built on that, and the engine assumes a four-player game: a lesson is feeding, drills and two
+people, which it cannot parse. Ron's stated need is focus and follow-through, not metrics. The
+pieces already exist in TSA (priorities with a lifecycle, coach-player assignments, coaching
+requests, coach notes and shot marks, the drill library renderer in #478 / #235), so this is UI
+over existing tables plus one transcription job. Reuse before build (D-0049).
+
+**Applies to.** Any lesson, coaching-plan, homework, drill-assignment, lesson-recording or
+transcription surface in third-shot-academy; any job on the mini that touches lesson recordings
+(rating-session-manager); the Court Reserve lesson-booking read in courtreserve-api. Amends
+D-0024's Feed A; D-0024 otherwise stands.
+
+**Forbids.** Sending lesson recordings to pb.vision or any vision analysis under this record.
+A second priorities object, a second notes table, or a second drill list (D-0049). A plan owned by
+a coach-student pair. Transcripts leaving the mini other than as the text attached to the lesson.
+A second Court Reserve read for lesson bookings (D-0060), including keeping `/lessons/upcoming` live
+beside the materialized table. Auto-sending the student card before the
+coach has written up the lesson. Deleting a lesson recording before its write-up exists.
+Transcribing while a lesson is being recorded.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
