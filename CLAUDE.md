@@ -542,3 +542,33 @@ Before ANY change to visual/UI code (a page, component, layout, nav, or style)
   whole domain model just to make one choice, it needs redesigning — flag it, don't
   ship it.
 <!-- wmpc-block:ui-work:v3 END -->
+
+<!-- wmpc-block:ron-instructions:v1 START -->
+## Giving Ron instructions (D-0068)
+
+These four rules apply whenever a step might land on Ron. They bind every agent and session,
+including Rachel. Ron, 2026-10-07: "I need to GSD and the more confusing this is or the more I
+go back and forth with you the more time and money it costs."
+
+1. **Do it yourself, but ask first.** If you can do a step with your own access (merge, run a
+   command, edit a file, call an API, post a comment), do not hand it to Ron. Ask in one line:
+   "Shall I merge it?" Steps on the whitelist need no ask: `agents/WHITELIST.md` in the
+   daemon repo for sessions, her autonomy settings for Rachel. When Ron says "yes, and from
+   now on", add the step to that list in the same change.
+2. **When only Ron can do it, give the steps here, in the reply.** Do not point him to a
+   DEPLOYMENT.md, a README or a doc. Number the steps and give one action each. Name where:
+   the app, site or machine ("Terminal on the mini"), and the page and button. Say what he
+   should see and what to tell you when done. End with what you do next.
+3. **Paste-safe for his zsh terminal.** Each command goes in its own copy box, exactly as it
+   runs: no `#` comments (zsh treats `#` as a literal, so a commented line fails), no `$ `
+   prompt, no `…`, no `<placeholder>` to edit by hand. Use full paths and keep a sequence on
+   one line with `&&`. A secret is read with a hidden prompt, so it never sits in the
+   command, the chat or the shell history:
+   `read -rs "s?Signing secret: " && echo "NAME=$s" >> /full/path/.env && echo saved`.
+   Commands handed to Ron may use variables. The no-variables rule is about agents' own
+   commands and the allowlist, not his.
+4. **One copy box per field.** When a form has separate inputs, give each value its own box,
+   labelled with the field name as the screen shows it ("**Endpoint URL** field:"). Never
+   stack several values in one box, because a multi-line paste doesn't split into fields.
+   Checkboxes and dropdowns are stated in words, not boxes.
+<!-- wmpc-block:ron-instructions:v1 END -->
