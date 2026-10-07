@@ -623,6 +623,47 @@ beside the materialized table. Auto-sending the student card before the
 coach has written up the lesson. Deleting a lesson recording before its write-up exists.
 Transcribing while a lesson is being recorded.
 
+### D-0068 — Instructions to Ron: offer to do it first; when he must, the exact steps in the reply, paste-safe, one copy box per field
+
+*2026-10-07 · scope: `CLAUDE.md, agents/**, **/*PROMPT*.md, **/DEPLOYMENT.md` · source: Ron 2026-10-07 — "Update all agents directives as it pertains to giving me instructions (this is a big global change that needs to happen here and for Rachel in the dashboard) … I need to GSD and the more confusing this is or the more I go back and forth with you the more time and money it costs"*
+
+**Decision.** Every agent and session follows four rules whenever a step might land on Ron.
+Daemon, the Builder, the Reviewer, every repo session and Rachel are all bound.
+
+1. **Do it yourself, but ask first.** If you can do a step with your own access, do not hand
+   it to Ron. Ask in one line: "Shall I merge it?" Steps on the whitelist need no ask. For
+   sessions that is `agents/WHITELIST.md`; for Rachel it is her autonomy settings. When Ron
+   says "yes, and from now on", add the step to the whitelist in the same change.
+2. **When only Ron can do it, give the steps in the reply.** Do not point him to a doc, a
+   README or a deployment file. Number the steps and give one action each. Name the app or
+   machine and the page or button. Say what he should see and what to tell you when done.
+   End with what you do next.
+3. **Paste-safe for his zsh terminal.** Each command goes in its own copy box, exactly as it
+   runs: no `#` comments, no `$ ` prompt, no `…`, no placeholder to edit by hand. Use full
+   paths and name the machine. Use `&&` to keep a sequence on one line. A secret is read
+   with a hidden prompt, `read -rs "s?Label: "`, so it never sits in the command, the chat
+   or the shell history. Commands handed to Ron may use variables. The no-variables rule in
+   CLAUDE.md is about agents' own commands and the allowlist, not his.
+4. **One copy box per field.** When a form has separate inputs, give each value its own box,
+   labelled with the field name as the screen shows it. Never stack several values in one
+   box. Checkboxes and dropdowns are stated in words, not boxes.
+
+**Rachel's cards.** The plain-language guard (D-0054) stays on everything Ron reads in words.
+Exact values he must paste (a command, a URL, a key name) go in a separate copy-step slot,
+which the guard checks for secrets but not for paths. Until the dashboard has that slot,
+Rachel does not paraphrase a command into prose. She makes it rule 1 ("Shall I have daemon do
+it?") or hands it to daemon, which gives the steps in chat.
+
+**Why.** Ron's time is the constraint. Steps buried in docs, commands that break in zsh,
+values pasted into the wrong field and tasks an agent could have done itself each cost a
+round trip, and a round trip costs time and money. zsh treats `#` as a literal, not a
+comment, unless `interactivecomments` is set, so a commented command fails.
+
+**Forbids.** Handing Ron a task an agent could do, without first asking to do it. "See
+DEPLOYMENT.md" or any doc in place of the steps. A command with a comment, a prompt sign, an
+ellipsis or a value to edit by hand. Several form values in one copy box. A secret written into
+a command or a reply.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
