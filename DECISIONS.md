@@ -664,6 +664,58 @@ DEPLOYMENT.md" or any doc in place of the steps. A command with a comment, a pro
 ellipsis or a value to edit by hand. Several form values in one copy box. A secret written into
 a command or a reply.
 
+### D-0075 — A decision is not done until its artifacts are on main; daemon's own repo is daemon's lane, and dispatch is claimed by a label, not a title
+
+*2026-10-08 · scope: `decisions/**, agents/**, infrastructure/daemon-dispatch/**, infrastructure/builder-dispatch/**, docs/ai-agents.md` · source: daemon#257 (routed from cos_approvals 5436f929) — the owner approved the Builder money hatch 2026-10-05, daemon#195 closed COMPLETED 2026-10-06 carrying the decided text, daemon#233 held the edit, and seven consecutive sweeps re-found the file unedited because nothing owned it*
+
+**Decision.** Three rules, so a ruling can never again be "complete" while the thing it
+decided is unshipped.
+
+1. **A ruling-only close is forbidden when the ruling implies an artifact.** A daemon issue
+   closes `COMPLETED` only when every artifact its ruling names is either (a) merged to
+   `main`, or (b) carried by a dispatched issue that is **on the WMPC Roadmap in Agent Ready
+   with a lane that claims it** (D-0043). "A spec exists in another issue" is not (b) — an
+   unclaimed issue is not a delivery. If neither holds, the daemon issue stays **open** with
+   the artifact named in its body. Closing is an assertion about reality, not about effort.
+
+2. **Dispatch is claimed by a label, not by a title.** Every issue daemon opens in
+   `notronwest/daemon` carries the label **`daemon-dispatch`** at creation. The daemon drain
+   enumerates `is:open label:daemon-dispatch` **union** `is:open` with a title beginning
+   `architecture`/`Architecture`, oldest first. Title matching stays as a legacy net; it is
+   never the only net. A title is prose and drifts — `daemon#233`'s title was correct English
+   and still fell through every selector for two days.
+
+3. **`notronwest/daemon` is daemon's lane, and the Builder does not get one there.** The
+   Builder's lanes are product repos. It never edits `agents/**`, `decisions/**`,
+   `infrastructure/*-dispatch/**` or `docs/ai-agents.md` — an agent rewriting the prompt that
+   governs it is a self-modification we do not want reviewed by itself. Those paths are
+   daemon's to edit, under D-0005 (worktree) and the ordinary review gate. The gap that
+   stalled #233 was not a missing Builder repo; it was an architect's edit filed as if
+   somebody else would do it.
+
+4. **Detection carries a repair rail.** A sweep, drain or reviewer that can name a specific
+   decided-but-unapplied edit does not report it — it **routes** it: label the carrying issue
+   `daemon-dispatch` and file a `cos_requests` row on the `daemon` channel in the same run.
+   The **second** sighting of the same unapplied artifact is escalated as a rail failure, not
+   re-reported as a finding. Seven identical findings cost more than the edit did.
+
+**Why.** D-0028 says approved work always executes; D-0052 says approved work merges itself.
+Both assumed the work had an owner. A decision whose artifact lands in an unlabelled issue in
+a repo with no lane has no owner, and every mechanism downstream reads it as done: the ruling
+closed, the register said `active`, `STATUS.md` said shipped, and
+`grep -i OWNER-AUTHORIZED agents/builder/` returned nothing for three days while
+`tournament-manager#378` and `courtreserve-api#261` sat unbuildable. The failure was not
+anyone's diligence — the sweep caught it seven times. It was that *finding* and *fixing* were
+wired to different things. Rule 1 makes the close honest, rule 2 makes the work findable,
+rule 3 names the hands, and rule 4 makes a repeat sighting an alarm instead of a habit.
+
+**Forbids.** Closing a daemon architecture issue `COMPLETED` while an artifact it decided is
+neither on `main` nor in Agent Ready under a claiming lane. Opening an issue in
+`notronwest/daemon` without the `daemon-dispatch` label. A drain selector that matches only on
+issue title. The Builder opening a PR that touches `agents/**`, `decisions/**`,
+`infrastructure/*-dispatch/**` or `docs/ai-agents.md`. Reporting the same unapplied decided
+edit twice without raising it as a routing failure.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
