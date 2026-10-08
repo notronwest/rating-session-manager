@@ -142,7 +142,8 @@ Update it there first, then update summaries here.
 This project owns everything from scheduling through pb.vision upload:
 
 1. Schedule — CourtReserve scraping, rating-event detection
-2. Record — coordinate camera capture
+2. Record — coordinate camera capture (*coordinate* only: `camd` itself lives in
+   `daemon/infrastructure/pi-capture/` per D-0030 — don't vendor it here)
 3. Split — detect + export per-game clips from session recording
 4. Upload — push clips to pb.vision via their Partner API
 5. Wait for AI processing
