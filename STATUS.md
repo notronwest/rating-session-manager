@@ -6,7 +6,38 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
-Last updated: **2026-09-05**
+Last updated: **2026-09-26**
+
+## 2026-09-26 — Retire the stale `pi-capture/` duplicate; camera capture lives in daemon
+
+- **Removed `pi-capture/`** (8 tracked files: `camd.py`, `README.md`, the two
+  `camera.conf*.example`s, `wmpc-camera.service`, `mini/com.wmpc.camd.plist`,
+  `mini/com.wmpc.nas-mount.plist`, `mini/mount-nas.sh`). Last touched here at
+  #68; daemon's copy has moved a long way since (audio on every output leg,
+  re-encode, orphan kill, local recording + NAS sync, output validation) — 305
+  lines of `camd.py` here vs 651 there.
+- **Why:** D-0030 (supersedes D-0010) splits the two concerns — *operating* the
+  cameras is fleet infrastructure in `daemon/infrastructure/pi-capture/`, while
+  D-0010's delivery rules stand unchanged and keep this repo the only one that
+  serves or stores customer video. Two directories that both looked like the
+  camera source is the failure shape that left the teaching camera running
+  stale code as an unreachable user LaunchAgent for two days (daemon STATUS
+  2026-09-26). `mini/mount-nas.sh` was superseded outright: there is no root or
+  scripted SMB mount any more — the sync agent writes through the user's
+  existing Finder mount.
+- **Verified nothing depended on it first.** `DEPLOYMENT.md` never named it;
+  `setup.sh`, `scripts/`, `deploy/`, `src/`, `web/`, `docs/`, `package.json` and
+  `launchd/ai.wmpc.sessions.plist` have no reference; the one CI workflow
+  (`pr-linked-issue.yml`) doesn't touch it. Every `pi-capture` / `camd` /
+  `mount-nas` hit in the repo was **inside** the deleted directory.
+- **Pointers left behind** so the next session doesn't go looking: a "Camera
+  capture" bullet under *Does NOT deploy from here* in `DEPLOYMENT.md`, a
+  `DESIGN.md` link under *Deeper docs*, and a note on the "Record" step in
+  `CLAUDE.md`.
+- **Note:** the mini's deployed `/opt/wmpc/pi-capture/` was populated from this
+  copy historically. Nothing here deploys, so removing it changes nothing on the
+  mini — re-deploying from daemon's `deploy.sh` is a separate, human, `sudo`
+  step on the capture host.
 
 ## 2026-09-05 — Publish at https://session.wmpc.app via Cloudflare Tunnel (#62)
 

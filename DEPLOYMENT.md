@@ -205,6 +205,21 @@ the tunnel, CNAME and Access app entirely).
 - **Court Reserve access.** Login and schedule fetching come from
   [`courtreserve-scheduler`](../court-reserve-scheduler) as a sibling checkout,
   not from anything deployed here.
+- **Camera capture.** `camd`, the camera configs, the Pi emitters and the
+  recordings sync are **fleet infrastructure** and live in
+  `daemon/infrastructure/pi-capture/` — deploy them from there, never from this
+  repo. D-0030 draws the line: *operating* the cameras is infrastructure;
+  D-0010's rules still make this repo the only one that **delivers** customer
+  video (the emailed six-digit code, `VIDEO_DIR`, the 30-day grant). A
+  recording becomes customer video only once this repo grants access to it.
+  This repo carried a `pi-capture/` copy until 2026-09-26; it was well behind
+  daemon's (no audio, no re-encode, no orphan kill, no local recording, no
+  output validation) and its `mini/mount-nas.sh` was superseded outright —
+  there is **no** root or scripted SMB mount any more; the sync agent writes
+  through the user's existing Finder mount. Two directories that both looked
+  like the camera source is what left the teaching camera running stale code
+  for two days (daemon STATUS 2026-09-26), so the copy is gone rather than
+  kept in step.
 
 ## Deeper docs
 
@@ -212,4 +227,7 @@ the tunnel, CNAME and Access app entirely).
 - [`README.md`](./README.md) — what the tool does.
 - [`deploy/cloudflared/README.md`](./deploy/cloudflared/README.md) — the public
   tunnel: why it targets Express, the required Cloudflare Access setup, undo.
+- `../daemon/infrastructure/pi-capture/DESIGN.md` — camera capture: `camd`, the
+  Pi emitters, `deploy.sh`, the recordings sync. The source of truth for
+  anything that records.
 - `../wmpc-meta/conventions/deployment-doc.md` — why this file exists and its shape.
