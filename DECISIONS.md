@@ -716,6 +716,97 @@ issue title. The Builder opening a PR that touches `agents/**`, `decisions/**`,
 `infrastructure/*-dispatch/**` or `docs/ai-agents.md`. Reporting the same unapplied decided
 edit twice without raising it as a routing failure.
 
+### D-0090 — A board state is never a promise about the future — a blocker that cleared is a false card, and the drain that wrote it owns the sweep
+
+*2026-10-09 · scope: `infrastructure/heartbeat/**, infrastructure/daemon-dispatch/**, infrastructure/builder-dispatch/**` · source: daemon queue drain 2026-10-09 22:00 (cos_requests 2986aa7a), ruling on daemon #172/#234/#235/#241/#242/#256*
+
+**Decision.**
+
+1. **A card's board status describes the present, never a condition.** "Blocked" means
+   blocked *now*, by something true *now*. A status that is only correct until some
+   future event happens is a false card the moment that event happens, and nothing
+   about reading a false card looks like an error.
+
+2. **A dependency is written in the body, not encoded in the status.** A card waiting
+   on work that is in flight carries a `Depends on #N` line and sits in the status
+   that is true today — usually **Backlog**. It does not sit in **Blocked** with a
+   prose promise about what it becomes later.
+
+3. **If an actor does set a conditional status anyway, that actor owns the sweep in the
+   same run.** You may not write "Blocked until #N merges, then Agent Ready" and hand
+   the transition to nobody. Either wait and set the real state, or name the executor
+   that will move it. A transition assigned to no one is not scheduled, it is only
+   described.
+
+4. **The violation is a monitored signal, not a habit** (D-0083): a card in **Blocked**
+   whose body or comments name an issue or PR that is now merged or closed is an alarm.
+   This generalizes watchdog check 7 from "every child closed while the parent is open"
+   to the class check 7 was actually named for — *a card reporting a state that stopped
+   being true.*
+
+5. **A record's own board moves are part of its artifacts** (D-0075 rule 1). A ruling
+   that names a future board state has not finished dispatching; it has described
+   dispatching.
+
+**Why.**
+
+On 2026-10-09 at 17:13 the daemon queue drain ruled on all eleven open `daemon-dispatch`
+issues and wrote, on six of them, "**Blocked** until #322 merges, then **Agent Ready**."
+PR #322 merged at **17:28 — fifteen minutes later.** The six cards still read Blocked at
+22:04, naming a blocker that had not existed for four and a half hours.
+
+A standing mechanism does exist, and looking at it closely is what makes this a record
+rather than a one-off. A `triage_blocked` sweep runs twice a day on the `dashboard`
+channel — "work through the blocked tickets, unblock what you can." Its 17:00 run fired
+at **17:00:06**: seven minutes *before* the drain wrote these Blocked states and
+twenty-two minutes before #322 merged. There was nothing yet to find. The next run was
+**22:00**, four and a half hours later, and that run **errored** — it got far enough to
+move these six cards at 22:04 and then died with "The Chief of Staff could not complete
+that just now."
+
+So the transition was not unscheduled; it was worse than unscheduled. It depended on an
+LLM re-reading English prose twice a day, on a cadence that cannot see a state written
+seven minutes after it ran, on a job that failed on the very run in question and whose
+failure said nothing about what it had and had not finished.
+
+That is the identical failure the drain itself had just diagnosed, inverted. The morning
+finding was that three cards sat in **Agent Ready** under no executor — a claim with
+nobody behind it (D-0089 rule 3). The afternoon's own fix created six cards in
+**Blocked** with nobody behind the unblock. In both cases the board asserted something
+about an actor that did not exist, and in both cases the assertion was a sentence in
+prose rather than a state anything checked.
+
+It is also the third sighting of this shape in two days: #233 cost seven sweeps on a
+ruling-only close while its own edit was unshipped; #257 was "a closed daemon issue left
+its deliverable unshipped"; this is the same thing one square further along — the issue
+is open, the ruling is right, and the *board* is the part that went stale. D-0075 rule 4
+makes a second sighting a rail failure. A third is not a finding to report, it is a
+mechanism that was never built.
+
+The deeper reason is the one check 7's own comment already states: *a monitor cannot see
+what is absent from its own source* (D-0081). "Then Agent Ready" is absent from every
+machine-readable source. It is in a comment. No field holds it, no deterministic job
+reads it, no check can test it — the only thing that can act on it is something that
+re-reads the prose and infers. That is not a gate, and D-0083 is explicit that where
+instruction and engineering disagree, you build the gate.
+
+**This is not an argument against the sweep.** The sweep is useful and it did the right
+thing. It is an argument that a sweep which interprets prose must not be the *only*
+thing standing between a merged blocker and a false card — because it is unverifiable,
+it is twice a day, and when it fails it fails quietly.
+
+**Forbids.**
+
+- A board status whose correctness depends on an event that has not happened yet.
+- "Blocked until X, then Y" in a ruling, a comment, an issue body or a PR description,
+  unless the same run also moves it or names the executor that will.
+- Treating a merged dependency as self-cleaning. GitHub closes an issue from a `Closes`
+  link; nothing *deterministic* moves a project board status when a blocker merges.
+- Counting a twice-daily LLM sweep as the mechanism. It is a backstop, in the same sense
+  that D-0040 makes the poll a backstop and the event the mechanism.
+- Adding this as a line in a prompt and calling it done — per D-0083 it is a gate or it
+  is nothing, and per D-0084 the gate names the signal that says it stopped working.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
