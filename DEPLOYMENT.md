@@ -205,6 +205,16 @@ the tunnel, CNAME and Access app entirely).
 - **Court Reserve access.** Login and schedule fetching come from
   [`courtreserve-scheduler`](../court-reserve-scheduler) as a sibling checkout,
   not from anything deployed here.
+- **Camera capture.** `camd` — the court-camera daemon that streams Court 4 and
+  records lessons on the mini — does **not** ship from this repo and never did.
+  It lives in `daemon/infrastructure/pi-capture/` and is installed by that
+  directory's `deploy.sh`, gated on the committed `CAPTURE-HOST`
+  (**D-0030**: camera capture and control are fleet infrastructure). The stale
+  vendored copy that used to sit in [`pi-capture/`](./pi-capture) was deleted on
+  2026-10-08 — its install steps targeted the same `/opt/wmpc/pi-capture/` path
+  and the same `com.wmpc.camd` launchd label as the live daemon. This repo's
+  share of the camera story starts *after* a recording exists, when it grants a
+  member access to one.
 
 ## Deeper docs
 
