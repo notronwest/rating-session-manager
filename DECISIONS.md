@@ -807,6 +807,51 @@ it is twice a day, and when it fails it fails quietly.
 - Adding this as a line in a prompt and calling it done — per D-0083 it is a gate or it
   is nothing, and per D-0084 the gate names the signal that says it stopped working.
 
+### D-0093 — A credential never reaches a tracked file — enforced by a scanner in every repo, not by a rule; and one central map says how every repo ships
+
+*2026-10-09 · scope: `wmpc-meta/conventions/SECRETS.md, wmpc-meta/conventions/FLEET-MAP.md, wmpc-meta/scripts/scan-secrets.sh, wmpc-meta/conventions/claude-bootstrap.sh` · source: Ron 2026-10-09 — "build a centrally located repo deployment doc… make it something I can read as well as something every other repo knows about" and, after the second leak in a week, "This can NEVER happen again"*
+
+**Decision.** Two central pages, and a gate that makes one of them true.
+
+1. **`conventions/SECRETS.md` — a credential never appears in a tracked file.** Not in code, a
+   doc, a comment, a script default, or an agent's prompt. A Discord webhook URL **is** a
+   credential (the token is in the path); a Supabase **anon** key is not. Code resolves a secret at
+   runtime and **fails loudly when it is unset** — never a default.
+2. **The rule is ENFORCED, not advised.** `scripts/scan-secrets.sh` is published into every repo by
+   `claude-bootstrap`, wired as a **pre-commit hook**, and scans **every tracked file** against
+   nine patterns. **Findings are printed with the value REDACTED** — a scanner that echoes a secret
+   into a CI log has leaked it a second time.
+3. **`conventions/FLEET-MAP.md` — one page for how the fleet ships.** Fourteen repos: what merging
+   to `main` actually does, how it reaches PROD, where it is served, which database it touches,
+   and where settings live per shape. It leads with **merging is not shipping**, because only four
+   repos deploy themselves.
+4. **Rotation is the remedy for an exposed secret, and it belongs to whoever finds it.** Removing a
+   literal from `HEAD` does not unleak it. Daemon rotates it rather than handing the owner a chore
+   (D-0068): on 2026-10-09 two live Discord webhooks were revoked, a replacement created and stored
+   only in machine-local env, and five agent files changed to read it from the environment.
+
+**Why a gate and not a rule.** There already *was* a rule, and it was even tested:
+`daemon/infrastructure/record-watchdog/tests/` asserts
+`assertNotIn("discord.com/api/webhooks", src)`. The leak happened anyway, because **the test
+covered one file.** Two live webhook URLs sat in `builder-dispatch.sh`, `doc-freshness/check.sh`,
+`hopper-invariants/run.sh` and five agent prompt/channel docs.
+
+*A test that does not cover the surface is a belief, not a guarantee.* That is the generalisable
+line, and it is why the scanner walks `git ls-files` rather than a hand-written list — the same
+failure shape as D-0081, where a monitor could not see a repo missing from the list it read.
+
+**Verified before shipping, both directions** (D-0084: a check nobody has watched fire is a guess):
+the exact webhook literal committed that day is **refused**, as are an Anthropic key, a GitHub
+token, a Postgres URL with a password, a private-key header and a `service_role` claim; a Supabase
+**anon** key, a project URL and empty env-var names **pass**. A rule that cries wolf gets disabled,
+and a disabled rule protects nothing.
+
+**Why FLEET-MAP belongs beside it.** Both pages answer a question that previously required opening
+fourteen files, and both failures this week came from the same place: *nobody could see the whole
+surface at once.* Each repo keeps its own `DEPLOYMENT.md` as the detailed, machine-readable truth;
+the map is the index, and both must be updated in the same change as anything that alters how a
+repo ships.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
