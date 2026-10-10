@@ -852,6 +852,71 @@ surface at once.* Each repo keeps its own `DEPLOYMENT.md` as the detailed, machi
 the map is the index, and both must be updated in the same change as anything that alters how a
 repo ships.
 
+### D-0097 — A mechanism never asserts what its evidence cannot support, and a destructive default is a guard
+
+*2026-10-09 · scope: `infrastructure/**, decisions/**, .git/hooks/pre-push` · source: STATUS 2026-10-09 (four clobbers in one day; watchdog check 7 told the architect to close three open parents). Ron, 2026-10-09: "Lets hault all development until you have fixed the GH board and are confident that its not going to get backed up again."*
+
+**Decision.** Two rules, one cause.
+
+1. **A monitor states what it measured, not what it concluded.** When a check's evidence
+   under-determines its verdict, it asks a question, names the inference it cannot make,
+   and includes the evidence the reader needs to settle it. It never issues an instruction
+   ("close this", "it shipped") on an inference.
+
+2. **A destructive default is prevented in code, not in prose.** Where the normal operation
+   of a tool can silently destroy a tracked record or component, the block is a guard that
+   refuses the operation, with an explicit, typed override. A sentence telling agents not to
+   do it is not a control.
+
+**Why.** Both were proven on one day, 2026-10-09.
+
+Rule 1: watchdog check 7 alarmed on `tournament-manager#970`, `third-shot-academy#374` and
+`club-dashboard#392` with the words *"the work shipped and its board card is still showing
+In Review. Close it and move the card."* All three were genuinely open. The check knew one
+true thing — every sub-issue is closed — and stated a different thing: the parent is done.
+That only follows if the children *cover* the parent's scope, and in all three they were a
+subset. The architect nearly closed real work on the monitor's word, and only avoided it by
+reading each parent. **A monitor that tells you to close finished-looking work is worse than
+no monitor, because acting on it destroys the record of what is left.** No cheap signal
+distinguishes coverage from subset: unticked acceptance boxes caught one of the three; the
+other two state their criteria in prose. So the answer is not a better heuristic — it is to
+stop asserting. This is the same failure shape as D-0081 (a monitor cannot see a gap in its
+own source) and the same shape as the agent's own repeated error of reporting an inference as
+verification.
+
+Rule 2: **four** clobbers in one day, every one identical in mechanism. A session works from
+a checkout taken before someone else's merge; its tree simply lacks the newer files; git
+faithfully records that absence as a deletion. Commit `55285a4` removed 838 lines across 14
+files — **D-0079 in full**, the whole `approval-tripwire` and `blocked-mirror` components, and
+cos-dispatch's retry fix. It was caught by accident. A fourth was found **staged** the same
+night carrying three decision records, the `alerting` component, `hopper-invariants`, and
+`infrastructure/builder-dispatch/HALT` — whose deletion silently **lifts the development
+halt**. Three of the four happened while the instruction not to do it was already written
+down, which is D-0083 applied to itself: build the gate where instruction and engineering
+disagree.
+
+Deleting a decision record is never correct: D-0016 says records are superseded, never
+deleted, and a superseding record *edits* the old one's status rather than removing the file.
+Deleting a committed fact (`HALT`, `*-HOST`, `*-REPOS`) changes fleet behaviour with no diff
+anyone reads.
+
+The asymmetry settles how wide the guard should be: a false block costs one environment
+variable; a false pass cost 838 lines. The first draft of the path pattern enumerated file
+types and let a nested test file and a `RETIRED.md` through — the same bug as the fifteen it
+caught. It now matches any file under a component directory, at any depth.
+
+**Forbids.**
+- A check, alert, card or agent message that issues an instruction, or states a conclusion as
+  fact, on evidence that does not establish it. Say what was measured; ask for the judgement;
+  attach the evidence.
+- Relying on a prompt, README or comment to prevent a destructive default that a guard could
+  refuse.
+- Deleting a tracked `decisions/D-*.md`. Supersede it (D-0016).
+- Removing an `infrastructure/<component>/` file as a side effect of a stale checkout. Rebase
+  onto `origin/main` and re-check `git diff --name-only --diff-filter=D origin/main..HEAD`.
+- A guard without a typed, deliberate override — the override is what distinguishes a chosen
+  retirement from an accident in the reflog.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
