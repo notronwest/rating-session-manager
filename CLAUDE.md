@@ -574,3 +574,28 @@ go back and forth with you the more time and money it costs."
    stack several values in one box, because a multi-line paste doesn't split into fields.
    Checkboxes and dropdowns are stated in words, not boxes.
 <!-- wmpc-block:ron-instructions:v1 END -->
+
+<!-- wmpc:secrets v1 -->
+## Secrets — never in a tracked file (enforced)
+
+A credential never appears in a tracked file. Not in code, not in a doc, not in a comment, not as a
+"default" in a script, not in an agent's prompt. Not even a value you mean to replace later — git
+keeps it forever.
+
+**This is enforced, not advised.** `scripts/scan-secrets.sh` runs as a pre-commit hook and in CI on
+every PR; a commit or PR containing a credential is refused, with the value redacted.
+
+- **Secret:** Discord webhook URLs (the token is in the path), Anthropic / OpenAI / Resend / Stripe
+  live / GitHub tokens, the Supabase **service-role** key, any Postgres URL with a password,
+  private keys, the Court Reserve password.
+- **Not secret:** a Supabase **anon** key, a project ref or URL, a public bucket name.
+- **Where they go instead:** Pages → Variables & Secrets (**PRODUCTION and PREVIEW separately**);
+  Workers → `wrangler secret put`; mini services → a gitignored `.env` on the mini; agents →
+  `~/.config/wmpc*/*.env`. Code **resolves at runtime and fails loudly when unset** — never a
+  default.
+- **Inspecting an env file:** `grep -o '^[A-Z_]*=' .env` lists the names. Never print values.
+- **If one was ever pushed, ROTATE it.** Removing it from HEAD does not unleak it — it is in the
+  history and in every clone.
+
+Full reference, including the fleet's leak history: `wmpc-meta/conventions/SECRETS.md`.
+Where every repo ships and what it touches: `wmpc-meta/conventions/FLEET-MAP.md`.
