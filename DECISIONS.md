@@ -917,9 +917,233 @@ caught. It now matches any file under a component directory, at any depth.
 - A guard without a typed, deliberate override — the override is what distinguishes a chosen
   retirement from an accident in the reflog.
 
+### D-0102 — Daemon's exclusive paths are a lane with no drain, and a halted executor does not satisfy a claim
+
+*2026-10-10 · scope: `infrastructure/daemon-dispatch/**, infrastructure/builder-dispatch/**, decisions/**, agents/**` · source: daemon queue drain 2026-10-10 (cos_requests ea75548e) — the HALT of 2026-10-09 exists to drain a 73-PR board; daemon holds 27 of those PRs and nine of them cannot land at all until each renumbers a decision id under D-0100, in `decisions/**`, which no executor but daemon may touch and no dispatcher ever visits*
+
+**Decision.** This record **amends D-0089 rule 3** and adds the condition that rule was
+missing. D-0089 rules 1 and 2 are untouched and remain binding.
+
+1. **An exclusive path group must name its drain, not just its owner.** D-0089 rule 1 reserved
+   four path groups to daemon — `agents/**`, `decisions/**`, `infrastructure/*-dispatch/**`,
+   `docs/ai-agents.md` — for a reason that is still correct: an agent must not rewrite the
+   prompt that governs it. But it named only the *hands that may not*, never the hands that
+   *will*. Every other lane in this fleet is drained by something on a tick:
+   `builder-dispatch` for product repos, `reviewer-dispatch` for verdicts, the mini drains for
+   approved rows. `infrastructure/daemon-dispatch/` holds a prompt and a DESIGN and **no
+   dispatcher** — daemon runs only when `cos-dispatch` hands it a `cos_requests` row. So the
+   one path group that gates the fleet is the one path group nothing is scheduled to empty.
+   **An exclusion that does not name a drain is a queue, and queues fill.**
+
+2. **A halted executor does not satisfy D-0075 rule 1(b).** D-0089 rule 3 says Agent Ready is
+   a claim, satisfied when "a named executor's committed fact file lists that repo." That test
+   reads a *fact file* and never asks whether the executor is *running*.
+   `infrastructure/builder-dispatch/HALT` has been present and non-empty since 2026-10-09 and
+   the Builder's own tick logs `HALTED — starting no new work`. `BUILDER-REPOS` lists
+   `notronwest/daemon`, so eight daemon cards read as claimed and dispatched while nothing
+   will touch them. The claim test therefore gains a liveness clause: **Agent Ready satisfies
+   D-0075 rule 1(b) only when the named executor is both listed and not halted.** While a
+   `HALT` is in force, a card already in Agent Ready stays there and stays honest — but no
+   daemon issue may be *closed* on the strength of it, and no new card may be *moved* there as
+   though dispatch had occurred.
+
+3. **A ruling that contradicts an active record is a defect in the register, not a variance in
+   the code.** Where an issue comment and an active decision record disagree about an
+   artifact, the record is what binds, and the fix is to supersede or amend the record in the
+   same run that notices — never to let the code follow the comment. A comment is not a
+   register entry (D-0016), and "the ruling is in a comment on the issue" is how
+   `courtreserve.play` came to be built against a record that names `court_occupancy`
+   (D-0103).
+
+4. **The second sighting escalates to the lane, not to the item.** D-0075 rule 4 makes a repeat
+   sighting of an unapplied artifact a rail failure. This record names what that escalation
+   *is* when the rail is capacity rather than routing: the drain does not re-rule the parked
+   items one by one — it rules the **reason they are parked, once**, and leaves the items
+   untouched. Eight identical "still correctly blocked" comments are the same waste as seven
+   identical findings.
+
+**Why.** The HALT of 2026-10-09 was Ron's, and its first exit condition is an open-PR count
+flat or falling across two consecutive days with nobody touching it by hand. That condition is
+currently **unreachable by construction**, and not for any reason the halt can fix. Measured
+2026-10-10: 73 open PRs fleet-wide, of which `notronwest/daemon` holds **27** — the largest
+share of any repo, and larger than the two live-site repos combined. **Nine of those 27 cannot
+land at any speed**: #120, #127, #249, #283, #299, #300, #301 and #311 each carry a decision id
+that is already merged on `main`, and #250 drains three ids into gaps that D-0100's **Forbids**
+closes. D-0100's push guard is live and refuses all nine — correctly. Each needs a renumber: a
+new id from `new.sh`, a file rename, a header rewrite and a re-rendered `INDEX.md`. Every one of
+those touches `decisions/**`.
+
+So the arithmetic is closed. The Builder is halted and, even unhalted, its pre-push guard
+refuses `decisions/**` on a Builder branch — by design, under D-0089 rule 2. The reviewer can
+rebase but cannot renumber, because choosing an id is authoring, not mechanics. Daemon may, and
+daemon runs only when summoned. Nine PRs therefore sit permanently unlandable in the one lane
+with no scheduled hands, while the halt that was imposed to drain the board cannot clear its own
+first condition — and `NOW.md` has already recorded condition 1 as unmet once, which under
+D-0075 rule 4 makes this the second sighting and an alarm rather than a note.
+
+The failure is not anyone's diligence; three consecutive drains ruled these items correctly.
+It is that D-0089 fixed *authority* and left *capacity* unstated, and a lane with an owner but
+no tick looks exactly like a lane that is keeping up.
+
+**Forbids.** Reserving a path group to a named owner without naming the scheduled process that
+drains it. Closing a daemon issue `COMPLETED` on an Agent Ready card whose named executor is
+halted. Moving a card to Agent Ready while the executor that claims its repo is halted. Letting
+code follow an issue comment that contradicts an active decision record. Re-ruling items in a
+drain, one comment each, when a single shared cause is what is actually blocking them.
+
+### D-0103 — The live occupancy cache is the existing courtreserve.play table; a dedicated court_occupancy table would be the second copy D-0060 forbids
+
+*2026-10-10 · scope: `courtreserve_api/occupancy*.py, **/occupancy*, **/roster*, **/checkin*, supabase/migrations/**` · source: daemon#377, routed by the Chief of Staff from an approved architecture item (2026-10-09) — D-0060 rule 1 names a `court_occupancy` table, `courtreserve-api#324` ships the resolver against `courtreserve.play` on the strength of a daemon ruling left in an issue comment, and three build cards were held behind the disagreement*
+
+**Decision.** This record **amends D-0060 rule 1 only**. D-0060 rules 2 through 6 are untouched
+and remain binding — the read still answers a time window and never a court, no consumer
+re-implements it, the write path does not move, it is reached the D-0030 way, and unknown stays
+unknown.
+
+1. **The cache is `courtreserve.play`.** The scheduled job materializes the day's occurrences
+   and registrant rosters by re-running the existing PLAY report feed for today and upserting
+   into `courtreserve.play`, which is already shaped for exactly this question and already
+   loaded by `sync.build_bundle` + `load.load_bundle`. **No new table is created.** D-0060 rule
+   1's substance — *the read is served from a cache, never from Court Reserve* — is unchanged
+   and is what actually mattered; the table name in it was an artifact nobody checked against
+   the schema that already existed.
+
+2. **A dedicated `court_occupancy` table is forbidden, because it is the duplication D-0060
+   rule 3 exists to prevent.** Two tables materialized from the same PLAY report, refreshed by
+   two jobs, is precisely the "third copy where the fleet starts disagreeing" that D-0060 was
+   written against. The record would have created, in its own rule 1, the thing its rule 3
+   forbids. Where a record's named artifact and its stated principle conflict, the principle
+   binds.
+
+3. **Staleness is a `sync_runs` row, not a column.** The intraday refresh records
+   `sync_runs (source='occupancy')`; a consumer reads that row to decide whether the window is
+   trustworthy and degrades per D-0060 rule 6 when it is not. This satisfies D-0060 rule 1's
+   "a staleness field is part of the ticket" without a schema change, and it keeps one
+   staleness convention across every feed this repo syncs rather than inventing a second.
+
+4. **Court attribution stays advisory.** `courts` is carried as a `court_hint` and nothing
+   reads it as truth — D-0060 rule 2 already settled this on measured evidence
+   (`event_registrations.court` is null in all 3,732 rows). A hint field is not a quiet
+   re-opening of that question.
+
+**Why.** Two implementations were in flight against two shapes and neither side was wrong about
+what it had read. `courtreserve-api#324` is right on the merits: reusing a correctly-shaped
+existing cache beats standing up a parallel one, and the PR reuses the existing bundle/load path
+rather than writing a second fetch-and-upsert. D-0060 was right about every principle it stated.
+The defect was that the ruling reconciling them **lived in a comment on `courtreserve-api#310`**
+while the register still said `court_occupancy` — so the next three readers of `decisions/` got a
+shape the fleet had stopped building, and three cards sat still rather than pick a side. That is
+the failure mode D-0102 rule 3 names and is why this is a record and not a fourth comment.
+
+Settling it also releases what was held: `third-shot-academy#651` (candidate narrowing),
+the `courtreserve-api#310` split, and the SP-15 card.
+
+**Forbids.** Creating a `court_occupancy` table, or any second table materialized from the PLAY
+report. A consumer query that reaches Court Reserve live for occupancy. Treating `court_hint` as
+court attribution. Reconciling a record and an implementation in an issue comment instead of in
+the register.
+
+### D-0117 — The ruling queue drains on decisions made, never on deliveries shipped — daemon's lane stamp and its ruling selector are two labels
+
+*2026-10-11 · scope: `infrastructure/daemon-dispatch/**, decisions/**, docs/ai-agents.md` · source: daemon queue drain 2026-10-11 (`cos_requests` 1492969b) — the drain's selector returned 21 items and **zero** of them owed a ruling; 14 were daemon's own dispatched build issues sitting correctly on the WMPC Roadmap, and 10 of those 14 already carried two or three daemon ruling comments each*
+
+**Decision.** This record **amends D-0075 rule 2**. Rules 1, 3 and 4 are untouched and remain
+binding, and so is rule 2's reason for existing — a title is prose and drifts, so a label is
+the net.
+
+1. **`daemon-dispatch` is a lane stamp and is not a selector.** It keeps exactly the meaning
+   D-0075 rule 3 gave it: *this issue lives in daemon's lane* — `agents/**`, `decisions/**`,
+   `infrastructure/*-dispatch/**`, `docs/ai-agents.md` are daemon's to edit and the Builder
+   opens no PR against them. It still goes on **every** issue daemon opens in
+   `notronwest/daemon`, at creation, exactly as rule 2 requires. What it stops doing is
+   summoning an architect.
+
+2. **A new label, `daemon-ruling`, means an architectural question is open.** The drain
+   enumerates `is:open label:daemon-ruling` **union** `is:open` with a title beginning
+   `architecture`/`Architecture`, oldest first. The title net stays as the legacy backstop,
+   unchanged.
+
+3. **The label is applied by the act that routes a question, and removed by the act that
+   answers it.** Whatever routes an **open question** to daemon — Rachel, the capability-gap
+   sweep (`infrastructure/capability-requests/sweep.sh`), Ron from a Hopper card — applies
+   `daemon-ruling` in the **same run** that files the `cos_requests` row. The drain that writes
+   the ruling removes it in the same run, **whether or not the issue closes.**
+
+   A row that asks for **hands and not a judgement** does not get it: D-0075 rule 4's repair
+   rail and #387's exclusive-paths drain route a *decided-but-unapplied* edit, where the call
+   has already been made and what is missing is a commit. Those carry `daemon-dispatch` and the
+   `cos_requests` row, exactly as they do today, and nothing changes for them. **This is the
+   whole distinction: `daemon-ruling` means a question is open, never that work is owed.**
+
+4. **Open and undecided are different states, and only one of them is a queue.** D-0075 rule 1
+   is right and is not weakened: a daemon issue stays **open** until every artifact its ruling
+   names is on `main` or in Agent Ready under a live lane. But a ruled-but-unshipped issue is
+   **decided** — what it is waiting for is hands, not a judgement. It therefore leaves the
+   ruling queue while staying open on the board. The board tracks delivery; the ruling queue
+   tracks decisions; each signal has exactly one meaning.
+
+5. **The drain's own item count is the signal that this stopped working** (D-0084). Every drain
+   already writes `cos_request_steps`; the queue phase records the count it selected. Two
+   consecutive drains whose count does not fall while rulings were written means the selector
+   is over-collecting again. **Retired in exchange:** the `architecture`/`Architecture` title
+   net stops being a *net* and becomes a backstop only — it is no longer enumerated as a
+   primary source, so a prose title alone can no longer inflate the count. Nothing else is
+   removed, because nothing else was measuring this.
+
+**Why.** D-0102 found that daemon's exclusive paths were a lane with no drain, and #387 gave
+them one. The 22:09 ruling on daemon#386 found the next term: eight renumbered PRs all rewrite
+the generated `decisions/INDEX.md`, so the lane refilled at one PR per merge (D-0116). This is
+the third term, and it is in the measuring instrument rather than the pipe.
+
+Measured 2026-10-11, the D-0075 rule 2 selector returned **21 open issues**:
+
+| what it actually was | count | issues |
+|---|---|---|
+| daemon's own dispatched builds, Agent Ready | 8 | #172, #234, #235, #241, #242, #256, #334, #382 |
+| daemon's own dispatched builds, Backlog | 6 | #117, #211, #251, #313, #331, #332 |
+| architecture calls routed to daemon | 7 | #358, #370, #377, #379, #384, #386, #388 |
+| **architecture calls still owing a ruling** | **0** | — |
+
+All seven routed calls already carried a written ruling; six were ruled on 2026-10-10 and the
+seventh, #377, has every artifact it named on `main`. **The queue was two-thirds noise and
+one-third already answered, and its true depth was zero.**
+
+The cause is that rule 2 made the **stamp** the **selector**, in one sentence. Both halves of
+that sentence are correct on their own: the label must be on every daemon-repo issue, because
+the Builder must not open a PR there; and the drain must read a label, because `daemon#233`'s
+title was correct English and fell through every selector for two days. Put together, the mark
+that says *"this is daemon's repo"* is read as *"this is a question for daemon."* Every build
+daemon dispatches into its own repo therefore enters daemon's ruling queue and does not leave
+until it ships — and under the `HALT` of 2026-10-09 nothing ships. The queue is **monotonically
+non-decreasing by construction**, which is the same shape D-0102 named one layer down.
+
+This has already been paid for, repeatedly. Ten of the fourteen dispatched builds carry **two or
+more** daemon ruling comments; #211 carries three. The 17:13 drain of 2026-10-09 ruled ten of
+them and the 22:00 drain the same day ruled the same ten again. **D-0102 rule 4 exists as a
+mitigation for this defect** — it tells the drain to rule the shared cause once instead of
+leaving N identical "still correctly blocked" comments. That rule is right, and a mitigation
+that depends on the architect noticing the pattern on every run is the same shape as
+*"the sweep caught it seven times"* in D-0075's own **Why**. The gate goes where the instruction
+is (D-0083): the selector stops collecting them.
+
+The cost is not only tokens. A queue that cannot fall cannot be read. `HALT`'s first release
+condition asks for a count that is flat or falling, and a drain reporting "21 items" when the
+honest number is zero is the reason three consecutive drains looked like no progress while each
+one had in fact decided everything in front of it.
+
+**Forbids.** Using one label as both an executor-lane marker and a work-queue selector. A drain
+selector that enumerates a label applied at creation to every issue in the repo it drains.
+Leaving `daemon-ruling` on an issue whose ruling is written, on the grounds that the issue is
+still open. Removing `daemon-ruling` from an issue whose question has not been answered, on the
+grounds that the queue should look shorter. Routing an open question to daemon without applying
+`daemon-ruling` to its issue in the same run that files the `cos_requests` row. Applying
+`daemon-ruling` to an item that needs hands rather than a judgement. Treating "open" as a
+synonym for "undecided" anywhere a count is reported.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
+- D-0104 — Court 4 audio: switchd becomes the single reader of the baseline mic and fans it out, so every Court 4 leg carries the same live audio regardless of which angle is on air (2026-10-08)
 
 ## Superseded (history)
 
