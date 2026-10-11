@@ -917,6 +917,56 @@ caught. It now matches any file under a component directory, at any depth.
 - A guard without a typed, deliberate override — the override is what distinguishes a chosen
   retirement from an accident in the reflog.
 
+### D-0099 — Every automatic thing is declared in one registry, and reconciled against the running machines in both directions
+
+*2026-10-10 · scope: `infrastructure/hook-registry/**, infrastructure/git-guards/**, **/com.wmpc.*.plist, .github/workflows/**, .claude/hooks/**` · source: Ron 2026-10-10 — "we need to add a hook for every hook that's created get documented, we can't infer anything anymore. It's got us into so much trouble... make sure that as we move forward, it doesn't bring us back to this spot."*
+
+**Decision.** Anything that fires without a human — a launchd job, a git hook, a Claude
+session hook, a CI workflow, a committed fact — has a row in
+`infrastructure/hook-registry/REGISTRY.tsv`. A push that adds one of those artifacts without
+its row is refused by the `pre-push` guard. Every six hours `audit.sh` reconciles the registry
+against the machine it runs on **in both directions**, and treats two things as equally
+serious: **declared but absent**, and **present but undeclared**.
+
+Nothing about the fleet's automation may be established by inference. If a claim about what
+runs cannot be traced to a registry row that an audit has verified on a named host, it is not
+a fact.
+
+**Why.** Documentation alone was tried and failed, on this exact subject, one day earlier.
+**D-0093 declared the secrets rule "ENFORCED, not advised" on 2026-10-09. On 2026-10-10 the
+pre-commit hook that enforces it was installed in ZERO of fourteen repos** — the installer
+existed only inside `claude-bootstrap.sh`, which had not run since. A page saying a thing is
+enforced reads identically whether or not it is true.
+
+The same day, reading the mini directly instead of inferring it found **36 launchd jobs where
+12 were believed**, four failing — `approval-tripwire` at **exit 127 for 41 hours**, which the
+heartbeat watchdog would not have alarmed on for another seven because a daily job alarms only
+at 2× its interval. **Seven committed plists are loaded on no machine.** The mini carries repos
+the laptop does not, so even "every repo" meant different sets per host.
+
+The second direction is the half that is easy to omit and the half that mattered: a registry
+that only asks *"is what I declared present?"* cannot see a job somebody added and never wrote
+down, and twenty live services were in exactly that state.
+
+This is the fleet-wide form of D-0083 and D-0097 — a mechanism must report on the OUTCOME
+existing, not on its own step finishing. The commit succeeds, so the secret is assumed scanned;
+the job exits 0, so it is assumed to have synced. Here the outcome is "the declared thing is
+really on the machine", and nothing was checking it.
+
+**Forbids.**
+- Adding a `com.wmpc.*.plist`, a `.github/workflows/*.yml`, a `.claude/hooks/` file or a
+  committed fact without a registry row in the same change.
+- Stating what the fleet runs from a document, a plist list, or a local checkout rather than
+  from an audit of a named host. Local checkouts go stale and have already produced a wrong
+  answer twice in one day.
+- Shipping a gate that is present and inert. Installing the secret-scan hook without the
+  scanner it calls produced exactly that in 13 of 14 repos; an installer delivers a gate that
+  can actually refuse, or it has not run.
+- A registry row whose `artifact` points at a file nobody kept — the audit reports that as
+  MISSING against the registry itself.
+- Leaving the auditor unwatched. `hook-audit` is in `heartbeat/JOBS`, because an auditor nobody
+  watches is the hole it exists to find.
+
 ### D-0102 — Daemon's exclusive paths are a lane with no drain, and a halted executor does not satisfy a claim
 
 *2026-10-10 · scope: `infrastructure/daemon-dispatch/**, infrastructure/builder-dispatch/**, decisions/**, agents/**` · source: daemon queue drain 2026-10-10 (cos_requests ea75548e) — the HALT of 2026-10-09 exists to drain a 73-PR board; daemon holds 27 of those PRs and nine of them cannot land at all until each renumbers a decision id under D-0100, in `decisions/**`, which no executor but daemon may touch and no dispatcher ever visits*
