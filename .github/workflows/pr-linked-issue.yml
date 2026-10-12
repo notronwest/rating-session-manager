@@ -5,11 +5,29 @@ name: PR links an issue
 # actually LINKS the issue (Part of / Refs are plain mentions GitHub does NOT
 # link, so they don't count). Prerequisite/partial work gets its OWN small
 # tracking issue and Closes that (add `Part of #<feature>` for context).
-# No secrets, no checkout — reads the PR body from the event. Always enforced;
-# re-runs on body edits, so adding the keyword clears it without a new commit.
 #
-# Canonical copy: wmpc-meta/templates/pr-linked-issue.yml (new repos get it via
-# scripts/claude-bootstrap.sh). See wmpc-meta/conventions/backlog.md.
+# ONE exemption: a PROMOTION PR (base `production`, head `main`) closes nothing —
+# its issues closed when they merged to main — so it is skipped by shape, never by
+# a throwaway tracking issue (Ron, 2026-10-08).
+#
+# WHY IT READS THE BODY FROM THE API, NOT THE EVENT PAYLOAD (2026-10-12):
+# `types: [edited]` normally re-runs this gate when you add the keyword, with no
+# new commit — and it usually does. But GitHub does not guarantee delivery: on
+# club-dashboard PR #495 two body edits AND a close+reopen inside 70 seconds
+# produced zero workflow runs, while another PR's `opened` fired normally four
+# minutes later. When that happens the gate used to be UNCLEARABLE, because
+# `gh run rerun` replays the ORIGINAL event payload — the body as it was when the
+# PR opened, without the keyword — so the rerun re-failed forever and the only
+# way out was an empty commit to force `synchronize`.
+# Reading the LIVE body at run time removes that dead end: whatever woke this
+# workflow, it judges the PR as it is NOW, so `gh run rerun <id>` always clears a
+# gate you have since satisfied. The event payload stays as the fallback, so a
+# token without `pull-requests: read` still gets the old behaviour rather than an
+# error. See wmpc-meta/conventions/backlog.md.
+#
+# Canonical copy: wmpc-meta/templates/pr-linked-issue.yml. `claude-bootstrap.sh`
+# RE-SYNCS this file into every repo on each run, so fix it HERE, never in a
+# repo's copy — a local edit is overwritten on the next bootstrap.
 
 on:
   pull_request:
@@ -17,6 +35,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   check:
@@ -24,11 +43,42 @@ jobs:
     steps:
       - name: Require an issue reference in the PR body
         env:
-          BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          set -uo pipefail
+
+          # Read the PR as it is RIGHT NOW. On any failure (no permission, API
+          # blip) fall back to the event payload — the old behaviour — so this
+          # gate never fails for a reason that has nothing to do with the rule.
+          BODY="$EVENT_BODY"
+          BASE_REF="$EVENT_BASE_REF"
+          HEAD_REF="$EVENT_HEAD_REF"
+          if PR_JSON=$(gh api "repos/$REPO/pulls/$PR_NUMBER" 2>/dev/null); then
+            BODY=$(printf '%s' "$PR_JSON" | jq -r '.body // ""')
+            BASE_REF=$(printf '%s' "$PR_JSON" | jq -r '.base.ref')
+            HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref')
+            echo "Read PR #$PR_NUMBER live from the API ($HEAD_REF -> $BASE_REF)."
+          else
+            echo "::warning::Could not read PR #$PR_NUMBER from the API; judging the event payload instead. A rerun will NOT pick up a body edit."
+          fi
+
+          # A PROMOTION (main → production) closes nothing by definition: it ships
+          # work whose issues were already closed when they merged to main. The gate
+          # used to block it, so a human had to mint a throwaway tracking issue to
+          # promote (third-shot-academy #667, 2026-10-08). Exempt it by shape.
+          if [ "$BASE_REF" = "production" ] && [ "$HEAD_REF" = "main" ]; then
+            echo "✓ promotion PR (main → production) — exempt from the closes-an-issue rule."
+            exit 0
+          fi
+
           if printf '%s' "$BODY" | grep -iqE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+'; then
             echo "✓ PR closes a board issue."
           else
-            echo "::error::This PR must CLOSE a board issue. Add a closing keyword — 'Closes #<n>' (or Fixes/Resolves) — so GitHub links it. Prerequisite work gets its OWN small tracking issue and Closes that ('Part of #n' alone is NOT enough — GitHub won't link it). See wmpc-meta/conventions/backlog.md."
+            echo "::error::This PR must CLOSE a board issue. Add a closing keyword — 'Closes #<n>' (or Fixes/Resolves) — so GitHub links it, then re-run this check (no new commit needed). Prerequisite work gets its OWN small tracking issue and Closes that ('Part of #n' alone is NOT enough — GitHub won't link it). See wmpc-meta/conventions/backlog.md."
             exit 1
           fi
