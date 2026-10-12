@@ -38,6 +38,25 @@ Last updated: **2026-09-26**
   copy historically. Nothing here deploys, so removing it changes nothing on the
   mini — re-deploying from daemon's `deploy.sh` is a separate, human, `sudo`
   step on the capture host.
+Last updated: **2026-10-12**
+
+## 2026-10-12 — Reviewed PR #78 (sync pr-linked-issue gate from wmpc-meta template)
+
+- **Ask:** Reviewer pass on PR #78, `chore(ci): sync the PR gate from the
+  wmpc-meta template`, closing #77 (this repo's `.github/workflows/pr-linked-issue.yml`
+  was stuck on the pre-2026-10-08 copy — missing the promotion exemption and the
+  live-body-read fix for an unclearable gate).
+- **Verified:** fetched the resulting file via the GitHub contents API and
+  diffed it byte-for-byte against `templates/pr-linked-issue.yml` on wmpc-meta
+  PR #44's branch — identical, so the PR's "byte-identical to the canonical
+  template" claim holds. Single-file scope, `Closes #77` links correctly, CI
+  (the gate testing itself) green, no UI/D-0049 reuse concerns.
+- **Posted `VERDICT: APPROVE`** + `reviewed:approve` label on PR #78. Flagged
+  (non-blocking) that this repo's copy will re-diverge from wmpc-meta `main`
+  until wmpc-meta #44 itself merges — already called out in the PR body.
+- **Next:** none from this review — merge is the dispatcher's step (D-0052).
+  wmpc-meta #44 still needs to land so `claude-bootstrap.sh` stops reverting
+  repos to the old template.
 
 ## 2026-09-05 — Publish at https://session.wmpc.app via Cloudflare Tunnel (#62)
 
