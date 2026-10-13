@@ -466,9 +466,18 @@ export async function transcribeOne(
       } else {
         await attachTranscript(lesson.id, transcript);
         attached = true;
-        const d = await draftWriteUp({ ...lesson, transcript }, transcript);
-        drafted = d.drafted;
-        attachNote = d.drafted ? "drafted" : `draft skipped: ${d.reason}`;
+        // The draft gets its OWN catch. Without it a failing draft call — the
+        // function not deployed to this project yet, say, which is exactly the
+        // state on 2026-10-13 — surfaces as "attach failed, will retry" on a
+        // transcript that in fact attached perfectly. A misleading log is worse
+        // than a missing feature.
+        try {
+          const d = await draftWriteUp({ ...lesson, transcript }, transcript);
+          drafted = d.drafted;
+          attachNote = d.drafted ? "drafted" : `draft skipped: ${d.reason}`;
+        } catch (err) {
+          attachNote = `attached; draft failed (transcript is safe): ${(err as Error).message}`;
+        }
       }
     } catch (err) {
       attachNote = `attach failed, will retry: ${(err as Error).message}`;
