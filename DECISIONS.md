@@ -2823,6 +2823,55 @@ itself. Presence records carry the session pid, so a record whose pid is an
 **ancestor** of the hook is self. The env var is still used when present. Both the
 recognition and the fact that ancestry is not a blanket bypass are pinned by cases.
 
+### D-0173 — NOW.md is capped, so rewritten-not-appended is a gate
+
+*2026-10-13 · scope: `infrastructure/git-guards/**, NOW.md` · source: Ron, 2026-10-13 — "yes, build the NOW.md growth gate"*
+
+**Decision.**
+A push that **grows** `NOW.md` is refused when the result exceeds **500 lines**
+(`WMPC_NOW_MAX_LINES`). Shrinking it is never refused. A push that does not touch it is
+never refused. Deliberate growth: `WMPC_ALLOW_NOW_GROWTH=1`.
+
+**Why.**
+"Rewritten, not appended" was already the rule. It is in `NOW.md`'s own header and in
+**D-0118 rule 3** — and the file still reached **2,644 lines** of dated banners going back
+to **2026-09-22**.
+
+The harm was not merely length:
+
+- its tail carried a **second, competing "Waiting on Ron" list** in an older format.
+  **D-0070** says there is exactly one ledger. A session reading top-down could have acted
+  on the stale one — a correctness bug, not clutter.
+- every session paid to read ~2,600 lines of mostly-superseded state before doing anything.
+- **pruning it raced the decay.** `NOW.md` changed **ten times in one hour** while the
+  cleanup was open, so the prune had to be re-derived **four times** before it could land.
+  A cleanup that cannot outrun the mess is not a fix.
+
+This is the same shape as D-0169 and the secrets rule: a thing that must hold is enforced
+in code, not by discipline. It is the third application of that sentence in a week, and the
+second this same day.
+
+**Forbids.**
+- Adding to `NOW.md` past the cap without removing something. The remedy is the behaviour
+  the rule always wanted: finished work goes to `STATUS.md`, decisions to `decisions/`, and
+  what stays is what the next session would get wrong without.
+- Blocking a prune. Shrinking always passes — **pinned by the case that replays today's
+  2,644 → 317 prune**, because a gate that refuses the fix makes the rule unsatisfiable.
+- Blocking an actor who did not cause it. The gate fires on the push that does the
+  growing, so it always reaches the responsible session — deliberately **not** the
+  "audience, not an owner" failure that D-0164 was about.
+
+**The cap is a judgement, and it is one line.**
+500 was chosen as roughly 50% headroom over the pruned file (317 at the time) — enough for
+a busy day, far below the point where the page stops being readable. If it turns out to be
+wrong, change `WMPC_NOW_MAX_LINES`'s default; nothing else depends on the number.
+
+**Complement, not contradiction.**
+The block directly above it in the same hook refuses a push that **shrinks** an append-only
+log (`STATUS.md`, `CHANGES.md`), and that rule **explicitly excludes `NOW.md`** because
+`NOW.md` legitimately shrinks. This record is the other half: the one file allowed to
+shrink is the one file that must not grow without bound.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
