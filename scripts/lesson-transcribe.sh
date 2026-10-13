@@ -57,8 +57,27 @@ trap 'rm -rf "$LOCK"' EXIT
 
 # ── 3. run ───────────────────────────────────────────────────────────────────
 cd "$REPO"
-set -a; [ -f .env ] && . ./.env; set +a
+
+# Sourcing .env must NOT be able to kill this job, and `set -e` made it able to.
+# FOUND BY RUNNING IT on the mini at install, 2026-10-13: the shared .env holds
+# `CR_PASSWORD=<value with a space>`, unquoted. Node's dotenv parses that fine —
+# which is why every other consumer in this repo is happy — but shell `.` splits
+# it and tries to run the second word as a command. errexit is in effect DURING
+# sourcing, so that 127 aborted the whole wrapper before Node ever started. The
+# agent ticked every 10 minutes and died instantly each time, writing nothing.
+#
+# So: errexit off across the source, and then prove the variables this job
+# actually needs are present rather than assuming the file loaded.
+set +e
+set -a
+[ -f .env ] && . ./.env
+set +a
+set -e
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+if [ -z "${SUPABASE_URL:-}" ]; then
+  log "SUPABASE_URL is not set after sourcing .env — a transcript could not be attached to a lesson. Fix .env before expecting output."
+fi
 
 # Prefer the compiled entry point; fall back to tsx so a machine that has not
 # run `npm run build` since this landed still works rather than silently doing
