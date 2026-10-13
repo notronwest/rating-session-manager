@@ -2762,6 +2762,67 @@ the queue, so paused items consume the slots of the phase still permitted. Reins
 condition 1's "with no one touching it by hand" clause, or judging the pause on one
 undifferentiated open-PR total (D-0128 rule 3).
 
+### D-0169 — A session never writes in a shared checkout
+
+*2026-10-13 · scope: `infrastructure/git-guards/**, infrastructure/presence/**, infrastructure/worktrees/**` · source: Ron, 2026-10-13 — "do all three"; loop plan step 3, "the one that actually ends it"*
+
+**Decision.**
+A commit in a repository's **main checkout** is refused while **another live session
+is present in that same checkout**. Branch work happens in the session's own git
+worktree. Three carve-outs pass without comment: a commit made inside a linked
+worktree, a `STATUS.md`-only commit, and an explicit `WMPC_ALLOW_SHARED_COMMIT=1`.
+
+**Why.**
+`CLAUDE.md` has said *"branch work goes in a worktree; never share the main
+checkout"* for weeks, and the checkout kept being shared — because it was advice.
+This repo's own convention settles what to do about that: **a thing that must hold
+is enforced in code, not by install discipline.** The same sentence already applies
+to singletons and to the secrets rule; this is it applied to the third case.
+
+What advice cost, measured on **2026-10-13**: the shared `projects/daemon` checkout
+reached **38 commits behind with 151 dirty files**. A session in it staged **165+
+paths** — ~15 decision records and **3,466 lines of `STATUS.md`** — **as deletions**,
+caught by a hand-written line-count check rather than by anything built. Separately,
+**fourteen** session stops were blocked by the continuity gate and **not one belonged
+to the session that made the mess**.
+
+The loop plan's other three steps all treat the symptom. Step 4 stops the gate
+*recommending* the truncating rebase. The pre-push shrink guard refuses the
+truncating *push*. Step 2 (`wedge-watch`, D-0164) gives a wedge an **owner** instead
+of an audience. This step is the one that stops the wedge being **created**, which is
+why it was the one worth a record of its own.
+
+The condition is **contention, not the directory**. Working alone in the main
+checkout is fine and is how Ron uses it; two actors in one working tree thrashing
+each other's `HEAD` is the whole failure mode, and presence (D-0070) already
+measures exactly that.
+
+**Forbids.**
+- Committing code in a shared main checkout while another session is live in it.
+  The guard prints the `new-worktree.sh` line that resolves it; staged changes are
+  left untouched.
+- Treating the `STATUS.md` carve-out as a general bypass. `STATUS.md` **plus** code
+  is still refused — pinned by a dedicated case, because a carve-out nobody tested
+  the edge of is a hole.
+- Removing the worktree carve-out. A linked worktree always passes; it is the
+  sanctioned place to work and blocking it would make the rule unsatisfiable.
+
+**Deliberately fail-open, against the usual convention.**
+If presence state cannot be read the guard **passes**, with the reason on stderr.
+The fail-closed reading of *"I cannot tell who else is live"* is *"nobody commits
+anywhere"* — a self-inflicted outage traded for a contention hint. This guard
+reduces contention; it is **not** the safety barrier. The barriers — the pre-push
+append-only/shrink guard and the continuity stop gate — are independently
+fail-closed and neither depends on this one. Stated here so a later reader does not
+"correct" it into a fleet-wide commit freeze.
+
+**Identity comes from the process tree, not the environment.**
+A git hook has no `CLAUDE_SESSION_ID`, so the first live run of this guard counted
+its **own** session among the "others" — which solo would be a session blocking
+itself. Presence records carry the session pid, so a record whose pid is an
+**ancestor** of the hook is self. The env var is still used when present. Both the
+recognition and the fact that ancestry is not a blanket bypass are pinned by cases.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
