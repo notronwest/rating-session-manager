@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LP-08 (rsm#74) — transcribe finished lesson recordings. D-0064.
+
+     THIS IS A TEMPLATE, not an installable plist, and that is deliberate.
+     The repo's other plist (ai.wmpc.sessions.plist) hardcoded an absolute path,
+     the repo was renamed, and it has been stale and uninstalled ever since —
+     recorded in DEPLOYMENT.md as a known gap. __REPO__ is substituted by
+     scripts/install-lesson-transcribe.sh from the checkout it is run in, so the
+     same mistake cannot repeat.
+
+     A USER LaunchAgent, not a root LaunchDaemon, for one hard reason: the
+     recordings live on a Keychain-backed Synology SMB share that is mounted by
+     Finder in the user's GUI session. Root cannot see that mount — the same
+     constraint that forced recordings-sync to be a user agent. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wmpc.lesson-transcribe</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO__/scripts/lesson-transcribe.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <!-- Every 10 minutes. The job itself is cheap when there is nothing to do
+         (a directory listing and one loopback GET); the expensive path is
+         guarded by the lock, so a tick landing mid-transcription costs nothing. -->
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <!-- false: a reboot should not kick off an hour of ffmpeg while the machine
+         is still bringing up the SMB mount and camd. The next tick is 10 min away. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Background = throttled I/O and CPU priority from launchd itself, on top
+         of the `nice 15` each child gets. Court 4 streams to YouTube off this box. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>15</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.local/state/wmpc-lesson-transcribe/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.local/state/wmpc-lesson-transcribe/launchd.err.log</string>
+</dict>
+</plist>
