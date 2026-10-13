@@ -603,6 +603,8 @@ above (branch/PR discipline, mobile-first, design tokens, docs-in-the-same-chang
 <!-- wmpc:secrets v1 -->
 
 <!-- wmpc:secrets v1 -->
+
+<!-- wmpc:secrets v1 -->
 ## Secrets — never in a tracked file (enforced)
 
 A credential never appears in a tracked file. Not in code, not in a doc, not in a comment, not as a
