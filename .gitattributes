@@ -2,7 +2,11 @@
 #
 # Append-only logs: both sides only ever ADD lines, so "keep both" is always the
 # right answer. Without this a rebase conflicts on them and the PR stops moving.
+#
+# NOW.md is deliberately NOT here (D-0118 rule 3). It declares itself "Rewritten,
+# not appended", so a union of two rewrites yields a doubled front door: complete
+# looking, silently wrong, read first by every session. A NOW.md divergence is
+# resolved by re-reading origin's copy and rewriting it.
 STATUS.md     merge=union
-NOW.md        merge=union
 CHANGES.md    merge=union
 DECISIONS.md  merge=union
