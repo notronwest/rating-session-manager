@@ -20,6 +20,11 @@ Access** for use off the LAN. Pushing to `main` deploys nothing.
 >   `/opt/homebrew/etc/Caddyfile`. (club-dashboard's Caddy snippet mentions
 >   `sessions.wmpc.ai` as a neighbour; **unverified**.) The *public* hostname is
 >   `session.wmpc.app` (the `tunnel` target below).
+> - **`lesson-transcribe` does NOT share that flaw, deliberately.** It is the
+>   second launchd job in this repo, and its plist is a *template*
+>   (`launchd/com.wmpc.lesson-transcribe.plist.template`) whose `__REPO__` is
+>   substituted by the installer from the checkout it runs in — precisely so a
+>   rename cannot strand it the way it stranded `ai.wmpc.sessions.plist`.
 > - **The tunnel is only as durable as the API.** `cloudflared` restarts itself
 >   (LaunchAgent), but until the plist gap above is fixed the API does not, so
 >   after a reboot the public URL 502s until someone runs `npm run build`.
@@ -62,6 +67,16 @@ targets:
     config_scope: WorkingDirectory still points at the repo's OLD name (rating-session-manager)
     verify: launchctl list | grep ai.wmpc.sessions — expect nothing
     rollback: n/a
+  - name: lesson-transcribe
+    kind: mac-mini-launchd
+    trigger: MANUAL, one time — `./scripts/install-lesson-transcribe.sh` on the mini (idempotent; re-run after a pull that touches it)
+    source: src/cli/lesson-transcribe.ts + src/services/lesson-transcribe.ts, via scripts/lesson-transcribe.sh
+    env: LAN
+    url: n/a — no listener; it reads /Volumes/wmpc-video/teaching and writes lessons.transcript in the TSA Supabase
+    host: wmpcMacMini1 (the committed TRANSCRIBE-HOST fact; every other machine exits 0)
+    config_scope: repo-root .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, optional LESSON_DRAFT_URL + LESSON_DRAFT_SECRET, optional DISCORD_WEBHOOK_URL); models in ~/.local/share/wmpc-lesson-transcribe/
+    verify: "npm run transcribe:self-test — every line ok; then npm run transcribe:status for what is transcribed, pending or silent; log at ~/.local/state/wmpc-lesson-transcribe/transcribe.log"
+    rollback: ./scripts/install-lesson-transcribe.sh --uninstall (leaves transcripts and state alone)
   - name: tunnel
     kind: cloudflare-tunnel
     trigger: MANUAL, one time — `bash deploy/cloudflared/setup.sh` on the mini (idempotent; re-run to update)
@@ -81,6 +96,7 @@ targets:
 | `api` | `npm run build` on the mini | `localhost:3001` on the mini |
 | `web` | `npm run build` on the mini | `../www/sessionmanager` → Caddy |
 | `launchd-plist` | — | **not installed**; see the warning above |
+| `lesson-transcribe` | one-time `./scripts/install-lesson-transcribe.sh` on the mini | a LaunchAgent ticking every 10 min; transcripts on the NAS, text on `lessons.transcript` |
 | `tunnel` | one-time `bash deploy/cloudflared/setup.sh` on the mini | `https://session.wmpc.app` (behind Cloudflare Access) |
 
 ## Targets

@@ -14,7 +14,11 @@
     "sync:members": "tsx scripts/sync-members.ts",
     "pbvision:login": "venv/bin/python scripts/pbvision-login.py",
     "pbvision:tag": "venv/bin/python scripts/pbvision-tag.py",
-    "ratinghub:backfill": "tsx scripts/ratinghub-backfill.ts"
+    "ratinghub:backfill": "tsx scripts/ratinghub-backfill.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "transcribe": "./scripts/lesson-transcribe.sh",
+    "transcribe:status": "./scripts/lesson-transcribe.sh --status",
+    "transcribe:self-test": "./scripts/lesson-transcribe.sh --self-test"
   },
   "dependencies": {
     "@pbvision/partner-sdk": "^0.1.14",
