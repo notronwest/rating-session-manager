@@ -23,3 +23,9 @@ __pycache__/
 # Per-machine Claude session history (bootstrap-generated) — not shared
 **/.claude/history/
 CLAUDE.md.tmp
+
+# Debug frame dumps from the video pipeline (e.g. baseline_test.jpg written by a
+# manual detect_games/calibrate_roi run). Regenerable from the source video, and
+# no .jpg is tracked in this repo — an untracked one at the root wedged
+# fleet-sync on the mini (D-0144).
+*.jpg
