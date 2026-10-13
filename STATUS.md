@@ -6,7 +6,31 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
-Last updated: **2026-09-26**
+Last updated: **2026-10-13**
+
+## 2026-10-13 — Reviewed PR #79 (LP-08 lesson transcription) — REQUEST CHANGES
+
+- **Ask:** Reviewer pass on PR #79, `feat(lessons): LP-08 — transcribe lesson
+  recordings unattended, attach to the lesson (#74)` — a local-whisper
+  transcription job for finished teaching recordings, gated on D-0064.
+- **Verified in a scratch worktree:** `npm test` 12/12 pass, `tsc --noEmit`
+  clean, `bash -n` clean on both shell scripts, `plutil -lint` clean on the
+  plist template. The camd fail-closed guard, the silence floor, and the
+  `--vad`/`-mc 0` decode fix are real and covered by tests, not just asserted
+  in prose.
+- **Posted `VERDICT: REQUEST CHANGES`** + `reviewed:changes` label (new label,
+  didn't exist in this repo yet — created it). Two findings:
+  1. **D-0099** — the new launchd job (`com.wmpc.lesson-transcribe`) and new
+     committed fact (`TRANSCRIBE-HOST`) have no row in daemon's
+     `infrastructure/hook-registry/REGISTRY.tsv`. Checked the registry
+     directly: absent. The companion PR (daemon#535) only registered the
+     heartbeat, not the hook.
+  2. PR body says "Refs #74" instead of "Closes #74" — `gh pr checks 79`
+     shows the "Require an issue reference" workflow genuinely red (not the
+     cosmetic case ROLE.md exempts); merging as-is won't auto-close #74.
+- **Next:** Builder fixes both on the same branch (add the two registry rows
+  via a companion daemon PR; edit the PR body's closing keyword), then
+  re-review.
 
 ## 2026-09-26 — Retire the stale `pi-capture/` duplicate; camera capture lives in daemon
 
