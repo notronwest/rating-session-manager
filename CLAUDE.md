@@ -625,3 +625,67 @@ every PR; a commit or PR containing a credential is refused, with the value reda
 Full reference, including the fleet's leak history: `wmpc-meta/conventions/SECRETS.md`.
 Where every repo ships and what it touches: `wmpc-meta/conventions/FLEET-MAP.md`.
 <!-- wmpc-block:secrets:v1 END -->
+
+<!-- wmpc-block:response-style:v2 START -->
+## Response style — a short summary, and the ask unmistakable (D-0177)
+
+Every reply, in every repo, from every prompt — interactive sessions, spawned
+agents, the Builder, scheduled runs. Ron, 2026-10-14:
+
+> *"I want all of the responses from any prompt from any repo to be a summary response very
+> short give me what I need to know that happened. Make sure that if there's a question it's
+> very clear what you need and if there's an action for me, it's very clear every single
+> response starting now update every repo do whatever you need to make it happen"*
+
+1. **Default to a short summary: what happened, and what it means.** Lead with the
+   outcome. Not a narration of the steps you took, not a transcript of tool calls, not a
+   restatement of the request back to him. Give the one fact that is the point; don't
+   inventory everything you touched on the way.
+2. **If you need something from Ron, the question is unmistakable.** State what you need,
+   why you need it, and what you will do with each answer. **One question**, not a menu of
+   five — pick the one that unblocks you and decide the rest yourself. It goes at the end,
+   on its own, so it cannot be mistaken for commentary. Every ask of Ron is also a ledger
+   line, never prose (D-0070).
+3. **If there is an action for Ron, it is unmistakable.** What to do, where, and what
+   happens next. This composes with **D-0068**: offer to do it yourself first; when only he
+   can do it, the numbered steps go in the reply, paste-safe, one copy box per field.
+4. **Nothing Ron reads contains an internal identifier.** No decision ids (`D-0174`), no
+   repo names as nouns, no file paths, no component names, no ship or phase numbers, no
+   issue or PR number standing alone as the subject of a sentence. **Say what the thing IS,
+   in his words:** *"the live-stream rule was missing the line that says what enforces it"*
+   — never *"D-0174 lacks `enforced-by`"*. A link is fine as something to click; it is not
+   the name of the thing, so never *"see #646"* in place of saying what #646 changes. This
+   is the plain-language rule (D-0054), already database-enforced on the dashboard cards Ron
+   reads, applied to every reply in every repo — which is where it was always meant to be.
+   It **composes with rules 1-3 and replaces none of them**: a short reply full of codes
+   still fails.
+
+**This is about the REPLY, not the work.** Two halves, and both matter:
+
+- **Detail still gets written down** — `STATUS.md`, the PR body, the decision record, a
+  component's `DESIGN.md`. Nothing here reduces verification, testing or record-keeping:
+  shortening the reply while skipping the check is the one failure mode this rule must not
+  cause. Write the long version where it is retrievable; hand Ron the summary and the link.
+- **Those places SHOULD carry the identifiers.** Commit messages, PR bodies, decision
+  records, `STATUS.md` entries, issue titles and code comments name ids, paths, repos and
+  components — that traceability is the whole point of them, and rule 4 does not touch it.
+  The ban is on the chat surface Ron reads, nowhere else.
+
+**Why.** Ron's time is the constraint. But rule 4 exists because of a sharper cost, in his
+words, 2026-10-14 — reading a reply that listed three open items as "D-0174", "D-0178" and
+"ship 3":
+
+> *"you're understanding of my capicity is incorrect -- I am smart but I have no idea what
+> D-0174 is"*
+
+That is the second time this exact rule has had to be learned: it was already written and
+database-enforced for the cards on the dashboard, and the reply surface simply never
+inherited it. An id is a pointer into a filing system Ron does not read. Handing him one
+makes him ask what it is, which is the round trip the whole convention exists to remove.
+
+**Forbids.** A step-by-step narration of what you did as the body of a reply. A reply that
+restates the request before answering it. Several questions stacked for Ron to sort out. A
+question or an action buried mid-paragraph. Padding a short answer to look thorough —
+"this was already done" is a complete reply. And any identifier used as a noun in a reply:
+an id, a path, a repo, a component, a phase number, a bare issue number.
+<!-- wmpc-block:response-style:v2 END -->
