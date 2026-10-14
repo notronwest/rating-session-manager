@@ -16,9 +16,13 @@ import fs from "fs";
 import path from "path";
 import {
   loadConfig, discover, eligibility, isDone, transcribeOne, reattachPending,
-  camdState, liveTempExists, probeDurationS, transcriptPaths,
+  camdState, liveTempExists, probeDurationS, transcriptPaths, type Recording,
 } from "../services/lesson-transcribe.js";
 import { sendDiscordAlert } from "../services/discord-alert.js";
+import {
+  recordingWindow, askOccupancy, classify, playersForMembers,
+  findLessonByReservation, linkRecording, type Match,
+} from "../services/lesson-match.js";
 
 const cfg = loadConfig();
 const args = new Set(process.argv.slice(2));
@@ -77,6 +81,81 @@ async function status(): Promise<void> {
   }
 }
 
+/** Days of staleness we will accept from the booking cache before refusing to
+ *  judge. The refresh runs every 2 minutes, so anything past half an hour means
+ *  it is broken again and we should not be classifying recordings on it. */
+const MAX_CACHE_STALE_S = Number(process.env.LESSON_MAX_CACHE_STALE_S || 1800);
+
+/** Ask the occupancy service which teaching booking, if any, this recording
+ *  covers. Every failure becomes `unknown` rather than an exception: a
+ *  courtreserve outage must not reach the exit-75 path (that is reserved for
+ *  "cannot prove camd is idle" and withholds the heartbeat) nor the crash
+ *  handler, which would post "transcription crashed" to Discord for an
+ *  unrelated service being down. */
+async function resolveMatch(rec: Recording, durationS: number): Promise<Match> {
+  try {
+    const win = recordingWindow(rec.date, rec.base, durationS);
+    if (!win) return { kind: "unknown", reason: "could not read a start time from the filename" };
+    const ans = await askOccupancy(win.start, win.end);
+    const m = classify(ans, MAX_CACHE_STALE_S);
+    if (m.kind !== "lesson") return m;
+    const ids = m.occurrence.participants.map((p) => p.org_member_id).filter((n) => Number.isFinite(n));
+    const { found, missing } = await playersForMembers(ids);
+    return { ...m, playerIds: found, unmatched: missing };
+  } catch (err) {
+    return { kind: "unknown", reason: (err as Error).message };
+  }
+}
+
+/** Record a terminal verdict for a recording we will not transcribe, so the
+ *  job stops re-resolving it every ten minutes and `--status` can show why. */
+function writeVerdict(rec: Recording, match: Match) {
+  const p = transcriptPaths(cfg, rec);
+  fs.mkdirSync(p.dir, { recursive: true });
+  fs.writeFileSync(p.meta, JSON.stringify({
+    ref: rec.ref,
+    result: match.kind === "ambiguous" ? "ambiguous" : "not-a-lesson",
+    reason: match.kind === "ambiguous" ? match.reason : "no teaching booking covers this recording",
+    candidates: match.kind === "ambiguous"
+      ? match.occurrences.map((o) => ({ occurrence_id: o.occurrence_id, type: o.reservation_type, start: o.start_at }))
+      : undefined,
+    at: new Date().toISOString(),
+  }, null, 2));
+}
+
+/** Attach the finished transcript to the lesson for this booking, if one
+ *  exists. It does NOT create one — both repo seats vetoed that; creation
+ *  belongs to the job that materialises bookings. When no lesson exists yet
+ *  the resolved booking and students are recorded on the transcript, so the
+ *  work is not lost and whoever creates the lesson inherits the answer. */
+async function recordMatch(rec: Recording, match: Match) {
+  if (match.kind !== "lesson") return;
+  const p = transcriptPaths(cfg, rec);
+  let meta: Record<string, unknown> = {};
+  try { meta = JSON.parse(fs.readFileSync(p.meta, "utf8")); } catch { /* fresh */ }
+  const occ = match.occurrence;
+  const resolved = {
+    occurrence_id: occ.occurrence_id,
+    reservation_type: occ.reservation_type,
+    booked: { start: occ.start_at, end: occ.end_at },
+    participants: occ.participants,
+    player_ids: match.playerIds,
+    unmatched_member_ids: match.unmatched,
+  };
+  let note = "no lesson exists for this booking yet — resolved and waiting";
+  try {
+    const lesson = await findLessonByReservation(String(occ.occurrence_id));
+    if (lesson) {
+      if (!lesson.recording_ref) await linkRecording(lesson.id, rec.ref, String(occ.occurrence_id));
+      note = `linked to the lesson already created for this booking (${lesson.id})`;
+    }
+  } catch (err) {
+    note = `resolved, but linking failed and will retry: ${(err as Error).message}`;
+  }
+  fs.writeFileSync(p.meta, JSON.stringify({ ...meta, resolved, matchNote: note }, null, 2));
+  log(`${rec.ref}: ${occ.reservation_type} — ${occ.participants.map((x) => x.name ?? "?").join(", ")}; ${note}`);
+}
+
 async function tick(dryRun: boolean): Promise<number> {
   // Guard 1: bytes. A live dotted temp beats any status field — camd has
   // reported itself recording while writing nothing, and healthy while looping.
@@ -121,10 +200,33 @@ async function tick(dryRun: boolean): Promise<number> {
     const e = eligibility({ ageS, durationS, settleS: cfg.settleS, minDurationS: cfg.minDurationS, alreadyDone: false });
     if (e.skip) { log(`${rec.ref}: ${e.reason}`); continue; }
 
-    if (dryRun) { log(`${rec.ref}: WOULD transcribe (${Math.round((durationS ?? 0) / 60)} min)`); done++; continue; }
+    // ── Which lesson was this? ────────────────────────────────────────────
+    // Resolved BEFORE transcribing, because the cheapest transcription is the
+    // one we do not do: 9 of the first 12 files processed were open play, which
+    // cost an hour of CPU each and recorded conversation from members who were
+    // not in a lesson and never agreed to it.
+    const match = await resolveMatch(rec, durationS ?? 0);
+    if (match.kind === "unknown") {
+      // NOT "no lesson" — we could not get a trustworthy answer. Leave it for
+      // the next tick rather than writing a terminal verdict on bad data.
+      log(`${rec.ref}: holding off — ${match.reason}`);
+      continue;
+    }
+    if (match.kind === "not-teaching" || match.kind === "ambiguous") {
+      writeVerdict(rec, match);
+      log(`${rec.ref}: not transcribing — ${match.kind === "ambiguous" ? match.reason : "no teaching booking covers it"}`);
+      continue;
+    }
+
+    if (dryRun) {
+      const who = match.occurrence.participants.map((p) => p.name ?? "?").join(", ");
+      log(`${rec.ref}: WOULD transcribe (${Math.round((durationS ?? 0) / 60)} min) — ${match.occurrence.reservation_type}: ${who}`);
+      done++; continue;
+    }
 
     const outcome = await transcribeOne(cfg, rec, log);
     done++;
+    if (outcome.kind === "transcribed") await recordMatch(rec, match);
     if (outcome.kind === "failed") {
       await sendDiscordAlert({
         title: "Lesson transcription failed",
