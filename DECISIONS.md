@@ -2872,6 +2872,126 @@ log (`STATUS.md`, `CHANGES.md`), and that rule **explicitly excludes `NOW.md`** 
 `NOW.md` legitimately shrinks. This record is the other half: the one file allowed to
 shrink is the one file that must not grow without bound.
 
+### D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable
+
+*2026-10-14 · scope: `CLAUDE.md, agents/**, **/*PROMPT*.md` · source: Ron 2026-10-14 — "I want all of the responses from any prompt from any repo to be a summary response very short give me what I need to know that happened. Make sure that if there's a question it's very clear what you need and if there's an action for me, it's very clear every single response starting now update every repo do whatever you need to make it happen"*
+
+**Decision.** Every reply, in every repo, from every prompt — interactive sessions, spawned
+agents, the Builder, the Reviewer, scheduled runs — follows three rules.
+
+1. **Default to a short summary: what happened, and what it means.** Lead with the outcome.
+   Not a narration of the steps taken, not a transcript of tool calls, not a restatement of
+   the request. Give the number, id or URL that is the point; do not inventory everything
+   touched on the way.
+2. **If you need something from Ron, the question is unmistakable.** What you need, why, and
+   what you will do with each answer. **One** question — pick the one that unblocks you and
+   decide the rest yourself. It sits at the end, on its own, so it cannot read as
+   commentary. It is also a ledger line in `NOW.md`, never prose (D-0070).
+3. **If there is an action for Ron, it is unmistakable.** What to do, where, and what
+   happens next. Composes with D-0068: offer to do it yourself first; when only he can do
+   it, numbered steps in the reply, paste-safe, one copy box per field.
+
+**This governs the reply, not the work.** Detail is still written down — `STATUS.md`, the PR
+body, the decision record, a component's `DESIGN.md`. Nothing here reduces verification,
+testing or record-keeping. Shortening the reply while skipping the check is the one failure
+mode this decision must not cause; the long version goes somewhere retrievable, and Ron gets
+the summary and the link.
+
+**Why.** Ron's time is the constraint, and the same constraint that produced D-0068 produces
+this: a reply he has to read twice to find the one thing asked of him costs a round trip, and
+a round trip costs time and money. The failure mode was not missing information — it was
+information he had to mine. A fleet of fifteen repos multiplies it: the rule is worthless as
+a per-session habit, so it ships the way this fleet ships conventions (D-0071) — one canonical
+block in `wmpc-meta/conventions/`, injected into every repo's CLAUDE.md by
+`claude-bootstrap.sh`, published to every origin by `convention-sync`.
+
+**Forbids.** A step-by-step narration of what was done as the body of a reply. Restating the
+request before answering it. Several questions stacked for Ron to sort out. A question or an
+action buried mid-paragraph. Padding a short answer to look thorough. And the inverse, which
+is equally a violation: moving detail out of the reply without writing it into STATUS.md, the
+PR body or the record — this decision is not licence to stop recording, or to stop verifying.
+
+### D-0179 — A convention change reaches running sessions through a committed reload token
+
+*2026-10-14 · scope: `infrastructure/session-reload/**, CLAUDE.md` · source: Ron, 2026-10-14 — "I feel like we need to HALT all sessions and give me a way to update them all."*
+
+**Decision.**
+
+A convention change is published to sessions that are **already running** by
+bumping a token in a committed file, `infrastructure/session-reload/RELOAD`,
+which carries that token, a one-line plain-language reason, and the files to
+re-read. The token changing is the signal — not the file's existence, because
+unlike `builder-dispatch/HALT` this fires repeatedly over time.
+
+Each session records the last token it acted on, per machine and per session. A
+`SessionStart` hook prints the reason and records the token, so a session opening
+after a change is told what moved and is never blocked. A `Stop` hook, when the
+recorded token differs from the committed one, **records the token and then
+blocks exactly once**, naming the change and the files to re-read. Ron bumps it
+with one command, `bump.sh "<reason>"`, which commits and pushes.
+
+Three properties are part of the decision, not implementation detail:
+
+1. **Block once.** The acknowledgement is written *before* the block. The second
+   stop passes unconditionally, however the session answered.
+2. **Fail-open.** A missing, unreadable or tokenless signal file, a session with
+   no id, an unwritable state directory, or a directory that is not a WMPC repo
+   all let the stop through.
+3. **Not a singleton.** Acknowledgement is per session. Nothing one session does
+   silences another.
+
+`infrastructure/session-reload/RELOAD` is added to the pre-push guard's
+protected-branch allowlist. It is operational data — one token and one sentence,
+rewritten only by `bump.sh`, nothing executable — and the command's value is that
+it reaches running sessions immediately; behind a PR it would reach them after
+they had already stopped.
+
+**Why.**
+
+A session reads its repo's `CLAUDE.md` once, at startup. On 2026-10-14 a new
+response-style rule was published to every repo and verified to have landed, and
+the eight sessions then running were untouched by it: they kept answering the old
+way, and nothing could reach them. Restarting them is the only existing remedy
+and it throws away their context.
+
+The committed-fact shape is taken from `HALT` (D-0161) because it is the shape
+that has already been proven here: a pause that lives on one machine is a pause
+nobody else can see, and the next sync undoes it. Both of HALT's hard-won lessons
+are carried over. Its prose claimed a narrow pause for four days while its code
+stopped everything — so `RELOAD`'s header, the component's `DESIGN.md` and its
+test suite describe one behaviour between them and the suite pins it. And a gate
+must not make its own release condition unreachable — so the acknowledgement is
+recorded before the block, and the session can satisfy the gate in the same turn
+it is told to.
+
+Block-once is what keeps this from being the failure D-0164 was written about. A
+gate that blocks a session repeatedly over a change it has nothing to do with is
+an audience, not an owner: the push gate blocked one session fourteen times over
+another session's work, a turn each. Fleet-wide, most sessions have nothing to do
+with any given convention change, so one turn, once, with the instruction
+attached, is the price — and unbounded blocking would be a self-inflicted outage.
+
+Fail-open is chosen against this repo's usual preference for fail-closed, and
+deliberately. A missed reload costs one turn of stale behaviour in one session. A
+wedge costs every turn in every session on every machine until a human notices.
+The asymmetry is not close.
+
+**Forbids.**
+
+- Reaching running sessions by any other route: no second signal file, no
+  machine-local marker, no "tell the sessions in Discord", no restarting them.
+- Editing `RELOAD`'s token or reason by hand. `bump.sh` owns those three fields,
+  because the reason is the only thing telling a session what to look at, and an
+  empty or stale one turns the gate into a cost with no instruction attached.
+- Blocking a session more than once for the same token, or making the release
+  condition anything a session cannot satisfy in the turn it is told.
+- Making the acknowledgement shared, global or committed. It is per session by
+  nature; a shared one would silence sessions that never saw the reason.
+- Fail-closed behaviour anywhere in this path. An unreadable signal lets every
+  stop through.
+- Widening the pre-push allowlist entry beyond that one file, or putting anything
+  executable in it.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
