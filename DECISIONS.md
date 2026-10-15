@@ -2992,6 +2992,58 @@ The asymmetry is not close.
 - Widening the pre-push allowlist entry beyond that one file, or putting anything
   executable in it.
 
+### D-0183 — A lesson record is created from the Court Reserve booking, with or without a recording; the coach may be named without an account
+
+*2026-10-15 · scope: `**/lesson*/**, supabase/migrations/**, src/services/lesson-*.ts` · source: Ron 2026-10-15 — "we will always have a lesson booked in CR -- there may or may not be a video associated with it -- we still want to include that as data on their TSA profile"; and 2026-10-14 — "one shared record, all students on it", "clinics will not be recorded as of now"*
+
+**Decision.** Ron, 2026-10-15: *"we will always have a lesson booked in CR — there may or may not
+be a video associated with it — we still want to include that as data on their TSA profile."*
+
+1. **The booking is the record; the recording is optional evidence.** A lesson row is created for
+   **every** teaching reservation in Court Reserve, whether or not a camera was pointed at it. This
+   settles the creation question D-0064 left to "the job that materializes the occupancy read" and
+   which nothing had built: there are **407 teaching bookings across 102 students** going back to
+   2025-04-03, and they are the student's history whether or not we filmed any of it.
+
+2. **The coach is NAMED on every booking; the coach's ACCOUNT is not guaranteed.** Measured: three
+   instructors, zero bookings with no instructor named — Ron West (333), Celeste Goodhue (68),
+   April Smith (5), one co-taught. **Only Ron has a login.** So `lessons.coach_id` becomes
+   **nullable** and gains a sibling `coach_name` carrying what Court Reserve actually said.
+   Forcing a uuid would mean writing a player id into a column that otherwise holds an auth user
+   id — the exact silent inconsistency that column already invites, since it has no foreign key.
+   **A named coach with no account is the truth, and the schema must be able to say it.**
+
+3. **A lesson has participants, not a participant.** Ron, 2026-10-14: *"one shared record, all
+   students on it."* 368 of 407 bookings have one student, 36 have two to four. Participants move
+   to a join table following `game_players`, the existing precedent. The transcript stays shared
+   across them, by the same ruling.
+
+4. **Creation is idempotent on the Court Reserve reservation id**, which `lessons` already indexes
+   uniquely and which D-0064 calls the stable key. Re-running the job must never produce a second
+   row for a booking.
+
+5. **`Clinic` is not a lesson** (Ron, 2026-10-14: "clinics will not be recorded as of now"), and
+   neither is a Court Booking. The five teaching types are `Private Lesson`, `Private Drill
+   Session`, `Pro + 3`, `Semi-Private`, `Pro 2+2`, read from Court Reserve's declared
+   `reservation_type` and never inferred.
+
+**Why.** The surface Ron asked for — *"what they are working on and what they have accomplished"* —
+needs a spine, and the transcripts are two weeks old while the bookings are eighteen months deep.
+Waiting for recordings would show a student with 50 lessons an empty profile. Making the booking the
+unit means every student's history is present immediately and video enriches it where it exists.
+
+The coach-account finding is the reason this is a record rather than a ticket: the obvious
+implementation writes *some* uuid into `coach_id` and moves on, and nothing in the schema would stop
+it or ever reveal it.
+
+**Applies to.** Any job that creates or updates lesson rows; the lesson schema; any surface that
+reads a lesson's coach or students.
+
+**Forbids.** Creating a lesson row with an invented or borrowed `coach_id` — an unresolvable coach
+is `coach_id: null` plus `coach_name`. Creating a second row for a booking that already has one.
+Treating a recording as a precondition for a lesson existing. Inferring the reservation type.
+Dropping a participant to fit a single-student column.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
