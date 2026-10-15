@@ -172,7 +172,18 @@ async function recordMatch(rec: Recording, match: Match) {
  * (D-0049), not a parallel backfill that could drift from it.
  */
 async function relink(apply: boolean) {
-  let seen = 0, linked = 0, already = 0, unresolved = 0;
+  let seen = 0, linked = 0, already = 0, unresolved = 0, partial = 0;
+
+  // FIRST resolve everything, THEN link — because the dangerous case is only
+  // visible across recordings. The teaching camera writes 15-minute segments,
+  // so a 90-minute lesson is six files, and `lessons.recording_ref` holds ONE.
+  // Linking them one at a time would leave the lesson pointing at whichever
+  // segment happened to be last and carrying a single 15-minute transcript —
+  // a lesson that looks complete and is one sixth of itself. That is worse
+  // than leaving it unlinked, so a booking with more than one recording is
+  // refused as a group until a lesson can hold several (one lesson, many
+  // recordings, still unbuilt).
+  const resolved: { rec: Recording; match: Match & { kind: "lesson" } }[] = [];
   for (const rec of discover(cfg)) {
     const p = transcriptPaths(cfg, rec);
     if (!fs.existsSync(p.meta) || !fs.existsSync(p.txt)) continue;
@@ -191,14 +202,25 @@ async function relink(apply: boolean) {
       unresolved++;
       continue;
     }
-    if (!apply) {
-      log(`${rec.ref}: WOULD link to ${match.occurrence.reservation_type} — ${match.occurrence.participants.map((x) => x.name ?? "?").join(", ")}`);
-      linked++;
+    resolved.push({ rec, match });
+  }
+
+  const byBooking = new Map<number, typeof resolved>();
+  for (const r of resolved) {
+    const k = r.match.occurrence.occurrence_id;
+    byBooking.set(k, [...(byBooking.get(k) ?? []), r]);
+  }
+
+  for (const group of byBooking.values()) {
+    const who = group[0].match.occurrence.participants.map((x) => x.name ?? "?").join(", ");
+    if (group.length > 1) {
+      log(`${group[0].match.occurrence.reservation_type} (${who}): REFUSED — ${group.length} recordings cover this one lesson and a lesson can hold only one. Linking any single segment would show ${Math.round(100 / group.length)}% of the lesson as if it were all of it.`);
+      partial += group.length;
       continue;
     }
+    const { rec, match } = group[0];
+    if (!apply) { log(`${rec.ref}: WOULD link to ${match.occurrence.reservation_type} — ${who}`); linked++; continue; }
     await recordMatch(rec, match);
-    // recordMatch sets recording_ref; the transcript itself still needs
-    // attaching, and reattachPending is the one place that does it.
     linked++;
   }
   if (apply) await reattachPending(cfg, log);
@@ -207,6 +229,7 @@ async function relink(apply: boolean) {
   log(`${apply ? "linked" : "would link"}:          ${linked}`);
   log(`already connected:    ${already}`);
   log(`could not resolve:    ${unresolved}`);
+  log(`refused (lesson split across several recordings): ${partial}`);
   if (!apply) log("\nnothing was written — re-run with --relink --apply");
 }
 
