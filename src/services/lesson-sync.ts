@@ -66,11 +66,27 @@ async function coachIndex(orgId: string): Promise<Map<string, string>> {
 }
 
 async function playerIndex(orgId: string): Promise<Map<string, string>> {
-  const { data, error } = await getSupabase()
-    .from("players").select("id, cr_member_id")
-    .eq("org_id", orgId).not("cr_member_id", "is", null);
-  if (error) throw new Error(`player lookup failed: ${error.message}`);
-  return new Map((data ?? []).map((p: { id: string; cr_member_id: string }) => [p.cr_member_id, p.id]));
+  // PAGINATED, and that is not a nicety. PostgREST caps a response at 1,000
+  // rows by default; this org has 1,616 players carrying a Court Reserve id.
+  // An unpaginated select returned the first 1,000 and the job reported "307
+  // students booked but no player row" when the real number is 12 — it would
+  // have created 136 lessons and silently skipped 268, with the skip looking
+  // like a data-quality problem at the club rather than a bug here.
+  const out = new Map<string, string>();
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await getSupabase()
+      .from("players").select("id, cr_member_id")
+      .eq("org_id", orgId).not("cr_member_id", "is", null)
+      .order("id")
+      .range(from, from + page - 1);
+    if (error) throw new Error(`player lookup failed: ${error.message}`);
+    for (const p of (data ?? []) as { id: string; cr_member_id: string }[]) {
+      out.set(p.cr_member_id, p.id);
+    }
+    if (!data || data.length < page) break;
+  }
+  return out;
 }
 
 export async function syncLessons(opts: SyncOptions): Promise<SyncResult> {
