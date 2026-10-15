@@ -18,7 +18,8 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "transcribe": "./scripts/lesson-transcribe.sh",
     "transcribe:status": "./scripts/lesson-transcribe.sh --status",
-    "transcribe:self-test": "./scripts/lesson-transcribe.sh --self-test"
+    "transcribe:self-test": "./scripts/lesson-transcribe.sh --self-test",
+    "lessons:sync": "tsx src/cli/lesson-sync.ts"
   },
   "dependencies": {
     "@pbvision/partner-sdk": "^0.1.14",
