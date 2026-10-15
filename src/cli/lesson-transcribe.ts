@@ -16,7 +16,8 @@ import fs from "fs";
 import path from "path";
 import {
   loadConfig, discover, eligibility, isDone, transcribeOne, reattachPending,
-  camdState, liveTempExists, probeDurationS, transcriptPaths, type Recording,
+  camdState, liveTempExists, probeDurationS, transcriptPaths,
+  findLessonForRecording, type Recording,
 } from "../services/lesson-transcribe.js";
 import { sendDiscordAlert } from "../services/discord-alert.js";
 import {
@@ -156,6 +157,59 @@ async function recordMatch(rec: Recording, match: Match) {
   log(`${rec.ref}: ${occ.reservation_type} — ${occ.participants.map((x) => x.name ?? "?").join(", ")}; ${note}`);
 }
 
+/**
+ * Connect transcripts that were produced BEFORE their lesson existed.
+ *
+ * The matcher links a recording to its lesson at the moment it transcribes it.
+ * Everything transcribed before the lessons were created from bookings
+ * therefore has nothing to link to, and `reattachPending` cannot help: it
+ * looks a lesson up by `recording_ref`, and a booking-created lesson has none
+ * until something sets it. That left 14 transcripts and ~55,000 words
+ * unconnected on 2026-10-15.
+ *
+ * This is the catch-up, and it is the same two steps the live path takes —
+ * resolve the booking, then link — so there is one implementation of each
+ * (D-0049), not a parallel backfill that could drift from it.
+ */
+async function relink(apply: boolean) {
+  let seen = 0, linked = 0, already = 0, unresolved = 0;
+  for (const rec of discover(cfg)) {
+    const p = transcriptPaths(cfg, rec);
+    if (!fs.existsSync(p.meta) || !fs.existsSync(p.txt)) continue;
+    let meta: { result?: string } = {};
+    try { meta = JSON.parse(fs.readFileSync(p.meta, "utf8")); } catch { continue; }
+    if (meta.result !== "transcribed") continue;
+    seen++;
+
+    const lesson = await findLessonForRecording(rec.ref).catch(() => null);
+    if (lesson) { already++; continue; }
+
+    const durationS = await probeDurationS(cfg, rec.file);
+    const match = await resolveMatch(rec, durationS ?? 0);
+    if (match.kind !== "lesson") {
+      log(`${rec.ref}: cannot link — ${match.kind === "ambiguous" || match.kind === "unknown" ? match.reason : "no teaching booking covers it"}`);
+      unresolved++;
+      continue;
+    }
+    if (!apply) {
+      log(`${rec.ref}: WOULD link to ${match.occurrence.reservation_type} — ${match.occurrence.participants.map((x) => x.name ?? "?").join(", ")}`);
+      linked++;
+      continue;
+    }
+    await recordMatch(rec, match);
+    // recordMatch sets recording_ref; the transcript itself still needs
+    // attaching, and reattachPending is the one place that does it.
+    linked++;
+  }
+  if (apply) await reattachPending(cfg, log);
+  log("");
+  log(`transcripts examined: ${seen}`);
+  log(`${apply ? "linked" : "would link"}:          ${linked}`);
+  log(`already connected:    ${already}`);
+  log(`could not resolve:    ${unresolved}`);
+  if (!apply) log("\nnothing was written — re-run with --relink --apply");
+}
+
 async function tick(dryRun: boolean): Promise<number> {
   // Guard 1: bytes. A live dotted temp beats any status field — camd has
   // reported itself recording while writing nothing, and healthy while looping.
@@ -247,6 +301,7 @@ async function main() {
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   if (args.has("--self-test")) { process.exit((await selfTest()) === 0 ? 0 : 1); }
   if (args.has("--status")) { await status(); return; }
+  if (args.has("--relink")) { await relink(args.has("--apply")); return; }
   await tick(args.has("--dry-run"));
 }
 
