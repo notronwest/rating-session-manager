@@ -44,6 +44,22 @@ function bumpUnreachable(): number {
   fs.writeFileSync(UNREACHABLE_FILE, String(n));
   return n;
 }
+/** Consecutive ticks held off because the booking cache was unusable. */
+const STALE_FILE = path.join(cfg.stateDir, "cache-stale-ticks");
+const STALE_ALERT_AT = 6;
+
+function bumpStale(): number {
+  let n = 0;
+  try { n = Number(fs.readFileSync(STALE_FILE, "utf8").trim()) || 0; } catch { /* first */ }
+  n += 1;
+  fs.mkdirSync(cfg.stateDir, { recursive: true });
+  fs.writeFileSync(STALE_FILE, String(n));
+  return n;
+}
+function clearStale() {
+  try { fs.unlinkSync(STALE_FILE); } catch { /* nothing to clear */ }
+}
+
 function clearUnreachable() {
   try { fs.unlinkSync(UNREACHABLE_FILE); } catch { /* nothing to clear */ }
 }
@@ -267,6 +283,7 @@ async function tick(dryRun: boolean): Promise<number> {
   await reattachPending(cfg, log);
 
   let done = 0;
+  let heldOff = 0;
   for (const rec of discover(cfg)) {
     if (done >= cfg.maxPerRun) break;
     if (isDone(cfg, rec)) continue;
@@ -287,6 +304,7 @@ async function tick(dryRun: boolean): Promise<number> {
       // NOT "no lesson" — we could not get a trustworthy answer. Leave it for
       // the next tick rather than writing a terminal verdict on bad data.
       log(`${rec.ref}: holding off — ${match.reason}`);
+      heldOff++;
       continue;
     }
     if (match.kind === "not-teaching" || match.kind === "ambiguous") {
@@ -316,6 +334,30 @@ async function tick(dryRun: boolean): Promise<number> {
       log(`${rec.ref}: no audio — recorded as silent, not transcribed`);
     }
   }
+  // A tick that did nothing BECAUSE ITS INPUT WAS UNUSABLE is not a completed
+  // run, and must not heartbeat — the same rule already applied when camd's
+  // status is unreachable, applied to the other input it depends on.
+  //
+  // This gap is why the 2026-10-17 outage ran for 43 HOURS unnoticed. The
+  // booking cache stopped refreshing on 10-15; every tick since logged
+  // "holding off — booking cache is N minutes stale", exited 0 and beat
+  // cheerfully, so the fleet watchdog saw a healthy job. A job whose input is
+  // dead is a dead job, however calmly it says so.
+  if (done === 0 && heldOff > 0) {
+    const n = bumpStale();
+    log(`held off on all ${heldOff} candidate(s) — the booking cache is unusable (${n} consecutive ticks). Withholding the heartbeat so this is visible.`);
+    if (n === STALE_ALERT_AT) {
+      await sendDiscordAlert({
+        title: "Lesson transcription is blocked on the booking cache",
+        level: "warning",
+        message: `For about an hour, every recording has been held back because the booking data is stale, so we cannot tell which lesson a recording belongs to. Nothing is lost — recordings keep accumulating — but nothing is being processed either.`,
+        fields: [{ name: "Check", value: "is the occupancy refresh running on the mini?" }],
+      });
+    }
+    process.exitCode = 75;
+    return 0;
+  }
+  clearStale();
   if (done === 0) log("nothing to do");
   return done;
 }
