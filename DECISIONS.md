@@ -2872,45 +2872,6 @@ log (`STATUS.md`, `CHANGES.md`), and that rule **explicitly excludes `NOW.md`** 
 `NOW.md` legitimately shrinks. This record is the other half: the one file allowed to
 shrink is the one file that must not grow without bound.
 
-### D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable
-
-*2026-10-14 · scope: `CLAUDE.md, agents/**, **/*PROMPT*.md, **reply-gate*` · source: Ron 2026-10-14 — "I want all of the responses from any prompt from any repo to be a summary response very short give me what I need to know that happened. Make sure that if there's a question it's very clear what you need and if there's an action for me, it's very clear every single response starting now update every repo do whatever you need to make it happen"*
-
-**Decision.** Every reply, in every repo, from every prompt — interactive sessions, spawned
-agents, the Builder, the Reviewer, scheduled runs — follows three rules.
-
-1. **Default to a short summary: what happened, and what it means.** Lead with the outcome.
-   Not a narration of the steps taken, not a transcript of tool calls, not a restatement of
-   the request. Give the number, id or URL that is the point; do not inventory everything
-   touched on the way.
-2. **If you need something from Ron, the question is unmistakable.** What you need, why, and
-   what you will do with each answer. **One** question — pick the one that unblocks you and
-   decide the rest yourself. It sits at the end, on its own, so it cannot read as
-   commentary. It is also a ledger line in `NOW.md`, never prose (D-0070).
-3. **If there is an action for Ron, it is unmistakable.** What to do, where, and what
-   happens next. Composes with D-0068: offer to do it yourself first; when only he can do
-   it, numbered steps in the reply, paste-safe, one copy box per field.
-
-**This governs the reply, not the work.** Detail is still written down — `STATUS.md`, the PR
-body, the decision record, a component's `DESIGN.md`. Nothing here reduces verification,
-testing or record-keeping. Shortening the reply while skipping the check is the one failure
-mode this decision must not cause; the long version goes somewhere retrievable, and Ron gets
-the summary and the link.
-
-**Why.** Ron's time is the constraint, and the same constraint that produced D-0068 produces
-this: a reply he has to read twice to find the one thing asked of him costs a round trip, and
-a round trip costs time and money. The failure mode was not missing information — it was
-information he had to mine. A fleet of fifteen repos multiplies it: the rule is worthless as
-a per-session habit, so it ships the way this fleet ships conventions (D-0071) — one canonical
-block in `wmpc-meta/conventions/`, injected into every repo's CLAUDE.md by
-`claude-bootstrap.sh`, published to every origin by `convention-sync`.
-
-**Forbids.** A step-by-step narration of what was done as the body of a reply. Restating the
-request before answering it. Several questions stacked for Ron to sort out. A question or an
-action buried mid-paragraph. Padding a short answer to look thorough. And the inverse, which
-is equally a violation: moving detail out of the reply without writing it into STATUS.md, the
-PR body or the record — this decision is not licence to stop recording, or to stop verifying.
-
 ### D-0179 — A convention change reaches running sessions through a committed reload token
 
 *2026-10-14 · scope: `infrastructure/session-reload/**, CLAUDE.md` · source: Ron, 2026-10-14 — "I feel like we need to HALT all sessions and give me a way to update them all."*
@@ -3124,6 +3085,63 @@ timestamp from the client's clock. Storing segment ids on a board game. A consum
 assignment from a board game without the confidence gate. Using the board at a second club on the
 shared coach-account sign-in.
 
+### D-0189 — Work silently and speak at the end; every reply is a short summary, and a question or an action for Ron is unmistakable
+
+*2026-10-17 · scope: `CLAUDE.md, agents/**, **/*PROMPT*.md, **reply-gate*` · source: Ron 2026-10-17 — shown a single turn rendered as ten lines of running commentary between tool calls, and offered a cap on the total or silence, he chose "Work silently". Carries forward D-0177's rules 1-4 unchanged (Ron 2026-10-14 — "I want all of the responses from any prompt from any repo to be a summary response very short give me what I need to know that happened").*
+
+**Decision.** Every reply, in every repo, from every prompt — interactive sessions, spawned
+agents, the Builder, the Reviewer, scheduled runs — follows five rules. Rules 1-4 are
+D-0177's, carried forward unchanged; rule 5 is new.
+
+1. **Default to a short summary: what happened, and what it means.** Lead with the outcome.
+   Not a narration of the steps taken, not a transcript of tool calls, not a restatement of
+   the request. Give the number, id or URL that is the point; do not inventory everything
+   touched on the way.
+2. **If you need something from Ron, the question is unmistakable.** What you need, why, and
+   what you will do with each answer. **One** question — pick the one that unblocks you and
+   decide the rest yourself. It sits at the end, on its own. It is also a ledger line in
+   `NOW.md`, never prose (D-0070).
+3. **If there is an action for Ron, it is unmistakable.** What to do, where, and what
+   happens next. Composes with D-0068: offer to do it yourself first; when only he can do
+   it, numbered steps in the reply, paste-safe, one copy box per field.
+4. **Nothing Ron reads contains an internal identifier.** No decision ids, no repo names as
+   nouns, no file paths, no component names, no ship or phase numbers, no bare issue number
+   as the subject of a sentence. Say what the thing IS, in his words. This is D-0054 applied
+   to every reply.
+5. **Do the work without narrating it; say what happened when it is done.** A turn is silent
+   between its tool calls. Three exceptions, and only three: a genuine question that must be
+   answered before the work can continue; a warning that cannot wait, because the next step
+   is destructive or because something has been found that Ron needs before the work
+   finishes; and ONE brief note before a single long-running step, so a ten-minute gap has a
+   sign of life. One note is a sign of life — a third of one is a commentary. And write to
+   him in the second person: *"you asked for tabs"*, never *"Ron wants tabs"*. He is the one
+   reading it.
+
+**This governs the reply, not the work.** Detail is still written down — `STATUS.md`, the PR
+body, the decision record, a component's `DESIGN.md`. Nothing here reduces verification,
+testing or record-keeping. Shortening or silencing the reply while skipping the check is the
+one failure mode this decision must not cause.
+
+**Why.** D-0177 fixed the reply and left the turn. Ron, 2026-10-17, was shown one turn
+rendered as eight interstitial lines — *"Let me see how the dashboard does sections"*,
+*"Now the tabs. Let me wire the URL, the shell, and the two tab bodies"*, *"Two unbalanced
+brackets from that edit — let me close them properly"*. Each line short; the stack of them a
+wall, and none of it anything he can act on. Offered a cap on the total or silence, he chose
+silence. The gate that shipped the same morning could not see any of it: it judges the LAST
+assistant text block of a turn, so every interstitial line scored zero. The threshold work
+behind it was sound — it simply measured a different object. The same screenshot carried the
+second-person fault: a session talking *about* Ron while talking *to* him, which is the same
+family of writing error and is cheaper to name here than to discover again.
+
+**Forbids.** A running commentary between tool calls — announcing what you are about to
+look at, reporting that a bracket was unbalanced, narrating a plan mid-turn. Referring to
+Ron in the third person in a reply he is reading. A step-by-step narration of what was done
+as the body of a reply. Restating the request before answering it. Several questions stacked
+for Ron to sort out. A question or an action buried mid-paragraph. Padding a short answer to
+look thorough. And the inverse, which is equally a violation: going quiet or going short
+without writing the detail into STATUS.md, the PR body or the record — this decision is not
+licence to stop recording, or to stop verifying.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
@@ -3137,3 +3155,4 @@ shared coach-account sign-in.
 - D-0016 — daemon is the architect of record; decisions live in a register and each repo carries its slice (2026-09-16) → superseded by D-0134
 - D-0031 — Lesson recordings are re-encoded at a pinned frame rate; smooth playback beats pristine bits (2026-09-26) → superseded by D-0041
 - D-0130 — The fleet watchdog lives off the fleet, and a quiet agent is an alarm (2026-10-11) → superseded by D-0155
+- D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable (2026-10-14) → superseded by D-0189
