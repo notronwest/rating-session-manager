@@ -2874,7 +2874,7 @@ shrink is the one file that must not grow without bound.
 
 ### D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable
 
-*2026-10-14 · scope: `CLAUDE.md, agents/**, **/*PROMPT*.md` · source: Ron 2026-10-14 — "I want all of the responses from any prompt from any repo to be a summary response very short give me what I need to know that happened. Make sure that if there's a question it's very clear what you need and if there's an action for me, it's very clear every single response starting now update every repo do whatever you need to make it happen"*
+*2026-10-14 · scope: `CLAUDE.md, agents/**, **/*PROMPT*.md, **reply-gate*` · source: Ron 2026-10-14 — "I want all of the responses from any prompt from any repo to be a summary response very short give me what I need to know that happened. Make sure that if there's a question it's very clear what you need and if there's an action for me, it's very clear every single response starting now update every repo do whatever you need to make it happen"*
 
 **Decision.** Every reply, in every repo, from every prompt — interactive sessions, spawned
 agents, the Builder, the Reviewer, scheduled runs — follows three rules.
@@ -3043,6 +3043,86 @@ reads a lesson's coach or students.
 is `coach_id: null` plus `coach_name`. Creating a second row for a booking that already has one.
 Treating a recording as a precondition for a lesson existing. Inferring the reservation type.
 Dropping a participant to fit a single-student column.
+
+### D-0186 — The open-play rotation board is a court-side tablet in Third Shot Academy; a board game is a candidate set of four on the server clock, never an assignment
+
+*2026-10-17 · scope: `**/board*/**, **/rotation*/**, supabase/migrations/**, supabase/functions/**board*, courtreserve_api/migrations/**` · source: daemon#716 (SP-16), routed by the Chief of Staff with Ron's approval 2026-10-16; daemon drain 2026-10-17. Table run per PROCESS.md — third-shot-academy CONCERN (no read path, no device auth, explicit numbers), courtreserve-api CONCERN (no tablet-reachable route; walk-in lag). No VETO; both concerns are folded into rules 2, 3, 4 and 6. Filed in daemon's register, not TSA's, as a D-0134 class-3 boundary-spanner: it elaborates D-0060 rule 2 and one of its two enforcing sides is a courtreserve-api grant.*
+
+**Decision.** D-0060 rule 2 made "the floor" the court-level source of record because Court
+Reserve's court field is empty in every row, and named the rotation board as that floor. Nothing
+said what the board is. This record does, and it changes no earlier rule.
+
+1. **Where players tap in: one shared tablet at the paddle rack, owned by third-shot-academy.**
+   Not the door kiosk — the door answers *who is in the building* (D-0060 rule 4's check-in path,
+   unchanged), the board answers *who is on court N*. Not phones in v1: a phone path splits the
+   queue across devices before one device has proved the habit. The board **is** how open play
+   rotates — join the queue, the board sends the next four to a free court — so it is not extra
+   work (D-0060 rule 2). It lives in TSA because style of play is TSA's product sold to clubs
+   (D-0024) and its revenue and spend stay out of WMPC's books (D-0009); its only consumer is in
+   TSA (SP-17).
+
+2. **Who can be picked comes from the one cached read, through a definer view courtreserve-api
+   owns.** courtreserve-api adds a `public` view over `courtreserve.play` and the latest
+   `sync_runs (source='occupancy')` row — the occurrences live around now and their registrants,
+   with `refreshed_at` and `stale_seconds` on every row — `security_invoker = false`, granted to
+   `service_role` only, exactly the `public.cr_roster` precedent. A TSA edge function gated on
+   `is_coach(org_id)` reads it. **This path never reaches the mini**, so D-0060 rule 5 (every path
+   *to the mini* goes through the Worker) is not engaged, and the "live now" window is defined once,
+   in the view, by its owner — no consumer writes its own (D-0060 rule 3, D-0103 rule 2: a view is
+   not a second table). The board never calls Court Reserve and adds no write to it.
+
+3. **Unknown stays unknown (D-0060 rule 6).** A stale read (`stale_seconds` past the view's stated
+   window), an empty one, or a walk-in who registered at the door inside the ~2-minute refresh
+   does not block the board: the player types a name and the slot is recorded **unknown** with that
+   display name, never matched to a member by guess. On screen a member shows as first name and
+   last initial.
+
+4. **The data model is a game, not a tap stream.** `board_games` (id, org_id, court int,
+   started_at, ended_at, end_kind `tap` | `next_game` | `cap`, end_inferred bool, occurrence_id
+   text null, created_by) and `board_game_players` (board_game_id, org_id, player_id null,
+   cr_member_id text null, display_name, unknown bool), following `game_players`. A check
+   constraint holds `unknown` true **exactly** when both ids are null. Times are the **database
+   server's UTC clock**, never the tablet's, so they line up with the Pi's timestamps (D-0041) and
+   the segments named by court and UTC start (D-0059 rule 2). A game ends by a tap, or when the
+   next four are sent to that court; a game still open after **30 minutes** is closed at the cap
+   with `end_inferred = true`. The board stores **no segment ids** — a detected game
+   `(court, start, end)` is joined to board games by court and time overlap at read time, the same
+   way D-0059 rule 5 points into segments instead of copying them. RLS follows TSA's baseline:
+   `is_coach(org_id)` writes, `is_owner OR is_coach_of_player` reads.
+
+5. **A board game is a candidate set of four, never an assignment.** SP-17 reads it as a second
+   implementation of the candidate-source interface tsa#676 defines: when **exactly one** board
+   game on that court covers **at least 80%** of the detected game's span and has no unknown slot,
+   the candidates are those four with basis `board`; zero, more than one, or any unknown slot
+   degrades to the session roster with the reason stated. The 80% is configuration, like the
+   confidence threshold. Vision still assigns the positions and the confidence gate is still the
+   only thing that writes an assignment (D-0061, tsa#676) — the board narrows, it does not decide.
+
+6. **v1 device sign-in is a dedicated coach-role account for the club, on a kiosk layout with no
+   navigation.** TSA has no device-token pattern and rejects shared secrets
+   (`import-cr-roster`); inventing one for a one-club pilot is the wrong order. The cost is named:
+   anyone at the tablet holds that account's coach rights if they leave the board page. That is
+   accepted for the one-open-play exit test and **must be replaced by a device credential, by a
+   superseding record, before a second club uses the board.**
+
+**Why.** Three questions were open on daemon#716 and each had an obvious wrong answer. *Where:* a
+door kiosk already exists and would have been extended, but it answers a different question at a
+different moment — a player checks in once and changes courts six times. *How it ties to the
+occupancy read:* the natural build is a TSA page calling the courtreserve-api endpoint, which a
+tablet cannot reach without a dashboard-admin login on the mini path, or a TSA copy of the window
+query, which is the third copy D-0060 exists to prevent; the cr_roster view proved last week that a
+definer view in the shared project is how TSA reads courtreserve-api's data without either. *What
+SP-17 consumes:* if a board entry were an assignment, one forgotten "game over" tap would write four
+wrong names onto a game and the M2 exit test's "zero wrong" would fail on bookkeeping, not vision —
+so the board narrows four hundred candidates to four and leaves the decision to the gate that
+already exists. The server clock is not a detail: a tablet whose clock drifts a minute would place
+a game on the wrong side of a segment cut.
+
+**Forbids.** A rotation-board read of Court Reserve, or a TSA copy of the live-window query. A
+browser-readable occupancy view. A board slot matched to a member by name similarity. A board
+timestamp from the client's clock. Storing segment ids on a board game. A consumer that writes an
+assignment from a board game without the confidence gate. Using the board at a second club on the
+shared coach-account sign-in.
 
 ## Proposed (not binding yet)
 
