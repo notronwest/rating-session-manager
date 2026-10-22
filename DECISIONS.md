@@ -3290,6 +3290,58 @@ rule is refused. The first is the failure this cannot catch; the second is noise
 with the existing override. Neither is a reason to leave the common case — a bare `17:30 UTC`
 handed to him as a commitment — to memory.
 
+### D-0204 — His instruction IS the authority — a gate only a click can pass is a defect
+
+*2026-10-22 · scope: `infrastructure/builder-dispatch*, public.build_set_area_open*, public.build_scope_events, agents/WHITELIST.md` · source: Ron 2026-10-22 — "I thought we went through this??? If I say 'do something' and you can validate its me -- do it", on being asked a third time to open a build area*
+
+**This is D-0197's enforcement, not a new rule.** D-0197 (merged 02:58 the same morning) already
+says a member is never worse off because a machine was in the loop, that *"we have no executor"* is
+not an answer, and that **money is not the gate**. It carries `enforced-by: none`, because it binds
+what a session *says*. Twelve hours later the same session offered Ron a choice between clicking
+Cancel in Court Reserve himself and waiting for a build, and asked three times for a permission it
+could have carried. A rule with no key for the machine gets restated, not followed — so this record
+is the mechanism D-0197 could not have.
+
+**Decision.** **When Ron tells a session to do something and the session is authenticated as his,
+that instruction IS the authorisation.** The session acts. It does not ask him to click the thing he
+just asked for, and it does not park the work behind a permission it could have carried.
+
+Two halves, and the second is what makes the first safe:
+
+1. **Act.** No second ask, no "say go and I will", no handing him a control panel. A gate whose only
+   passing key is a click from him converts his decision into a chore, which is the round trip every
+   convention in this repo exists to remove (D-0068 rule 1, D-0177 rule 2).
+2. **Record his words.** The authority is the quote, so the quote is **required** — not a free-text
+   note, a parameter the function refuses to run without. An instruction authority with nothing
+   recorded is indistinguishable from a session deciding on its own, and that is what the leash
+   exists to prevent.
+
+**It adds no privilege, and that is the argument.** `service_role` could already `UPDATE
+public.build_areas` directly — `build_scope_require_key()` checks `auth.uid()`, and a session has
+none, so that check never stood between the service role and the table. The old shape therefore did
+not protect the leash; it pushed every real instruction **off** the audited path. At 19:03 on
+2026-10-22 Money and billing was opened by a direct table write with no scope event, which is
+exactly the outcome the gate appeared to be preventing. The new function is the same write with his
+sentence attached and an event on the record.
+
+**The general rule this names.** *A gate must have a key for every principal that legitimately needs
+to pass it.* Where a gate's only key is a human's own session, the machine acting on that human's
+behalf has three options — refuse the work, pester them, or route around the gate — and under a
+deadline it takes the third, quietly. Every gate in this fleet gets checked against that question:
+who else legitimately passes here, and what is their key? D-0071 says a convention is a gate
+deployed in code; this says a gate with no key for the machine is a gate the machine will step past.
+
+**What it does not license.** It is not autonomy. It covers doing **what he said**, with his words
+on the record — never widening the ask, never a second action he did not name, and never money
+moving on a session's own judgement (D-0120's money gate stands). Where an action is irreversible
+and he did not name it, asking is still the right answer.
+
+**Precedent, same session.** The membership rail already works this way, and it had to be said twice
+there too: *"Under the rule you merged, your telling me to credit her IS the approval."* That rule
+reached the approvals table and never reached the build leash — the same gap D-0177 rule 4 had
+between the dashboard cards and the reply surface. A rule that holds in one place and not in the
+adjacent one is not yet a convention.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
