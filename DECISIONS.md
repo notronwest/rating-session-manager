@@ -3142,6 +3142,78 @@ look thorough. And the inverse, which is equally a violation: going quiet or goi
 without writing the detail into STATUS.md, the PR body or the record — this decision is not
 licence to stop recording, or to stop verifying.
 
+### D-0196 — A schedule is not a limit — run it now, or name the cost and ask, but never report an incapacity that is only a cron time
+
+*2026-10-22 · scope: `agents*, **PROMPT*, **ROLE*, infrastructure*, **OBJECTIVES*` · source: Ron 2026-10-22, on being told the member data could not answer a question because it refreshes at 05:00 — "If there is a deadline to meet would you say 'sorry I can't because the job that is scheduled for 5 am only runs at 5 am'? Any program that can run at 5am can run at 10:28PM. The only thing that would hold that up is financial -- but even that should be met with: Yo, ron -- totally could run this thing -- and if its important that we get this done by 'x' we NEED to run this -- it will cost 'z' -- run it?? I want THAT logic -- all the time -- especially from you"*
+
+**Decision.** Before reporting that something cannot be known or done, establish that the limit is
+**real**. A job that runs on a schedule is not a limit — **it is a job, and it can be run now.**
+Stale data is not an answer; it is a refresh nobody has triggered. The only honest forms are:
+
+1. **"I ran it — here is the answer."** The default, and the one that needs no permission when the
+   work is a read inside an existing sanctioned lane.
+2. **"I can run it. It costs `Z` / carries risk `R`, and your deadline is `X`. Run it?"** — in Ron's
+   shape: *"Yo, Ron — totally could run this thing, and if it's important we get this done by X we
+   NEED to run this, it will cost Z — run it??"* The number goes in the sentence.
+3. **"I genuinely cannot, and here is the hard reason"** — no credential that exists anywhere, a
+   capability nobody has built, a decision only he may make. Named concretely, never as a shrug.
+
+**Worked case, the same night.** Asked whether a member had been charged, the answer given was
+*"I can't tell you — the data refreshes at 5am."* That was false as a limit: `courtreserve.transactions`
+was 17 hours stale, the sync is a job on the mini, and the queue that runs it accepts a request at
+any hour. The correct move — taken after the correction — was to enqueue the sync with `run_now`,
+read-only, and say so. **Cost of the thing I had called impossible: a few minutes, nothing metered.**
+
+**Why.** Ron's constraint is time, and a false "I can't" spends it twice: once on the non-answer,
+once on him having to push back. It also quietly teaches him the system is less capable than it is,
+which is the opposite of what every mechanism here exists to do. And the cost-aware version is not
+a hedge — it is what lets him trade money for speed **with the number in front of him**, which is a
+decision he is entitled to make and cannot make from a shrug.
+
+**Forbids.** Reporting a scheduled job's cadence as a reason something is unknown. Presenting
+staleness as a fact about the world rather than as a refresh not yet run. Offering a limit without
+having checked whether it is real. Omitting the cost when asking whether to spend it — "this would
+cost money" is not an ask, a number is. Asking permission for a read that already sits inside a
+sanctioned lane.
+
+### D-0197 — A member never experiences the machine as a limit — and money is not the gate, learning and their trust are
+
+*2026-10-22 · scope: `agents*, **PROMPT*, **ROLE*, **WHITELIST*, infrastructure*, **membership*` · source: Ron 2026-10-22 — "our customers are the most important aspect of our business. Erroneously charging them costs us their faith that we care… Customer doesn't want to hear -- AI couldn't do something that I could have done if I wasn't using AI"; and, on cost, "if it costs money that we could spend otherwise that's ok. We have money -- learning is more important rn"*
+
+**Decision.** **No member is ever worse off because a machine was in the loop.** Ron's test, and
+it is the standard: *"Customer doesn't want to hear — AI couldn't do something that I could have
+done if I wasn't using AI."* So when something affecting a member cannot be done the usual way,
+"we have no executor for that" is **not an answer and is never said as one**. The required
+sequence is Ron's own:
+
+1. **"We don't know if this is possible — is it?"** One line to him, cheap, no evidence attached.
+2. **Go and find it**, with the credentials the fleet actually has — not the ones this session
+   happens to hold.
+3. **"I tested it and it worked. Are we good?"** — evidence first, then the confirmation.
+
+**Money is not the gate.** Ron: *"We have money — learning is more important right now."* So an
+action that is reversible is simply taken; an action that costs money is taken **when it serves a
+member's experience or buys a capability the fleet keeps lacking**, and is **reported with the
+number** afterwards. The **hard set is unchanged** — sending to members, shipping to production,
+destroying data, and anything irreversible and outward-facing still stop at Ron. What moves is
+everything below that line, which previously fell to him purely because it had a price.
+
+**An erroneous charge is a trust event, not a ticket.** It is worked the hour it is found, at
+whatever cost, and the member is made whole before the cause is investigated.
+
+**Why.** The failure this records is mine, hours old: *"Neither can be done by the machine, so
+whichever you pick is hands in Court Reserve."* That was false in the way that matters most — **the
+fleet can drive Court Reserve**; it has the browser, the session and the credentials on the mini.
+**This session could not, and I reported my own limit as the system's.** It is D-0196's error
+wearing different clothes: a solvable constraint presented as an incapacity, this time with a
+member's money sitting on the wrong side of it.
+
+**Forbids.** Telling Ron that something touching a member cannot be done, before establishing it
+cannot be done **by any part of the fleet**. Reporting this session's limits as the system's.
+Treating a wrong charge as backlog. Asking permission to spend on a reversible fix that serves a
+member — act, then report the number. Spending without reporting it. And nothing here widens the
+hard set, which is exactly where it was.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
