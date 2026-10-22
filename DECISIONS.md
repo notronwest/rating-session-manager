@@ -3214,6 +3214,43 @@ Treating a wrong charge as backlog. Asking permission to spend on a reversible f
 member — act, then report the number. Spending without reporting it. And nothing here widens the
 hard set, which is exactly where it was.
 
+### D-0199 — Doing by hand what a mechanism should do is a reportable defect, named at the moment it is done
+
+*2026-10-22 · scope: `agents*, **PROMPT*, **ROLE*, infrastructure*, **CLAUDE*` · source: Ron 2026-10-22 — "If anything you are doing would bypass the normal process that should have run at a time or when I asked for it to be run -- bring it to light -- not interested in how well you process this task but more interested in how this task gets processed"*
+
+**Decision.** **A session completing a task by hand that a mechanism was supposed to complete has
+not demonstrated the system working — it has concealed the system failing.** So every such
+substitution is declared **as it happens**, in three parts: *what I did by hand* · *what should have
+done it* · *why that did not run*. The result still gets delivered; what is forbidden is delivering
+it as though the process produced it.
+
+Ron's framing is the standard: *"not interested in how well you process this task but more
+interested in how this task gets processed."* A task done well by a substitute is a **worse**
+outcome than a task that visibly fails, because the failure stays hidden and nobody fixes it while
+the output keeps arriving.
+
+**Three kinds, all reportable:**
+1. **A scheduled mechanism that should already have run** — a sync, a drain, a triage. Naming it
+   usually reveals it is stale, disabled, or was never installed.
+2. **A mechanism that exists but was routed around** — writing a queue row with a privileged
+   connection instead of the surface that owns it, reading past RLS instead of through the
+   sanctioned tool, editing a row a card-writer owns.
+3. **A capability nobody has built**, substituted for by a session improvising. This one must also
+   **leave the issue behind** that builds it (D-0194), or the improvisation becomes the permanent
+   arrangement.
+
+**Why.** This fleet's whole value is that work happens without Ron, repeatedly, unattended. A
+session is the least repeatable actor in it: it has credentials and latitude no scheduled job has,
+so it can make almost any single task succeed — and every time it does so silently, the gap it
+papered over stays exactly as broken, while the evidence says things are fine. The week that
+produced this record is full of the same shape: detectors nobody read, a webhook with no
+destination, an approval that would have executed nothing. **Hand-running is that shape with a
+session standing in the gap.**
+
+**Forbids.** Presenting hand-run output as a mechanism's output. Routing around a surface that owns
+a write without saying so. Substituting for an unbuilt capability without filing the work that
+builds it. Treating "it got done" as the measure when the question was whether the system can do it.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
