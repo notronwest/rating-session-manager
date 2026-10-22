@@ -47,6 +47,15 @@ assigned-credential=(SERVICE_ROLE|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?TOKEN|
 # reader: the next person sees a false alarm and stops reading the next one.
 PUBLIC_RE='sb_publishable_|pk_(live|test)_|postgres:postgres@(localhost|127\.0\.0\.1)'
 
+# SQL that IMPERSONATES a role is not a key. A Supabase test or migration sets
+# `set_config('request.jwt.claims', '{"role":"service_role"}', true)` — a
+# 22-character claims literal — and the decoded-payload rule read it as a leak,
+# which blocked every merge of club-dashboard main (wmpc-meta#66). Quiet for the
+# `supabase-service-role` rule ONLY, on a set_config line naming a jwt claims
+# setting, and only while that line carries no `eyJ` — a real token passed to
+# set_config is still a finding. Per line, never per file.
+SQL_CLAIMS_RE="set_config\\([[:space:]]*'(request\\.jwt\\.claims|test\\.jwt[A-Za-z0-9_.]*)'"
+
 # ── Why the last two rules exist ──────────────────────────────────────────────
 # Added 2026-10-12 after testing this scanner against the shapes of the two leaks
 # it was WRITTEN for. It caught neither:
@@ -91,6 +100,9 @@ while IFS= read -r rule; do
     # A matching line that is public by design is not a finding. Filter per LINE,
     # never per file — a blanket file skip is how the last leak got through.
     hits=$(LC_ALL=C grep -nEI -- "$pat" "$f" 2>/dev/null | grep -vE "$PUBLIC_RE" || true)
+    if [ "$name" = "supabase-service-role" ] && [ -n "$hits" ]; then
+      hits=$(printf '%s\n' "$hits" | RE="$SQL_CLAIMS_RE" LC_ALL=C awk '!($0 ~ ENVIRON["RE"] && $0 !~ /eyJ/)' || true)
+    fi
     if [ -n "$hits" ]; then
       printf '%s\n' "$hits" | cut -d: -f1 | while IFS= read -r ln; do
         printf '  %-26s %s:%s\n' "$name" "$f" "$ln"
