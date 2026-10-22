@@ -3251,6 +3251,45 @@ session standing in the gap.**
 a write without saying so. Substituting for an unbuilt capability without filing the work that
 builds it. Treating "it got done" as the measure when the question was whether the system can do it.
 
+### D-0203 — Club time is the only time Ron reads — a machine clock in a reply is a defect
+
+*2026-10-22 · scope: `infrastructure/reply-gate*, agents*, **PROMPT*, **ROLE*, **CLAUDE*` · source: Ron 2026-10-22 — "Did you seriously just give me a scheduled event in UTC time?"*
+
+**Decision.** **Every time Ron is given is in club time (Eastern), named in his words.** "1:30pm your
+time", "4:03am Tuesday", "this afternoon" — never `17:30 UTC`, never `13:20Z`, never `+00:00`.
+
+This is **D-0177 rule 4 in its second form.** That rule bans an internal identifier because an id is
+a pointer into a filing system Ron does not read, and handing him one makes him ask what it is —
+the round trip the whole convention exists to remove. A UTC timestamp is the same thing wearing a
+different hat: it is the clock the machines keep, correct and useless, and it makes him do an
+arithmetic conversion before he knows whether a thing happens before or after lunch.
+
+He asked in the only way that leaves no doubt, after a session in which it happened repeatedly:
+
+> *"Did you seriously just give me a scheduled event in UTC time?"*
+
+**What is refused, and what is not.** The gate reads the closing reply's **prose**. A machine clock
+inside a copy box, a quoted log line, a table or a numbered step is a **deliverable** and passes
+untouched — a log says what a log says, and a command is run verbatim. What is refused is prose
+telling Ron when something will happen on a clock he does not keep.
+
+**Everything else keeps UTC, deliberately.** Scheduled tasks, cron expressions, database timestamps,
+`STATUS.md` entries, commit messages, decision records, issue bodies and log lines all stay in UTC
+or carry their offset — that is what makes them comparable across machines, and stripping it would
+be its own defect. This binds **the chat surface Ron reads**, and nothing else. It is the same split
+D-0177 rule 4 already draws for identifiers.
+
+**Why a gate rather than a reminder (D-0071).** Because it had already been written down in spirit,
+and drifted anyway: a long session reads the convention at startup and loses it twenty turns later,
+which is exactly the history of the short-reply rule itself. A convention is a gate deployed via a
+hook or it is not a rule. The check costs one more pattern in the awk pass the gate already makes.
+
+**Honest limit.** The gate matches the *shape* of a machine clock, not its meaning. A reply that
+says "3pm" while meaning UTC passes, and a reply quoting the word "UTC" while explaining this very
+rule is refused. The first is the failure this cannot catch; the second is noise the author clears
+with the existing override. Neither is a reason to leave the common case — a bare `17:30 UTC`
+handed to him as a commitment — to memory.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
