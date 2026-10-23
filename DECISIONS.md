@@ -3342,6 +3342,66 @@ reached the approvals table and never reached the build leash — the same gap D
 between the dashboard cards and the reply surface. A rule that holds in one place and not in the
 adjacent one is not yet a convention.
 
+### D-0206 — Fix the cause first, then re-run the original ask — the re-run is the proof and the resolution
+
+*2026-10-22 · scope: `infrastructure/reply-gate*, infrastructure/**, agents/**, **PROMPT*, **CLAUDE*` · source: Ron 2026-10-22 — "Let this be in a hook — you work to resolve the reason we got somewhere (eg this issue not being correct) and fixing that over just making the thing we want to do happen", corrected minutes later on the ORDER: "Nope. You don't resolve and then fix. You fix and then resolve (unless told otherwise) you need to validate that your fix works by re running the issue"*
+
+**Decision.** **When something goes wrong, repair the cause, then put the original ask back through
+the real path.** The re-run is both the proof the repair works and what resolves the instance. Ron
+corrected this record's first draft on exactly that order:
+
+> *"Nope. You don't resolve and then fix. You fix and then resolve (unless told otherwise) you need
+> to validate that your fix works by re running the issue."*
+
+The order matters because the other way round teaches you nothing. Patch the row by hand and the
+instance looks right while the mechanism that produced it is untouched and unproven — and the
+hand-patch is now indistinguishable from a working system, which is worse than the original fault.
+
+So, in order:
+
+1. **Repair what produced it.** The writer, the converter, the gate that let it through, the check
+   that failed to notice.
+2. **Re-run his original ask through the real path**, not a test harness and not a hand-written
+   equivalent. His words, the same screen, the same drain.
+3. **Read the result back** and report what came out. That output is the evidence; "should be fine
+   now" is not.
+4. **Replace the bad artifact rather than editing it** where the re-run produces a clean one — a
+   repaired copy and a correct one are not the same object, and only the second proves the path.
+5. **Hold it** with a test, a gate or filed work, so the same fault cannot return unseen.
+
+**The exceptions, and they are his to invoke.** "Unless told otherwise" — he can say patch it now.
+And a member actively being harmed is put right first (D-0197: a member is never worse off because a
+machine was in the loop), after which the cause is still repaired and the ask still re-run. Neither
+exception ends at the patch.
+
+**Named in the reply.** The cause and the re-run's result both go in what he reads, because an
+unnamed cause is a cause nobody owns and an unverified fix is a claim.
+
+**Why it is a rule rather than good practice.** Every one of this fleet's repeat failures is the
+same shape — the instance was fixed and the reason was not. An approval that was never executed was
+re-approved; a card that said "Done" from absence was re-posted; a limit reported to him as the
+system's was reported again twelve hours later. Each repair was correct and each left the mechanism
+intact, so the next occurrence was already paid for.
+
+**What counts as the reason.** Not a restatement of the symptom. "The time showed 1 PM" is the
+symptom; "a club wall-clock hour was stamped `+00` instead of being converted from the club's
+timezone, in the path that writes the event row" is the reason. The test: could someone change
+exactly one thing from the sentence and make this class of fault impossible? If not, keep going.
+
+**When the reason cannot be found now.** Say so, say what was ruled out, and file it with the
+evidence rather than closing it silently. An unexplained fault that is left unexplained *on the
+record* is honest; an unexplained fault reported as fixed is the failure this record names.
+
+**What this does not license.** Holding a member-facing repair while the cause is investigated.
+Rewriting half a component because a one-line fault touched it — the proportionate answer is often a
+test and a filed card, not a redesign. And it does not make a cause mandatory before acting: act,
+then name it.
+
+**The limit of its enforcement, stated honestly.** The gate reads the closing reply, so it binds what
+is *said*, not what is done — the same shape as D-0196 and D-0197. It catches the reply that reports
+a fix and names no reason, which is the step where the omission becomes invisible. It cannot tell a
+real root cause from a plausible sentence, and nothing but review can.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
