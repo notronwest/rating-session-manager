@@ -2384,7 +2384,10 @@ rule of both stands. Three findings, one shape: an instruction was corrected in 
    **`daemon-ruling`** issue is a question that has waited, and that is worth a row.
 
 4. **A rail is not installed until its job is loaded, and that is D-0075 rule 1 applied to the
-   rail itself.** An artifact whose purpose is to *run* satisfies "on `main`" and still does
+   rail itself.** **Amended by D-0149 rules 4–7:** "the host named in its `DRAIN-HOST` file"
+   is one of three permitted resolutions, not the only one — a rail resolves to exactly one committed
+   fact (one named host, every machine, or retired), `reconcile.sh` derives the set from the committed
+   plists, and a rail its fact declares deliberately unloaded is resolved, not drift. An artifact whose purpose is to *run* satisfies "on `main`" and still does
    nothing. For any committed `launchd` plist, done means: present in `~/Library/LaunchAgents` on
    the host named in its `DRAIN-HOST` file, listed by `launchctl list`, and with one log line
    proving it fired. A plist in a repo is a design document.
@@ -2471,6 +2474,130 @@ label applied at creation to every issue in a repo, in a trigger or a queue. Put
 while its job is unloaded. Installing `com.wmpc.daemon-exclusive-drain` before rule 3 is on `main`.
 Amending a numbered rule of another record without a forward pointer at that rule's own text.
 Raising the D-0117 rule 5 alarm on a flat count alone.
+
+### D-0149 — A pre-merge check is the only gate on what reaches main, and provisioning is derived from the committed plists
+
+*2026-10-12 · scope: `infrastructure/daemon-sync/**, infrastructure/blocked-mirror/**, infrastructure/hook-registry/**, infrastructure/heartbeat/**, .github/workflows/**, decisions/**` · source: daemon ruling on #500 (`cos_requests` `04bfd288`), from the hands run for `189a48e9` — `9b90886` (#191) merged unresolved conflict markers into `reconcile.sh`, which was a bash syntax error for ~4h while nothing propagated; and `reconcile.sh` names its ten plists by hand against twenty-one committed*
+
+**State of the tree when this record merged (2026-10-23).** Every rule is already enforced on `main`.
+Rules 4–7: #504 (closing #503) landed `reconcile.sh`'s enumeration and the per-rail `*.provisioning`
+facts, including `infrastructure/blocked-mirror/BLOCKED-MIRROR-HOST` (`wmpcMacMini1`). Rules 1–3: PR
+#505 (closing #502) landed `.github/workflows/gate.yml` — its `gate` job is a required status check on
+`main` — and `watchdog.sh` check 9. The implementations landed before the record, so this record
+merges `active` (D-0071 rule 3) rather than waiting for a flip that has no PR left to carry it. The
+rule text below is the ruling as made on 2026-10-12; where it describes the tree, it describes the
+tree at `08c4d5c`.
+
+**Decision.** This record **amends D-0148 rule 4** and is the amendment its rule 5 pointed at — the
+derived-provisioning correction rides here rather than minting its own record. Every existing rule of
+D-0148 and D-0075 stands. Two findings, one shape, which is the shape D-0117 and D-0148 both named: a
+hand-maintained second copy of a list, with no gate tying it to the first.
+
+1. **daemon adopts CI, and a required pre-merge check is where a defect that reaches `main` is
+   caught.** This repo's backstop is `pre-push` (`infrastructure/git-guards/`), which is local by
+   construction. #191's markers arrived through a **merge performed on GitHub**, and
+   `statusCheckRollup` on this repo's PRs is `[]` — nothing in the repo read a diff on the path that
+   broke it. Under D-0071 a convention is a gate or it is not a rule, so "do not commit a conflict
+   marker" was never a rule. It is one now: `.github/workflows/gate.yml`, required on every PR.
+
+2. **That check contains only host-independent, network-free, credential-free assertions.** A required
+   check that needs `gh` auth or a host fact goes amber on its own, and a flaky required check teaches
+   its readers to merge past it — which lands behind where the repo started. In scope: conflict
+   markers; `bash -n` over `infrastructure/**/*.sh` (`reconcile.sh` was *syntactically* broken for 4h
+   and nothing noticed); `py_compile` over `infrastructure/**/*.py`; and rule 4's resolution gate,
+   which reads committed files only. An existing test script joins the check **only once measured** to
+   pass on a clean checkout with no credentials and no network; whichever does not qualify stays
+   host-side rather than being made required and flaky.
+
+3. **The post-merge clock is a check in `watchdog.sh`, never a new rail.** `watchdog.sh` already runs
+   on `WATCHDOG-HOST` every 15 min with deduped Discord alarms through the shared alerter, so the
+   hourly-clock option is **check 9** there. Minting a LaunchAgent to detect a provisioning defect
+   would commit the defect in rule 4 on purpose, and D-0049's "do not mint a second fact that can
+   drift from the first" is the same rule one level down. Check 9 inherits the two-way header-parity
+   test #401 asks for.
+
+4. **Provisioning is derived from the committed plists, and every rail resolves to exactly one
+   committed fact — of three, not two.** `reconcile.sh` enumerates the committed `com.wmpc.*.plist`
+   files under `infrastructure/**` and provisions each on the host its own fact names, exactly as
+   `test_selectors.sh` already enumerates them to measure. The hand-written list of ten is the defect,
+   not the starting point. The three permitted resolutions are:
+
+   | resolution | the committed fact |
+   |---|---|
+   | one named host | a `*-HOST` file, its own or one it explicitly reuses |
+   | **every machine** | declared in the rail, never inferred |
+   | retired | a committed retirement |
+
+   **"Every machine" has to be one of them, and that is the correction.** `fleet-sync` is absent from
+   the hand-written ten and is *right* to be: `reconcile.sh` §3e calls its `install.sh` by path and
+   documents that it is deliberately not host-gated. `hook-audit` is the same by nature — `audit.sh`
+   reports `MISSING`/`UNDECLARED` **for the host it runs on**, and a one-host auditor cannot see
+   undeclared drift on the other machines, which is the precise failure it was written for (36 launchd
+   jobs on the mini where 12 were believed). A two-outcome gate reports both as MISSING, and **a gate
+   that fires on a correct configuration is a gate somebody switches off** — so the two-outcome version
+   proposed on #500 is not adopted. A rail opts out by a fact, never by omission, and never by
+   "every machine" being inferred from the absence of a `*-HOST`.
+
+5. **A host fact is reused, not minted — and six of the seven "open host calls" on #500 were already
+   decided in the tree.** Read out of each rail's own code at `08c4d5c`, not guessed:
+   `daemon-exclusive-drain` → `daemon-dispatch/DRAIN-HOST` (committed beside the plist, and cited by
+   name in D-0148 rule 4's own `enforced-by`); `doc-freshness` and `hopper-invariants` → `BUILDER-HOST`,
+   gated in executable code in both, so neither gets a new fact; `hook-audit` → every machine, per
+   rule 4; `lesson-plan` and `record-watchdog` → `pi-capture/CAPTURE-HOST` via
+   `record-watchdog/install.sh`, which `reconcile.sh` §3f **does** call by path. The genuinely missing
+   fact was **one**: `infrastructure/blocked-mirror/BLOCKED-MIRROR-HOST`, which `blocked-mirror.sh:35`
+   reads and which did not exist at `08c4d5c` — so line 36 exited 0 silently on every run and the
+   rail had been a no-op by construction since it was written. It now exists, naming `wmpcMacMini1`
+   (#504). Its host is `wmpcMacMini1`, by the same argument §3c
+   makes for `capability-requests`: it needs `gh` plus the service-role key in `cos-dispatch.env`.
+
+6. **`installed-but-unloaded` is a state a committed fact is allowed to mean, and it is not
+   retirement.** `lesson-plan` and `record-watchdog` are installed and not loaded because
+   `RECORDER-ENABLED` is `no` — Ron reversed always-on recording on 2026-10-09, and the installer
+   boots both out on **every** sync by design, leaving the plists installed so enabling is a one-line
+   commit. D-0148 rule 4's "a rail is not installed until its job is loaded" is a measurement, not a
+   target: an unloaded rail with a committed fact saying so is **correct**, and rule 4's sweep reports
+   it as resolved rather than as drift. Reading it as "retired or broken" is how a correct
+   configuration gets reported as a defect, which is rule 4's own hazard.
+
+7. **The evidence is derived from the same enumeration as the provisioning.** `test_selectors.sh`
+   prints the resolved fact per rail. #500's own seven-row table was a hand-built table *of* a
+   hand-built list and was wrong in three places — it reported `record-watchdog` "not mentioned once"
+   when §3f calls its installer by path, reported `daemon-exclusive-drain`'s host open when
+   `DRAIN-HOST` sits in the same directory as the plist, and omitted `fleet-sync` entirely. A list
+   with no gate produces a *report* with no gate, one level up.
+
+**Why.** Both findings are the same sentence: a second copy of a list, kept by hand, with nothing
+comparing it to the first. `CLAUDE.md` already forbids it in terms — *"singletons are enforced in
+code, not by install discipline"* — and `builder-dispatch/DESIGN.md` says the same, which is the
+point: the rule existed and was not a gate, so it was not a rule (D-0071).
+
+What makes this the fourth instance worth a record rather than a fifth bug fix is **what broke**.
+`reconcile.sh` is the gate deployer. While it was a syntax error, none of the eight global hooks
+propagated to any machine — `design-gate` and `push-gate` among them, D-0065's and D-0070's gates —
+and no plist updated. For ~4h the fleet had no installed gates and **nothing said so**, because the
+only thing that could have said so was the thing that was broken. That is the self-sealing shape
+D-0071 exists to prevent, and it reached `main` through the one path this repo had deliberately left
+unwatched. The arithmetic D-0102 opened — D-0102 (a lane with no drain) → D-0117 (a queue
+non-decreasing by construction) → D-0148 (a clock firing on a retired net) → this (a gate with no
+gate on itself) — has now landed in the measuring instrument three times running. The answer is not
+another careful reader; it is that the list builds itself and a check reads the diff.
+
+Adopting CI is a fleet-wide first and is stated here rather than smuggled in behind #499's bug fix.
+It is **one** record and not two: the CI adoption and derived provisioning are one shape, and under
+D-0116 every decision PR collides in the generated `decisions/INDEX.md`, so a second record for the
+same finding costs a merge conflict and buys nothing.
+
+**Forbids.**
+- A hand-written list of plists, hooks, repos or rails in any provisioner, when the set is derivable
+  from committed files. Enumerate, and gate the enumeration against the facts.
+- A required check that depends on a host fact, a credential or the network — including a test script
+  added to the gate before it has been measured to pass without them.
+- A new LaunchAgent whose job is to detect drift that an existing deduped alarm rail can check.
+- A new `*-HOST` file for a rail that already gates on an existing one in code.
+- Reporting a rail as drift when a committed fact says it is deliberately unloaded or deliberately
+  every-machine — and shipping a list-vs-list gate with only two permitted outcomes, which does so.
+- Closing a provisioning finding on a hand-written table of the list in question.
 
 ### D-0151 — The secret scanner takes D-0144's tracked state, published to origin — because tracking it makes both of its writers no-ops
 
