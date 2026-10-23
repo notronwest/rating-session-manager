@@ -3658,6 +3658,37 @@ directed.
 without it gets no convention blocks at all. Those repos are named in `notronwest/daemon#818`'s
 ruling and filed as their own work, not hidden here.
 
+### D-0212 — A reply never repeats a card he has already been sent
+
+*2026-10-23 · scope: `wmpc-meta/conventions/response-style-claude-block.md, CLAUDE.md` · source: Ron 2026-10-23 — "I'm getting discord priority messages so I don't need you to repeat those here."*
+
+**Decision.** An ask, a decision or a finished thing that has already gone to Ron as a Discord
+card **has already reached him**. The reply names it in one clause and links it. It does not
+restate the card's wording, its two choices, or its numbered steps.
+
+1. **The cards are an inbox, not a transcript.** D-0192 narrowed Discord to things that need him
+   and D-0193 widened it to three kinds; D-0211 then made the needs-you card the only thing that
+   pings. The result is a channel he can trust. Re-rendering a card into the chat reply undoes
+   that: it spends the attention the card was built to save, and — worse — it makes him read the
+   same thing twice to work out whether it *is* the same thing, or a second, different ask.
+2. **One clause and a link is the shape.** "The cancel is on your phone as a card" plus the link.
+   Not the headline, not the choices, not the steps.
+3. **The exception is a direct question, and it is load-bearing.** When he asks about the thing,
+   answer it. Answering is not repeating. Without this carve-out the rule would make "what's left
+   on that?" unanswerable, which is the opposite of what he asked for.
+4. **It binds the REPLY only.** The record, the `STATUS.md` entry, the PR body and the card itself
+   still carry the full content — D-0177's two halves are untouched. Nothing here trades rigour
+   for brevity.
+
+**Why it is an amendment and not a new surface.** D-0177 rule 1 already says a reply is a short
+summary and forbids inventorying what you touched. This names the specific duplication that rule
+did not anticipate, because when it was written the cards did not exist yet. The cards changed what
+"already told him" means, and the reply rule never caught up.
+
+**Forbids.** Restating a card's text, its choices or its steps in a reply when a clause and a link
+would do. Treating this as a reason to leave a direct question unanswered. Using it to drop detail
+from the record, the PR body or the card itself.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
