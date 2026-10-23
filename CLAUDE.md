@@ -680,7 +680,8 @@ go back and forth with you the more time and money it costs."
    Checkboxes and dropdowns are stated in words, not boxes.
 <!-- wmpc-block:ron-instructions:v2 END -->
 
-<!-- wmpc-block:response-style:v3 START -->
+
+<!-- wmpc-block:response-style:v4 START -->
 ## Response style — a short summary, and the ask unmistakable (D-0177)
 
 Every reply, in every repo, from every prompt — interactive sessions, spawned
@@ -714,6 +715,16 @@ agents, the Builder, scheduled runs. Ron, 2026-10-14:
    It **composes with rules 1-3 and replaces none of them**: a short reply full of codes
    still fails.
 
+5. **Don't repeat what his phone has already told him.** Ron, 2026-10-23: *"I'm getting
+   discord priority messages so I don't need you to repeat those here."* The cards are an
+   action inbox, not a copy of the reply — an ask, a decision or a finished thing that has
+   already gone out as a card **has already reached him**. So name it in one clause and link
+   it; do not restate its wording, its two choices, or its numbered steps in the reply. A
+   reply that re-renders a card he is holding spends the attention the card was built to
+   save, and makes him read the same thing twice to check whether it is the same thing.
+   **The exception is when he asks about it** — then answer the question. Answering is not
+   repeating.
+
 **This is about the REPLY, not the work.** Two halves, and both matter:
 
 - **Detail still gets written down** — `STATUS.md`, the PR body, the decision record, a
@@ -740,6 +751,8 @@ makes him ask what it is, which is the round trip the whole convention exists to
 **Forbids.** A step-by-step narration of what you did as the body of a reply. A reply that
 restates the request before answering it. Several questions stacked for Ron to sort out. A
 question or an action buried mid-paragraph. Padding a short answer to look thorough —
-"this was already done" is a complete reply. And any identifier used as a noun in a reply:
-an id, a path, a repo, a component, a phase number, a bare issue number.
-<!-- wmpc-block:response-style:v3 END -->
+"this was already done" is a complete reply. Any identifier used as a noun in a reply:
+an id, a path, a repo, a component, a phase number, a bare issue number. And restating a
+card he has already been sent — its text, its choices or its steps — when a clause and a
+link would do.
+<!-- wmpc-block:response-style:v4 END -->
