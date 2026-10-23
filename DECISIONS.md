@@ -3486,6 +3486,51 @@ the rail change that makes an off-list action run and report instead of becoming
 refusing stage lands, the list binds by being read, which is weaker than this register's usual bar
 and is stated here rather than hidden.
 
+### D-0208 — The stop list is a synced block in every repo, and D-0068 rule 1 is 'do it', not 'ask first'
+
+*2026-10-23 · scope: `wmpc-meta/conventions/stop-list-claude-block.md, wmpc-meta/conventions/ron-instructions-claude-block.md, wmpc-meta/conventions/response-style-claude-block.md, wmpc-meta/conventions/claude-bootstrap.sh, agents/cto/agents/builder/PROMPT.md, agents/cto/agents/reviewer/PROMPT.md, agents/chief-of-staff/**, infrastructure/cos-dispatch/**, infrastructure/capability-registry/render-preamble.sh` · source: Ron 2026-10-23, after the stop-list gate went live — "And this would be true for all repo agents? Including the builder?" (notronwest/daemon#818)*
+
+**Decision.** The answer to Ron's question is yes, everywhere, and this record makes it true in
+writing as well as in the database.
+
+1. **The stop list is a convention block.** `wmpc-meta/conventions/stop-list-claude-block.md`
+   carries the eight rows of `agents/STOP-LIST.md` **verbatim** (a diff of the table rows is the
+   check), the two corrections that ride with them (money is not the gate — D-0197; his directive
+   is the approval — D-0198, D-0204), and the pointer that `agents/STOP-LIST.md` is authoritative
+   and mirrored into `public.cos_stop_list`. It syncs into every repo's `CLAUDE.md` like the
+   response-style block.
+2. **D-0068 rule 1 is amended** from *"Do it yourself, but ask first … steps on the whitelist need
+   no ask"* to *"Do it yourself — do it and say you did; only a stop-list row waits for Ron."*
+   Rules 2–4 of D-0068 (how a step that IS his is written) are unchanged. The same edit is made
+   in the response-style block's pointer to it and in daemon's own `CLAUDE.md`.
+3. **The Builder, the Reviewer and Rachel speak in the stop list's terms.** The Builder never
+   Blocks a card to ask permission for an off-list action; a product choice the spec leaves open
+   is made, noted, and raised with the `QUESTION FOR RON:` line. The Reviewer escalates only for a
+   stop-list row Ron has not directed, or an architecture question routed to daemon — never for
+   newness, size or a cost. Rachel's "gated set" (which still carried blanket *spend money* and
+   *anything genuinely unfamiliar*) is replaced by the eight rows; her whitelist stops being a
+   permission list and becomes the switches for row-1 sends Ron has directed her to run.
+4. **Structural gates are not permission asks, and stay.** The Builder never merges or pushes
+   `main`; the destructive-DDL and money-code Blocks stay, because those are where a reviewed
+   merge reaches rows 2 and 4 at the next promotion. The block says so in terms, so nobody reads
+   them as "when in doubt, ask".
+5. **A per-repo row is a decision record, never a local edit.** The block is overwritten on every
+   sync; a repo that needs a row the others do not gets a record here first, and then the list.
+
+**Why.** D-0207 shipped the gate in the database, which binds every writer, but the written rule
+lived only in daemon. Every other repo's `CLAUDE.md` carried the D-0068 block that told an agent
+to ask unless a whitelist row covered the step — so Mr. Robot in any product repo, and every repo
+session, read the old model. A permission rule that only one repo can read is not fleet-wide.
+
+**Forbids.** A repo copy of the block that drops, softens or re-words a row, or adds a "when in
+doubt, ask" line — that defeats the list in the direction that looks safe. Treating a whitelist
+row as a grant of permission for anything not on the stop list. Re-asking a row Ron has already
+directed.
+
+**Known gap.** The bootstrap shim exists in only some repos (D-0151 measured 8 of 14); a repo
+without it gets no convention blocks at all. Those repos are named in `notronwest/daemon#818`'s
+ruling and filed as their own work, not hidden here.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
