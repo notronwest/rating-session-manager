@@ -3142,6 +3142,44 @@ look thorough. And the inverse, which is equally a violation: going quiet or goi
 without writing the detail into STATUS.md, the PR body or the record — this decision is not
 licence to stop recording, or to stop verifying.
 
+### D-0194 — A new capability is found with two cheap confirmations and a screenshot, and is not built until the service, the MCP and the registry all carry it
+
+*2026-10-21 · scope: `**capabilit*, **discord*, agents/chief-of-staff*, **MCP*, **membership*` · source: Ron 2026-10-21, verbatim — "This new system would have you ask me 'can we drive CR to cancel a membership on a date' / I say yes that exists / You try and find it maybe send me screenshots to confirm / I say yes / You build and add it into CRAPI and our MCP and everyone learns that it exists." Said after being offered a supervised tracing session, which this replaces.*
+
+**Decision.** When an ask needs a capability the fleet does not have, the architect does **not**
+book a supervised session and does **not** guess at a third-party UI. It runs four beats, and
+Ron's whole part is two short answers:
+
+1. **The product question, one line:** *"Can we drive Court Reserve to cancel a membership on a
+   date?"* — answerable from what he already knows, no screenshots, no context.
+2. **Go and find it.** The repo that owns the boundary drives the live system with its own
+   credentials and **sends back a screenshot of the screen it believes is the one.**
+3. **He confirms the screen** — or corrects it in a sentence. That is the trace, and it costs him
+   a glance.
+4. **Build it and register it.** The service capability, the action kind on the approval rail, the
+   MCP surface, the generated capability list, the docs. **A capability that exists in code but
+   not in the list has not been learned** — it is invisible to every agent that would use it, which
+   is the difference between "we built it" and step 6's *"everyone learns that it exists."*
+
+**Test data in a live third-party system is created only when its removal is already proven**, and
+the PR either proves each object was removed or states that none were created (Ron, same day:
+*"if we need to create dummy users just to test some of these make sure they get deleted"* — which
+is currently unsatisfiable for Court Reserve members, so the default is to trace a real event).
+
+**Why.** Ron's time is the constraint, and the two things he is uniquely fast at are *does this
+exist in the product* and *is that the right screen*. Both are seconds. What is slow and expensive
+is sitting beside a session watching it click, which is what I offered and he refused. The
+screenshot is doing real work here: it converts an unverifiable claim ("I found the cancel flow")
+into something he can reject in one glance, before anything is written to a live system. And
+closing on the registry is what makes the loop compound — without it the fleet re-learns the same
+capability every few weeks, which is the pattern that produced this record.
+
+**Forbids.** Booking Ron to watch a UI be traced. Inventing selectors for an untraced screen.
+Shipping a capability without its registry entry and its MCP / action-kind surface. Creating test
+objects in a live third-party system whose deletion has not been proven. Asking him the product
+question and the screen question in the same breath — the first is cheap because it carries no
+evidence, and bundling them makes both expensive.
+
 ### D-0196 — A schedule is not a limit — run it now, or name the cost and ask, but never report an incapacity that is only a cron time
 
 *2026-10-22 · scope: `agents*, **PROMPT*, **ROLE*, infrastructure*, **OBJECTIVES*` · source: Ron 2026-10-22, on being told the member data could not answer a question because it refreshes at 05:00 — "If there is a deadline to meet would you say 'sorry I can't because the job that is scheduled for 5 am only runs at 5 am'? Any program that can run at 5am can run at 10:28PM. The only thing that would hold that up is financial -- but even that should be met with: Yo, ron -- totally could run this thing -- and if its important that we get this done by 'x' we NEED to run this -- it will cost 'z' -- run it?? I want THAT logic -- all the time -- especially from you"*
