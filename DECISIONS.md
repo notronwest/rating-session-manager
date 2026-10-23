@@ -3440,6 +3440,52 @@ is *said*, not what is done — the same shape as D-0196 and D-0197. It catches 
 a fix and names no reason, which is the step where the omission becomes invisible. It cannot tell a
 real root cause from a plausible sentence, and nothing but review can.
 
+### D-0207 — The stop list is the whole of it — act by default, and eight things wait for Ron
+
+*2026-10-23 · scope: `agents/STOP-LIST.md, agents/WHITELIST.md, public.cos_approvals, infrastructure/cos-dispatch*, infrastructure/builder-dispatch*, agents/**` · source: Ron 2026-10-23, after a session relayed three pending approvals to him — "Can't you run this stuff without permissions? I thought it was about not promoting. I need you to be more autonomous. Can we define a black list?"*
+
+**Decision.** **The permission model is a stop list, and everything not on it is simply done.**
+
+Eight things wait for Ron, and they are written out in `agents/STOP-LIST.md`: anything a member or
+the public receives; money moving on a member's account; promotion to production; destroying
+something that holds history; ending or changing a member's membership; committing the club to
+someone outside it; anything from his personal life; and changing the list itself.
+
+**The inversion is the point.** `WHITELIST.md` listed what an agent could do without asking, so
+everything unlisted was an ask by default — and a list of permitted steps can never grow as fast as
+the work does. The result was his inbox: three approvals waiting on a morning when none of the three
+was his kind of decision. A stop list fails the other way, which is the way he has asked for twice
+in two days: *"you gotta start moving with me — not against me"*, and now *"I need you to be more
+autonomous."*
+
+**Two rows carry a correction that was already ruled and had not reached the list.**
+
+- **Money is not the gate** (D-0197). Spending that buys a capability or serves a member is done and
+  the number reported afterwards. What stops is money moving **on a member's account** — a charge, a
+  refund, a credit, a change to what they pay. The old whitelist's blanket "spending money" was
+  wider than his ruling and kept pulling him into decisions he had already delegated.
+- **His directive IS the approval** (D-0198, D-0204). A row on the stop list that he has already
+  directed is acted on, not re-asked. Re-asking is itself the failure, and it happened the same
+  morning: an approval asked him whether a tool should halt rather than write blind, which had
+  already been ruled a defect the night before.
+
+**What it does not change.** The eight rows are stricter than they look: rule 1 covers a price a
+member can see, not just an email; rule 3 covers a production schema change, not just a deploy. And
+the standing exception holds in both directions — a member being harmed is put right first (D-0197),
+and the fact that something is urgent never moves it off the list on its own.
+
+**Why a list and not judgement.** An agent asked to decide "is this important enough to ask about?"
+answers yes, because asking is the safer-feeling error. That is how the inbox filled. The list
+removes the judgement: a thing is on it or it is not.
+
+**Enforcement, and the honest staging.** The list is data, and the approvals rail must refuse to
+raise a `pending` row for an action that is not on it — otherwise the default quietly stays "ask".
+That trigger ships **logged first, then refusing**, because several live lanes write `action_kind
+= 'other'` and would break at 5am otherwise; the staging is in `notronwest/daemon#818` along with
+the rail change that makes an off-list action run and report instead of becoming a card. Until the
+refusing stage lands, the list binds by being read, which is weaker than this register's usual bar
+and is stated here rather than hidden.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
