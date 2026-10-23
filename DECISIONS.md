@@ -3689,6 +3689,50 @@ did not anticipate, because when it was written the cards did not exist yet. The
 would do. Treating this as a reason to leave a direct question unanswered. Using it to drop detail
 from the record, the PR body or the card itself.
 
+### D-0213 — The permission lists land in every repo, not just on every machine
+
+*2026-10-23 · scope: `infrastructure/claude-settings/**, infrastructure/convention-sync/publish-conventions.sh, infrastructure/git-guards/pre-push, .claude/settings.json` · source: Ron 2026-10-23 — "I'm still getting asked to run select sql."*
+
+**Decision.** The fleet's reviewed permission lists are delivered to **two** destinations,
+not one: this machine's `~/.claude/settings.json` (as before) **and** every repo's
+committed `.claude/settings.json`.
+
+1. **Because a machine is not where every session runs.** `install.sh` converges a file in
+   `$HOME`. A session started from the cloud or from Ron's phone has no such file — it
+   reads the **repo's** settings. Measured 2026-10-23: **daemon was the only repo in the
+   fleet with a `.claude/settings.json` at all.** Every grant this component has ever made
+   reached his desktops and nowhere else, so a phone session prompted on every call,
+   including a read-only `select`.
+2. **One implementation (D-0049).** `install.sh --target <path>` runs the same additive
+   merge against a repo's file. Not a second script, not a copied merge — a copy is
+   exactly how the machine list and the repo list would drift, which is the failure this
+   component was built to prevent. A `--target` run exits after the merge, because
+   everything after it converges a *machine* and a throwaway clone is not one.
+3. **Published like the scanners, not like `CLAUDE.md`.** Unconditionally, to every repo,
+   shim or no shim — the file is a byte-for-byte render of committed lists and needs no
+   per-repo generation. D-0151 made exactly this call for `scan-secrets.sh` and the same
+   reasoning holds.
+4. **It refuses rather than truncates.** A partially written settings file silently
+   *removes* permissions a repo had, which reads to a human as "Claude broke" and sends
+   them hunting in the wrong place. The publisher omits it and says so in the log.
+5. **D-0151 rule 3's allowlist is amended** to include `.claude/settings.json`, anchored to
+   that exact path. Without it the publisher cannot push its own output to a protected
+   branch — the identical hole D-0151 fixed for the scanner.
+
+**What this does NOT do, stated because the opposite will be assumed.** It grants nothing
+new: every entry is already in `allow.txt` / `ask.txt` / `mcp-servers.txt` and already
+reviewed through a PR. And it does not change the harness's own auto-approval classifier —
+a call can still be refused or prompted when the allowlist names it, which happened twice
+while this record was being written. **If a session is still prompting on something listed
+here, that is the layer to look at, and no file in this repo moves it.** Saying so is the
+point: the alternative is adding entries forever to a list that was never the thing
+refusing.
+
+**Forbids.** A second copy of the merge. A per-repo hand-edited `.claude/settings.json`
+that the publisher will overwrite (a repo needing something others do not gets a record and
+a list entry). Widening the pre-push allowlist to `.claude/` as a directory. Publishing a
+settings file that could not be rendered whole.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
