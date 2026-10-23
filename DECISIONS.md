@@ -2832,6 +2832,57 @@ Re-labelling an issue that carries `ruled`. Adding a rail's own artifact to a re
 allowlist instead of excluding it at the writer (D-0144). Installing a rail whose committed enable
 fact says `no`, or re-filing an approval Ron has denied.
 
+### D-0157 — A colour is measured where it is used, and a brand fill is not text ink
+
+*2026-10-13 · scope: `web/src/tokens.css, design-system/tokens.css, docs/DESIGN_PREFERENCES.md, docs/BRAND.md, infrastructure/design-gate/**` · source: Ron 2026-10-13, on the table's output — "yes to D-0157, do the wmpc-meta tokens first". Originally: club-dashboard's design gate (D-0065) measured --primary #007cff at 3.94:1 on white, on every link and button label in the dashboard, and left it below the line on five consecutive passes because repainting a brand colour is not a branch's call (club-dashboard #507, 2026-10-12). Table of five repo voices run 2026-10-13 — five concerns, no veto; every ratio below computed from the token files on origin/main, not quoted.*
+
+**Decision.** Four parts, and part 2 is the one that is usually got wrong.
+
+1. **The floor binds where a colour is used, not where it is declared.** 4.5:1 for text under
+   24px (19px bold), 3:1 for larger text and for the boundary of a control — measured against the
+   surface the text actually sits on. For this fleet that is **two** surfaces, not one: `--surface`
+   / `--bg` *and* `--surface-sunken` (table zebra, wells, inset rows). A value that passes on white
+   and fails in a table row fails.
+2. **A fill that carries a label is measured against its label.** "Brand fill is not text ink" is
+   half the rule, and alone it is wrong, because contrast is symmetric: white on `#f97316` is the
+   same 2.80:1 as `#f97316` on white. So a brand keeps its fill only if the label on it passes —
+   by darkening the fill, or by putting a dark label on it (navy `#05052d` on TSA orange is
+   **7.03:1**). An ink token does not rescue a filled button.
+3. **Text gets an ink token of the same hue; no brand value is repainted as "drift".**
+   `--<name>-ink` is a darkened sibling that passes on both surfaces; links, labels and
+   meaning-bearing icons use it, the fill token fills. club-dashboard already ships exactly this
+   (`--brand-green-ink #2f7a00`, 5.38:1) and third-shot-academy's brand brief already names its
+   ink (`#C2410C`, 4.88:1 on its cream). **`#007cff` and `#2563eb` are declared brand values, not
+   drift** — the first session to look called club-dashboard's blue drift and was wrong.
+4. **wmpc-meta fixes its own template first.** The canonical set violates the rule it would
+   publish: `--primary #1a73e8` is 4.51:1 on white but **4.05:1 on `--surface-sunken`**;
+   `--text-subtle #9ca3af` is **2.54:1** while being declared for "empty-state" (disabled and
+   placeholder are exempt under WCAG 1.4.3; empty-state prose is not), `--warning #d97706` is
+   **3.19:1**. Each gets a measured ink sibling or a recorded exemption naming which use is exempt.
+
+Then each product repo converts in its own change, behind its own D-0047 phone gate.
+
+**Why.** The number was already written (design checklist #14) and still shipped, because it bound
+on diffs instead of on the thing that decides thousands of pixels at once. Five voices priced it and
+none of them disputed the floor; what they showed is that the obvious enforcement is theatre. A
+check over declared tokens reports green in **tournament-manager** while 50 raw `#2563eb` literals
+and 26 inline `color:` declarations render the customer-facing registration path, and in
+**rating-session-manager** while the brand blue is hardcoded as 12–13px link text and `#999`
+(2.85:1) dates sit on white. That is why enforcement stays on rendered pixels. The bill is real, and
+Ron accepted it when he made this active (2026-10-13): 124 `color: var(--primary)` call sites in
+club-dashboard, 60 in third-shot-academy across 29 files, a hex-to-token migration in the other two,
+and a hand-copy propagation step in wmpc-meta, which has no CI to hang a check on. Active does not
+mean paid: it is paid in the order the Decision sets — wmpc-meta's tokens first (wmpc-meta#51), then
+each product repo converts in its own change — and until a repo's change lands, its unconverted call
+sites are known debt under this record, not evidence that the record is not yet binding.
+
+**Forbids.** Shipping a colour as text without measuring it against every surface it lands on.
+Calling another repo's declared brand value "drift" and repainting it. Claiming the ink/fill split
+fixes a filled button. Letting a token-level checker stand in for the rendered-pixel gate, or a
+repo report compliance while its colour is raw hex at the call site. Re-arguing the ratio in a
+design-gate pass once this record is active — a value that fails is fixed here, in the register,
+not noted again below the line.
+
 ### D-0161 — A pause covers one phase, and the phase it covers is named in code
 
 *2026-10-13 · scope: `infrastructure/builder-dispatch/**, **HALT*` · source: Ron, 2026-10-13 — "narrow the halt — no new cards, rework continues", answering the call D-0128 explicitly left to him; found while draining the Blocked + In Review queues (STATUS 2026-10-13)*
@@ -3739,7 +3790,6 @@ settings file that could not be rendered whole.
 - D-0104 — Court 4 audio: switchd becomes the single reader of the baseline mic and fans it out, so every Court 4 leg carries the same live audio regardless of which angle is on air (2026-10-08)
 - D-0107 — A live court mic on Court 4's public stream — PROPOSED, vetoed at the table: Ron accepted the Content ID risk but was not told about New Hampshire all-party consent, customer recordings, or the unauthenticated LAN mic (2026-10-08)
 - D-0153 — The CTO stands up with every repo on a schedule, and the fleet map is a committed artifact (2026-10-12)
-- D-0157 — A colour is measured where it is used, and a brand fill is not text ink (2026-10-13)
 
 ## Superseded (history)
 
