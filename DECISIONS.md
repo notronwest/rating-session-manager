@@ -3784,6 +3784,59 @@ that the publisher will overwrite (a repo needing something others do not gets a
 a list entry). Widening the pre-push allowlist to `.claude/` as a directory. Publishing a
 settings file that could not be rendered whole.
 
+### D-0218 — A SQL tool may read live club data and never write it, and the gate reads the statement
+
+*2026-10-24 · scope: `scripts/wmpc-sql-gate.sh, infrastructure/claude-settings/**` · source: Ron 2026-10-24, on being told that setting Execute SQL to allowed removes the last confirmation in front of the live club database — "Make sure the gate is deployed everywhere even if that means I have to abandon all running sessions."*
+
+**Decision.**
+
+1. **A SQL tool may read live club data. It may not write it.** The gate returns
+   `deny` for anything that is not plainly a read, and the refusal names the route:
+   put it to Ron as one ask, or make a schema change through a migration, which he
+   approves at the connector.
+2. **The gate reads the statement, because nothing else can.** A permission rule
+   knows which tool was called, never what the call would do — and for a connector
+   tool it does not apply at all (D-0217). A `PreToolUse` hook receives
+   `tool_input.query`.
+3. **It judges normalised text, literals first.** String literals are stripped before
+   anything else, so `where action = 'delete'` is a read: a gate that cries wolf on
+   ordinary queries is a gate someone switches off, and that is a slower way to lose
+   it. Then comments, then case. A statement must **both** open with a reading verb
+   **and** carry no writing keyword anywhere, because `with gone as (delete …
+   returning *) select …` is a delete that opens with `with`.
+4. **It fails closed.** No input, no `jq`, an unparseable statement, an empty query,
+   more than one statement in a call — all denied. The hook command is its own shim,
+   so a repo that has the settings and not the script yet denies and says why rather
+   than waving writes through.
+5. **What is measured, and what is not.** Measured: the club connection runs as
+   `postgres` with `transaction_read_only = off` — full DML and DDL on live member
+   data; the gate's own verdicts, 26 of them; and that the settings and the gate
+   publish together. **Not yet measured: that a `PreToolUse` hook intercepts a
+   connector tool at all.** A seeded session on this branch stopped on an MCP dialog
+   before any tool call was attempted, so no `PreToolUse` event was recorded either
+   way. The gate is shipped because it can only reduce risk and it fails closed — not
+   because it has been seen to fire. **The next session to see a SQL call in a repo
+   carrying this must check for a `PreToolUse` hook event and record the answer
+   here.** If hooks do not reach connector tools, this rule needs a different
+   instrument, and saying so now is cheaper than discovering it after a delete.
+
+**Why.** Three days of work went into removing a permission prompt that was asking
+about harmless reads, and it ended at the connector's own per-tool setting. Turning
+that to allowed is right — and it removed the only mechanical thing standing in front
+of `delete from …` on live member data. The stop list already says destroying
+something that holds history waits for Ron; D-0071 says a rule with nothing behind it
+is not a rule. This is that rule with something behind it.
+
+**Why deny rather than ask.** An ask in front of every write rebuilds the tollbooth
+that was just removed, and trains the click. A write is rare, it is on the stop list,
+and the honest shape is: it stops, and he is told once, in words, what it would have
+changed.
+
+**Forbids.** Writing to live club data through a raw SQL tool. Loosening the gate to
+make a statement pass instead of putting the ask to Ron. Publishing the hooks block
+without the gate script, or either without the publish key covering it. Claiming the
+gate is proven to fire before rule 5's check has been run and recorded.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
