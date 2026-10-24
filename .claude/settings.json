@@ -77,7 +77,8 @@
       "Bash(gh pr merge --repo notronwest/wmpc-web:*)",
       "Bash(gh pr merge --repo notronwest/club-dashboard:*)",
       "Bash(gh pr merge --repo notronwest/third-shot-academy:*)",
-      "Bash(gh pr merge --repo notronwest/tournament-manager:*)"
+      "Bash(gh pr merge --repo notronwest/tournament-manager:*)",
+      "mcp__claude-code-remote__add_repo"
     ]
   },
   "enabledMcpjsonServers": [
