@@ -3903,6 +3903,66 @@ record or a `DESIGN.md` — **going quiet while skipping the write-up or the ver
 the one failure this rule must not cause**, and refusing earlier makes that failure
 cheaper to reach, not more acceptable.
 
+### D-0220 — A board column that disagrees with its issue is a lie the board tells Ron
+
+*2026-10-24 · scope: `infrastructure/builder-dispatch/**` · source: Ron, 2026-10-24, holding the Roadmap board's In Review column on his phone*
+
+**Decision.**
+
+1. **A card whose issue is CLOSED may not sit in a live column.** The reconcile keys on the
+   issue's own state — the authoritative fact — not on PR state, and not only on one column.
+   It moves the card to `Done` and writes no issue state, ever. It only moves columns.
+2. **`In Review` means a human decision is pending, and the human must be able to see it.**
+   A card in that column either carries an actionable card on Ron's phone — one he can act on,
+   with the two real answers as buttons (move it along / close it) — or it is in the wrong
+   column and belongs in `Blocked` or `In Progress`. A column that says a person is needed
+   while nothing reaches that person is the same failure as no column at all.
+3. **An OPEN issue is never moved by any of this.** Someone's live work outranks tidiness.
+
+**Why.**
+
+Ron, 2026-10-24, looking at five cards in `In Review`: *"I'm still not understanding why they sit
+there. If it's in review it needs me I should see an ACTIONABLE card to either move it along or
+close it."*
+
+**Three of those five had been finished for two to five months.** `third-shot-academy#448` closed
+2026-08-30 with its function live on PROD; `tournament-manager#236` closed 2026-06-12;
+`tournament-manager#263` closed 2026-06-11, its migration confirmed on `origin/production`.
+
+**The mechanism, and why it was invisible.** `builder-dispatch.sh` already reconciled board
+columns — but only read cards *already in* `In Progress`, and keyed on **PR** state. So `In
+Review` was **terminal by neglect**: nothing ever read a card once it arrived there. An issue
+closed by hand, or closed before the dispatcher existed, kept its column forever. The write path
+existed and worked the whole time; it was simply never pointed at the right question. Keying on
+PR state is also what let `courtreserve-api#261` sit in `In Review` reading as nearly-done while
+`issue_refund()` raises `RefundNotTraced` unconditionally and **zero charges can be reversed** —
+its PR merged, so the card advanced; the capability does not exist. That is rule 2's case.
+
+**Why the fix belongs on the Builder host and nowhere else.** Measured across four sessions on
+2026-10-24: the GitHub MCP server exposes no Projects v2 tools, and `gh` in a cloud container is
+unauthenticated (`gh auth status` → "The token in GH_TOKEN is invalid"). Board writes exist only
+where the token does. So this is not a check that could have lived in CI or in a session — it
+belongs beside the dispatcher that already holds that credential, under the same host gate and
+the same lock (D-0002).
+
+**Why moving a card unattended is safe.** Closing an issue is a human or a merge saying the work
+is over, and `Done` is where the board says that. The move is reversible by a drag, writes
+nothing outside the board, and a reopened issue is picked up by the existing passes. `stateReason`
+is carried into the log so a not-planned close is legible as such; it does not change the
+destination, because this board has no cancelled column and `In Review` is a worse lie than
+`Done`.
+
+**Forbids.**
+
+- Closing an issue to make a column agree. This moves columns only; issue state is never written.
+- Moving a card whose issue is OPEN, in any column, for any reason.
+- Treating a merged PR as evidence the work is done. A merged PR means code landed; rule 2 exists
+  because `#261` proves those are different things.
+- Leaving a card in `In Review` with nothing reaching Ron — the condition rule 2 names. Until
+  daemon#873 lands this is unenforced and therefore still possible, which is stated here rather
+  than discovered later.
+- Re-writing a card already in `Done` on every tick. Churn on a board Ron reads is its own noise.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
