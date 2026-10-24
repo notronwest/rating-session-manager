@@ -3857,6 +3857,52 @@ without the gate script, or either without the publish key covering it. Describi
 protection for a connector SQL tool, or building anything on it, while rule 5 stands.
 Taking a destructive connector tool off "ask" at the connector.
 
+### D-0219 — A rule about what a turn writes is gated while it writes it — the narration gate fires at the tool call, not at Stop
+
+*2026-10-24 · scope: `infrastructure/reply-gate/**` · source: Ron 2026-10-24, sending four screenshots of a single turn rendered as a running commentary — "Cluster is up. Let me check which of the source tables the repo's own migrations create.", "Now let me validate the migration against the scratch cluster.", "The sandbox is interfering with the cluster's data directory. Let me relocate it.", "Now let me write the proof, then apply and run both." — with: "We need a better hook/gate regarding reporting back on 'doing this and this and this' vs the short summary which saves us tokens. Need to be lean."*
+
+**Decision.**
+
+1. **A gate fires at the moment that can still change the outcome.** D-0189 rule 5 was
+   gated at `Stop`. By then every line of the commentary has been written and billed, and
+   the refusal buys a **second** turn to rewrite a closing reply whose fault was the eight
+   lines before it. The rule was enforced and the waste was total: the gate was correct
+   about the violation and useless about the cost. Firing point is part of a gate's
+   design, not an implementation detail.
+
+2. **So the narration rule is enforced twice, and the live half is the one that saves
+   anything.** A `PreToolUse` hook counts the turn's narration blocks as they land and
+   refuses the next tool call the moment the count reaches the cut. Blocks 4 through N are
+   never generated, and the Stop refusal never happens. The turn Ron sent scored eight
+   under the Stop half; under the live half it stops at three.
+
+3. **Two firing points, ONE definition.** The live half does not get its own idea of what
+   counts. Same narration block (prose, no question, 60 words or fewer), same cut, same
+   carve-outs, same subagent exemption. Two gates for one rule may differ in *when* they
+   fire and in nothing else — otherwise a session learns to satisfy one and trip the
+   other, which is worse than a single late gate.
+
+4. **A correction obeyed is not charged twice.** The live half leaves the count it fired
+   at; the Stop half refuses only if the narration kept going past the warning. Without
+   that the lean fix would cost the extra turn it was built to remove, and the fleet would
+   have paid for the rule twice in the same turn.
+
+5. **A hook on every tool call must be lean itself, or it is the new cost.** This one
+   reads the transcript **incrementally** — a byte offset per session, only the bytes
+   appended since the last call, only complete lines — rather than slurping the file the
+   way the Stop half can afford to three times a turn. The first call of a session reads
+   from the start once, so its turn number matches the Stop half's exactly; every call
+   after that parses a few hundred bytes. A gate that adds a second of latency to every
+   tool call gets switched off, which is the same failure as a gate that fires on a
+   correct reply.
+
+**What this does not change.** Rule 5's carve-outs stand exactly as written: a genuine
+question that must be asked to continue, a warning that cannot wait, and ONE brief note
+before a single long-running step. The detail still goes to `STATUS.md`, the PR body, the
+record or a `DESIGN.md` — **going quiet while skipping the write-up or the verification is
+the one failure this rule must not cause**, and refusing earlier makes that failure
+cheaper to reach, not more acceptable.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
