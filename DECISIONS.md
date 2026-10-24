@@ -3784,7 +3784,7 @@ that the publisher will overwrite (a repo needing something others do not gets a
 a list entry). Widening the pre-push allowlist to `.claude/` as a directory. Publishing a
 settings file that could not be rendered whole.
 
-### D-0218 — A SQL tool may read live club data and never write it, and the gate reads the statement
+### D-0218 — A SQL tool may read live club data and never write it — and the hook built to enforce it does not fire for a connector tool
 
 *2026-10-24 · scope: `scripts/wmpc-sql-gate.sh, infrastructure/claude-settings/**` · source: Ron 2026-10-24, on being told that setting Execute SQL to allowed removes the last confirmation in front of the live club database — "Make sure the gate is deployed everywhere even if that means I have to abandon all running sessions."*
 
@@ -3808,17 +3808,24 @@ settings file that could not be rendered whole.
    more than one statement in a call — all denied. The hook command is its own shim,
    so a repo that has the settings and not the script yet denies and says why rather
    than waving writes through.
-5. **What is measured, and what is not.** Measured: the club connection runs as
-   `postgres` with `transaction_read_only = off` — full DML and DDL on live member
-   data; the gate's own verdicts, 26 of them; and that the settings and the gate
-   publish together. **Not yet measured: that a `PreToolUse` hook intercepts a
-   connector tool at all.** A seeded session on this branch stopped on an MCP dialog
-   before any tool call was attempted, so no `PreToolUse` event was recorded either
-   way. The gate is shipped because it can only reduce risk and it fails closed — not
-   because it has been seen to fire. **The next session to see a SQL call in a repo
-   carrying this must check for a `PreToolUse` hook event and record the answer
-   here.** If hooks do not reach connector tools, this rule needs a different
-   instrument, and saying so now is cheaper than discovering it after a delete.
+5. **MEASURED, AND THE ANSWER IS NO: a `PreToolUse` hook does not fire for a
+   connector tool.** The first version of this rule said the question was open and
+   asked the next session to settle it. It settled within the hour, on the same
+   seeded session once it finished: it made two SQL calls — the read returned `1`,
+   the write was held — and its transcript carries exactly two hook events, both
+   `SessionStart` and `Stop`. **Zero `PreToolUse` events, and the gate's own refusal
+   text appears nowhere.** So `scripts/wmpc-sql-gate.sh` is shipped and **inert for
+   the tool it was built for**. It is kept, because it costs nothing, fails closed,
+   and is correct the moment hooks reach these tools — but **nothing may be built on
+   it, and it must not be described as protection**.
+6. **What actually stops a write today, measured on the same run: the connector's own
+   confirmation.** With Execute SQL set to allowed, the read ran with no prompt and
+   the `delete` stopped and asked. That is the shape this decision wanted, enforced
+   one layer further out than intended. It follows that **the destructive tools stay
+   on "ask" at the connector** — apply migration, deploy edge function, delete/merge/
+   rebase/reset branch, create/pause/restore project — and that this, not a repo
+   file, is where the club's write protection lives until hooks reach connector
+   tools.
 
 **Why.** Three days of work went into removing a permission prompt that was asking
 about harmless reads, and it ended at the connector's own per-tool setting. Turning
@@ -3834,8 +3841,9 @@ changed.
 
 **Forbids.** Writing to live club data through a raw SQL tool. Loosening the gate to
 make a statement pass instead of putting the ask to Ron. Publishing the hooks block
-without the gate script, or either without the publish key covering it. Claiming the
-gate is proven to fire before rule 5's check has been run and recorded.
+without the gate script, or either without the publish key covering it. Describing this gate as
+protection for a connector SQL tool, or building anything on it, while rule 5 stands.
+Taking a destructive connector tool off "ask" at the connector.
 
 ## Proposed (not binding yet)
 
