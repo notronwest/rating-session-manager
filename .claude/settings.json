@@ -71,7 +71,16 @@
       "mcp__github__merge_pull_request",
       "mcp__github__get_file_contents",
       "mcp__github__list_issues",
-      "mcp__github__list_pull_requests"
+      "mcp__github__list_pull_requests",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__execute_sql",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__apply_migration",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__list_tables",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__list_projects",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__list_migrations",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__list_extensions",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__get_advisors",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__get_project_url",
+      "mcp__0c815e03-c5ea-42bf-90fd-05ba70d9a12f__search_docs"
     ],
     "ask": [
       "Bash(gh pr merge --repo notronwest/wmpc-web:*)",
