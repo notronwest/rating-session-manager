@@ -88,5 +88,20 @@
     "cloudflare-bindings",
     "cloudflare-observability",
     "courtreserve"
-  ]
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "execute_sql|apply_migration",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -x \"$CLAUDE_PROJECT_DIR/scripts/wmpc-sql-gate.sh\" ]; then exec bash \"$CLAUDE_PROJECT_DIR/scripts/wmpc-sql-gate.sh\"; else printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"The SQL write gate is not installed in this repository, so nothing can tell a read from a delete here. Refusing rather than guessing. Reads resume as soon as the repo is synced; if this is urgent, run the query from a session in the daemon repo.\"}}'; fi",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
 }
