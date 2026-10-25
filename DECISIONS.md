@@ -3320,6 +3320,46 @@ look thorough. And the inverse, which is equally a violation: going quiet or goi
 without writing the detail into STATUS.md, the PR body or the record — this decision is not
 licence to stop recording, or to stop verifying.
 
+---
+
+**Amendment, 2026-10-25 — a claim of absence is a claim, and it is refused without a place.**
+
+Ron: *"This has happened multiple times -- where the session has made an assumption about
+how something works only to find that it didn't work that way -- make this hook and ensure
+that no sessions do this in the future."*
+
+Four cases, two of them from that day. A session told him the Court Reserve service could
+not register or unregister members; pushed back, it looked and wrote *"I was wrong, and you
+were right... I went and looked at the Court Reserve service rather than taking my earlier
+answer as settled."* A session said a write path had drained zero rows in its entire
+history; four changes had already gone through it, and only the drain's log had been read —
+a log that records polls finding nothing, not work completed. Minutes later the same session
+said five rows were stuck and the infrastructure broken; it had read one column as progress
+when a claim needed two. And on 2026-10-13, asked where the training-video analysis lived, a
+session answered that there was none — true of the repos and false of the machine, where it
+was fourteen lines of shell in a home directory.
+
+**The catchable shape is a claim of ABSENCE or INCAPABILITY stated as fact.** Those keep
+being wrong because *I did not find it* and *it does not exist* feel identical from the
+inside and are not the same statement. The lesson was already written down after the third
+case: **"not in the repos" is not "does not exist."**
+
+**So the reply must name where it looked.** Not a citation and not a hedge — a place. *"I
+read the drain log and the queue table — it has drained zero rows"* is a sentence Ron can
+disagree with, because the place is on the page; *"it has drained zero rows"* is not. A bare
+*"Checked it"* names nothing and does not pass; that exact phrase opened case two.
+
+**Why the reply and not the transcript.** Requiring that the turn merely contain a search,
+a read or a query would have passed cases two and three unchanged: both ran real queries,
+against the wrong object. A tool call proves a session looked somewhere, which was never in
+doubt.
+
+**What this does not catch, said plainly.** An assumption that is never stated. A session
+that silently believes a thing cannot be done and builds around it writes nothing for a hook
+to read, and that is the larger half of what Ron described. A positive claim that is wrong
+is not judged either. The only thing that reaches either is the habit the refusal teaches:
+before asserting how something works, go and look, and say where.
+
 ### D-0194 — A new capability is found with two cheap confirmations and a screenshot, and is not built until the service, the MCP and the registry all carry it
 
 *2026-10-21 · scope: `**capabilit*, **discord*, agents/chief-of-staff*, **MCP*, **membership*` · source: Ron 2026-10-21, verbatim — "This new system would have you ask me 'can we drive CR to cancel a membership on a date' / I say yes that exists / You try and find it maybe send me screenshots to confirm / I say yes / You build and add it into CRAPI and our MCP and everyone learns that it exists." Said after being offered a supervised tracing session, which this replaces.*
