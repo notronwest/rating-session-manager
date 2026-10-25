@@ -681,7 +681,8 @@ go back and forth with you the more time and money it costs."
 <!-- wmpc-block:ron-instructions:v2 END -->
 
 
-<!-- wmpc-block:response-style:v4 START -->
+
+<!-- wmpc-block:response-style:v5 START -->
 ## Response style — a short summary, and the ask unmistakable (D-0177)
 
 Every reply, in every repo, from every prompt — interactive sessions, spawned
@@ -725,6 +726,30 @@ agents, the Builder, scheduled runs. Ron, 2026-10-14:
    **The exception is when he asks about it** — then answer the question. Answering is not
    repeating.
 
+6. **Do the work without narrating it; say what happened when it is done.** A turn is
+   **silent between its tool calls**. Ron, 2026-10-17, on a turn rendered as eight lines of
+   running commentary — *"Let me see how the dashboard does sections…"*, *"Now the tabs. Let
+   me wire the URL, the shell, and the two tab bodies."*, *"Two unbalanced brackets from
+   that edit — let me close them properly."* — offered a cap on the total or silence, chose
+   silence. Each line was short; the stack of them was a wall, and none of it was anything
+   he could act on.
+
+   **Three exceptions, and only three.**
+   - **A genuine question** that must be answered before the work can continue. Ask it and
+     stop; do not ask it and keep going.
+   - **A warning that cannot wait** — the next step is destructive, or you have found
+     something he needs before the work finishes.
+   - **One brief note before a single long-running step.** A ten-minute silent gap with no
+     sign of life is its own problem, so this one survives: *one* line, before *one* long
+     step. One note is a sign of life; a third of one is a commentary.
+
+   Everything else — what you are about to read, which pattern you found, that a bracket was
+   unbalanced, what you plan to do next — waits for the summary, or goes in `STATUS.md`, the
+   PR body or the record where it is retrievable. **And write to him in the second person:**
+   *"you asked for tabs inside Rally"*, never *"Ron wants tabs inside Rally"*. He is the one
+   reading it; talking about him in the third person while talking to him is the same
+   writing fault one level up.
+
 **This is about the REPLY, not the work.** Two halves, and both matter:
 
 - **Detail still gets written down** — `STATUS.md`, the PR body, the decision record, a
@@ -755,4 +780,4 @@ question or an action buried mid-paragraph. Padding a short answer to look thoro
 an id, a path, a repo, a component, a phase number, a bare issue number. And restating a
 card he has already been sent — its text, its choices or its steps — when a clause and a
 link would do.
-<!-- wmpc-block:response-style:v4 END -->
+<!-- wmpc-block:response-style:v5 END -->
