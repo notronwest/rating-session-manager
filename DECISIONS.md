@@ -3911,7 +3911,11 @@ cheaper to reach, not more acceptable.
 
 1. **A card whose issue is CLOSED may not sit in a live column.** The reconcile keys on the
    issue's own state — the authoritative fact — not on PR state, and not only on one column.
-   It moves the card to `Done` and writes no issue state, ever. It only moves columns.
+   It moves the card to `Done` and writes no issue state, ever. It only moves columns. **Its unit
+   is the board, not the repo** — a column move needs no checkout, so a card in a repo no builder
+   serves is still retired. **And it reports how many it moved**, because an effect nobody can
+   observe is not an enforced rule: the board needs Projects v2 that no cloud session has, and the
+   board mirror carries only the active set, never `Done`.
 2. **`In Review` means a human decision is pending, and the human must be able to see it.**
    A card in that column either carries an actionable card on Ron's phone — one he can act on,
    with the two real answers as buttons (move it along / close it) — or it is in the wrong
