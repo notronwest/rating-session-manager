@@ -4014,6 +4014,7 @@ destination, because this board has no cancelled column and `In Review` is a wor
 - D-0104 — Court 4 audio: switchd becomes the single reader of the baseline mic and fans it out, so every Court 4 leg carries the same live audio regardless of which angle is on air (2026-10-08)
 - D-0107 — A live court mic on Court 4's public stream — PROPOSED, vetoed at the table: Ron accepted the Content ID risk but was not told about New Hampshire all-party consent, customer recordings, or the unauthenticated LAN mic (2026-10-08)
 - D-0153 — The CTO stands up with every repo on a schedule, and the fleet map is a committed artifact (2026-10-12)
+- D-0237 — A lesson recording is a fragmented mp4, playable from the moment it starts (2026-10-27)
 
 ## Superseded (history)
 
