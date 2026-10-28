@@ -9,21 +9,6 @@ To question one, propose a supersession to daemon; don't work around it.
 
 ## Active
 
-### D-0004 — Migrations are code, applied by CI on merge; the Builder drafts additive and blocks risky
-
-*2026-06-07 · scope: `supabase/migrations/**, .github/workflows/migrations.yml, agents/builder/**` · source: daemon STATUS 2026-06-07 and 2026-06-09; wmpc-meta/conventions/migrations.md*
-
-**Decision.** Schema changes are drafted in a PR, reviewed, and applied by CI on merge to the
-routed branch. No interactive session runs `supabase db push`. The Builder may draft additive
-and reversible migrations (create table/index/view, nullable column, new enum value,
-non-SECURITY-DEFINER function). It blocks destructive DDL, NOT NULL or UNIQUE on populated
-columns, RLS and policies, SECURITY DEFINER, money, and backfills.
-
-**Why.** Manual pushes caused wrong-project links and drift (tournament-manager #71, #77).
-CI on merge gives one path with a review trail.
-
-**Forbids.** `supabase db push` from a session or agent. A migration outside a PR.
-
 ### D-0005 — Branch work happens in a worktree; the pre-push guard keeps code off protected branches
 
 *2026-06-08 · scope: `.git/hooks/pre-push, infrastructure/git-guards/**, infrastructure/worktrees/**` · source: daemon STATUS 2026-06-08; infrastructure/git-guards/DESIGN.md*
@@ -3953,6 +3938,56 @@ destination, because this board has no cancelled column and `In Review` is a wor
   than discovered later.
 - Re-writing a card already in `Done` on every tick. Churn on a board Ron reads is its own noise.
 
+### D-0239 — A merged migration is not an applied migration; where it applies is each repo's DEPLOYMENT.md, and on the mini it is a human act
+
+*2026-10-28 · scope: `supabase/migrations/**, **migrations/**, .github/workflows/migrations.yml, DEPLOYMENT.md, agents/builder/**, infrastructure/heartbeat/**` · source: demonstrated 2026-10-27 — Ron ran `./setup.sh` in `courtreserve-api` on the mini at ~15:38Z to apply `0071_cr_pos_catalog_all_items.sql`; `migrate --status` read 71 of 72 applied with 0071 `[PENDING]` before and 72 of 72 after. The migration had been merged to `main` hours earlier and nothing had applied it. Supersedes D-0004, whose "applied by CI on merge" is the premise that failed. Already recorded true elsewhere and contradicted: D-0114 rule 6, D-0135, D-0092's closing paragraph.*
+
+**Decision.** D-0004's first half stands and is carried forward: a schema change is **code**, drafted
+in a PR and reviewed; no interactive session or agent runs `supabase db push`; there is no migration
+outside a PR. The Builder may draft additive and reversible migrations — create table/index/view, a
+nullable column, a new enum value, a non-`SECURITY DEFINER` function — and blocks destructive DDL,
+`NOT NULL` or `UNIQUE` on populated columns, RLS and policies, `SECURITY DEFINER`, money, and
+backfills. One clause changes, and it is the one that matters at the other end.
+
+1. **A merge is not an application.** D-0004 said migrations are "applied by CI on merge to the routed
+   branch". That is not true fleet-wide and must never be assumed. **What applies a migration is
+   per-repo, and the authority is that repo's `DEPLOYMENT.md` YAML block** (D-0007), parsed — never
+   inferred from a workflow file, a `wrangler.*`, or the fleet norm.
+2. **Where it is a human act, it is the owner's.** In `club-dashboard`, `courtreserve-api`, `qbo-api`
+   and `court-reserve-scheduler` a migration applies when a person runs `git pull && ./setup.sh` on
+   the club Mac mini. That command is a deploy **and** a production schema migration against the one
+   live database, so it is stop-list row 3 and Ron's (D-0096). An agent prepares it, hands him the
+   step in D-0068's shape, and does not run it.
+3. **The only evidence of application is the live state, read back.** `migrate --status`, or the
+   relevant `schema_migrations` table. Merged, CI green, promoted to `production`, and a current
+   checkout on the mini are each fully compatible with `PENDING`. This is D-0083: a self-report
+   ("merged") is not the outcome ("applied").
+4. **What this record does not assert.** It names the four hand-applied repos because daemon's own
+   register already records them (D-0114 rule 6, D-0135, D-0092). It makes **no** claim about the CI
+   path in `tournament-manager`, `third-shot-academy` or `rating-session-manager`: that was not
+   verified, because this session could read only daemon. For those three, rule 1 is the whole
+   instruction — read their `DEPLOYMENT.md`.
+
+**Why.** A premise that migrations auto-apply makes a merged migration look live, so a session reads
+D-0004, concludes the schema change has landed, and reports it done while the SQL sits unapplied on a
+machine nobody has touched. On 2026-10-27 that cost a day of the point-of-sale catalogue being empty
+while everyone believed it had shipped; the fix was Ron running `./setup.sh` himself. It also sets up
+the worse error in the other direction — treating the merge as the promotion, when the promotion is a
+separate human act on a specific machine.
+
+The register had the truth and the falsehood active at the same time. D-0114 rule 6 says it outright
+("club-dashboard's migrations are not applied by CI, whatever the fleet norm says"), D-0135 and
+D-0092 say it again, and D-0004 and D-0137 went on asserting the opposite — so which a session
+believed depended on which record it happened to read. That is the fault being closed, not merely a
+wrong sentence.
+
+**Forbids.** Reporting, recording or carding a schema change as live, applied or shipped on the
+strength of a merge, a green check, a promotion or a fresh checkout. An agent or session applying a
+migration to a live database — including through a SQL or migration tool (D-0218). Writing "applied
+by CI on merge" into a record, doc or prompt for a repo whose `DEPLOYMENT.md` says a human applies it.
+Inferring a repo's migration path from a CI workflow, a plist or a `wrangler.*` instead of parsing its
+`DEPLOYMENT.md` YAML block. `supabase db push` from a session or agent, or a migration outside a PR.
+
 ### D-0243 — Lesson analysis is a standalone analyzer: a video link in, a versioned document out, and neither the club's data nor its keys go in with it
 
 *2026-10-27 · scope: `**lesson*, **transcri*, **analyz*, src/services/lesson-transcribe.ts, supabase/functions/draft-lesson-writeup/**` · source: Ron 2026-10-27 — "I need to make this part of the app disconnected from our system so it can grow and become a service on its own. In the future I see it allowing someone to upload a lesson video and get back structured data… What we build in the video analysis could become valuable just like PB.Vision." Four questions put to him and answered the same day: the **customer hosts the video and we read a link**; the outputs are transcript + timestamped cues, the lesson timeline, per-student technique events and a coach-editable draft, **plus "FPTM analysis, in the future posture analysis — many more features"**; the buyers are **"a club purchase, a coach purchase and eventually a student"**; reuse of a tenant's data for model work is **opt-in, isolated by default**. Table run per PROCESS.md, four voices: rating-session-manager **VETO** (scoped to the move list, and it is clause 5), third-shot-academy CONCERN, daemon CONCERN, courtreserve-api CONCERN.*
@@ -4086,6 +4121,7 @@ Standing the analyzer up under a product name or price nobody has decided.
 
 ## Superseded (history)
 
+- D-0004 — Migrations are code, applied by CI on merge; the Builder drafts additive and blocks risky (2026-06-07) → superseded by D-0239
 - D-0010 — Customer video is owned by rating-session-manager, served from the NAS behind an emailed code (2026-08-26) → superseded by D-0030
 - D-0016 — daemon is the architect of record; decisions live in a register and each repo carries its slice (2026-09-16) → superseded by D-0134
 - D-0031 — Lesson recordings are re-encoded at a pinned frame rate; smooth playback beats pristine bits (2026-09-26) → superseded by D-0041
