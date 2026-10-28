@@ -4207,6 +4207,96 @@ without that tenant's opt-in. A caller that reads a document whose major schema 
 not know. Moving the booking match, the retention clock or the write-up state out of the club.
 Standing the analyzer up under a product name or price nobody has decided.
 
+### D-0245 — A session does not describe a checkout it has not caught up with, and the half of "don't assume" a machine can check is the tree, not the sentence
+
+*2026-10-27 · scope: `infrastructure/stale-tree-gate/**, infrastructure/reply-gate/**, infrastructure/daemon-sync/reconcile.sh` · source: Ron, 2026-10-27, after a session made four wrong claims in one day about a repo that decides his tax categories — "Didn't we build a gate from a hook that prevents sessions from making assumptions???" — and then a FIFTH, in the turn that answered him: it reported eight session-stopping hooks from a checkout 563 commits behind origin/main, where there were twelve and eight whole components were missing from the tree it read. His 2026-10-25 ask ("make this hook and ensure that no sessions do this in the future") had already produced reply-gate's `absence-unchecked` rule; this is the remainder of it that does not need a sentence judged.*
+
+**Decision.** Three rules, one cause.
+
+1. **A session does not describe a checkout it has not caught up with.** Two states
+   are refused, and the second was found by fixing the first. **A:** the last fetch
+   is older than the cut, so the session does not know what the repo holds. **B:**
+   the fetch is recent — so the tracking ref is reliable — and it says the tree is
+   twenty or more commits behind. The remedy for A is one `git fetch`; for B it is
+   catching the tree up or saying which tree was read. Either way, naming the
+   staleness in the reply passes.
+   The question the gate asks is **how old is the comparison**, never *am I behind*,
+   because a stale tracking ref answers the second question confidently and wrong.
+   Measured on `club-dashboard` with its `FETCH_HEAD` 203 hours old:
+   `git rev-list --count HEAD..origin/main` said **181** before fetching and **438**
+   after. A gate thresholding on that number reads less than half the gap.
+
+2. **A machine that does not sync is a machine that lies about its repos.** The club
+   mini fetches continuously and all fourteen of its checkouts read 0.0 h; this
+   laptop has no sync job and ten of its seventeen read between 202 h and 533 h, with
+   three never fetched. The gate is the backstop. The cause is the missing
+   LaunchAgent, and until it is installed every session on that machine starts from a
+   tree that is days to weeks out of date.
+
+3. **The half that cannot be gated is named, not papered over.** A wrong *positive*
+   claim made in a *fresh* tree — four of the five failures that produced this record
+   — is refused by nothing, and the measurements say why rather than leaving it to
+   optimism.
+
+**Why.** Three records already say some version of "never assert what the evidence
+cannot support" and all three record that nothing enforces it: D-0083 ("refused by
+nothing; it is read by a reviewer, or it is not read"), D-0097 rule 1 ("no check can
+read a sentence's evidence"), D-0170 rule 3. Ron's 2026-10-25 ask turned the
+*absence* half into a real refusal. Asked on 2026-10-27 whether that gate existed,
+a session answered from a 563-commit-stale tree and got it wrong — which is the
+rule's own subject matter demonstrated on itself, and the one case in five whose
+cause is a fact on disk.
+
+So the split this record makes is between **two different objects**:
+
+- The **tree** is checkable. Fetch age is a number; a read is a tool call; the
+  conjunction is a fact. No phrasing is judged, so there is nothing to tune and
+  nothing to drift.
+- The **sentence** is not, and the attempt is on the record. A prose rule for
+  positive claims about live systems was built and measured against 2,260 real turns
+  on the mini and 533 on the laptop: it fired **2 times** on each corpus, and every
+  hit was a correct reply. A second shape — naming a live table while the turn made
+  no live read — found 53 turns naming one, of which **50 had already queried**, and
+  the three left were all false positives. Two hits in 2,260 turns, both correct, is
+  not a gate; it is noise with a refusal attached, and the fleet's own lesson is that
+  a gate which fires on a correct reply gets switched off (reply-gate dropped three
+  phrasing families the same way). It was not shipped.
+
+The cut is 6 hours because the data has no middle: ten of seventeen repos on this
+laptop sit between 202 h and 533 h, three have never been fetched, and all fourteen
+on the mini read 0.0 h. Two rates, and they are not the same number. Across the
+laptop's 558 turns, 49% fetched, 16% read nothing and **35% read without fetching** —
+the ceiling, reached only where the tree is also stale. But the gate judges a turn's
+closing state, and driven over the final turn of all 39 transcripts that still map to
+a checkout it refused **none**: last turns have usually fetched or read nothing. So
+this is a backstop that should rarely speak, and the 35% is a ceiling, not a
+forecast — said plainly here because quoting it as the fire rate would be the same
+error the record exists to stop.
+
+**What installing the sync revealed, and why rule 1 has two halves.** `fleet-sync`
+fetches every repo and then correctly **declines to fast-forward** one that is dirty
+or on a feature branch. Minutes after it was installed on the laptop, three repos
+sat freshly fetched and far behind — `club-dashboard` 438, `session-manager` 95,
+`wmpc-meta` 43 — a state in which a check on fetch *age* alone reports everything
+fine. So the fix for rule 2 manufactures a second way for a tree to lie, and a gate
+written only against the first would have shipped looking correct and covering less
+than it claimed. The cut of twenty is where the data has its gap: zero for every
+repo the sync could fast-forward, 43 and up for every one it could not.
+
+**Forbids.**
+- Telling Ron what a repo contains, or what it does not contain, from a checkout
+  whose last fetch is older than the cut — without fetching, or without saying in
+  the reply which tree was read and how stale it is.
+- Treating "I did not find it in this checkout" as "it does not exist", which is
+  reply-gate's case 4 ("not in the repos" is not "does not exist") in a second
+  dimension: not in the repos *as this machine last saw them*.
+- Committing in a checkout found to be behind. Write in a worktree
+  (`infrastructure/worktrees/new-worktree.sh`) and open a PR; the `pre-push` shrink
+  guard refuses the truncating push regardless.
+- Claiming, in this record's name or any other, that the assumption problem is
+  solved. Rules 2 and 3 are open gaps with no enforcement, stated here so a later
+  session does not read this file and relax.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
