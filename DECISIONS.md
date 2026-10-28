@@ -1888,7 +1888,7 @@ product repo — `club-dashboard`, `courtreserve-api`, `rating-session-manager` 
 
 ### D-0141 — Coach-supplied video enters through the one video repo, and its kind is declared at upload rather than inferred
 
-*2026-10-12 · scope: `**/video*/**, **/recordings/**, **/lesson*/**, src/pbvision/**` · source: Ron via Hopper card `31586e43` (2026-10-12) — "Liz Manfredi as the first Academy student — and a phone upload that gets processed". The card routed the upload half to architecture to be shaped before build.*
+*2026-10-12 · scope: `**/video*/**, **/recordings/**, **/lesson*/**, src/pbvision/**` · source: Ron via Hopper card `31586e43` (2026-10-12) — "[a member] as the first Academy student — and a phone upload that gets processed". The card routed the upload half to architecture to be shaped before build. (One name redacted 2026-10-28 under D-0241; the card and daemon's git history hold it.)*
 
 **Decision.** Every record so far describes video the club's own rig produced: camd captures it,
 D-0059 segments it, D-0030 delivers it. **Video a coach hands in from a phone is a new entry
@@ -3061,58 +3061,6 @@ The asymmetry is not close.
 - Widening the pre-push allowlist entry beyond that one file, or putting anything
   executable in it.
 
-### D-0183 — A lesson record is created from the Court Reserve booking, with or without a recording; the coach may be named without an account
-
-*2026-10-15 · scope: `**/lesson*/**, supabase/migrations/**, src/services/lesson-*.ts` · source: Ron 2026-10-15 — "we will always have a lesson booked in CR -- there may or may not be a video associated with it -- we still want to include that as data on their TSA profile"; and 2026-10-14 — "one shared record, all students on it", "clinics will not be recorded as of now"*
-
-**Decision.** Ron, 2026-10-15: *"we will always have a lesson booked in CR — there may or may not
-be a video associated with it — we still want to include that as data on their TSA profile."*
-
-1. **The booking is the record; the recording is optional evidence.** A lesson row is created for
-   **every** teaching reservation in Court Reserve, whether or not a camera was pointed at it. This
-   settles the creation question D-0064 left to "the job that materializes the occupancy read" and
-   which nothing had built: there are **407 teaching bookings across 102 students** going back to
-   2025-04-03, and they are the student's history whether or not we filmed any of it.
-
-2. **The coach is NAMED on every booking; the coach's ACCOUNT is not guaranteed.** Measured: three
-   instructors, zero bookings with no instructor named — Ron West (333), Celeste Goodhue (68),
-   April Smith (5), one co-taught. **Only Ron has a login.** So `lessons.coach_id` becomes
-   **nullable** and gains a sibling `coach_name` carrying what Court Reserve actually said.
-   Forcing a uuid would mean writing a player id into a column that otherwise holds an auth user
-   id — the exact silent inconsistency that column already invites, since it has no foreign key.
-   **A named coach with no account is the truth, and the schema must be able to say it.**
-
-3. **A lesson has participants, not a participant.** Ron, 2026-10-14: *"one shared record, all
-   students on it."* 368 of 407 bookings have one student, 36 have two to four. Participants move
-   to a join table following `game_players`, the existing precedent. The transcript stays shared
-   across them, by the same ruling.
-
-4. **Creation is idempotent on the Court Reserve reservation id**, which `lessons` already indexes
-   uniquely and which D-0064 calls the stable key. Re-running the job must never produce a second
-   row for a booking.
-
-5. **`Clinic` is not a lesson** (Ron, 2026-10-14: "clinics will not be recorded as of now"), and
-   neither is a Court Booking. The five teaching types are `Private Lesson`, `Private Drill
-   Session`, `Pro + 3`, `Semi-Private`, `Pro 2+2`, read from Court Reserve's declared
-   `reservation_type` and never inferred.
-
-**Why.** The surface Ron asked for — *"what they are working on and what they have accomplished"* —
-needs a spine, and the transcripts are two weeks old while the bookings are eighteen months deep.
-Waiting for recordings would show a student with 50 lessons an empty profile. Making the booking the
-unit means every student's history is present immediately and video enriches it where it exists.
-
-The coach-account finding is the reason this is a record rather than a ticket: the obvious
-implementation writes *some* uuid into `coach_id` and moves on, and nothing in the schema would stop
-it or ever reveal it.
-
-**Applies to.** Any job that creates or updates lesson rows; the lesson schema; any surface that
-reads a lesson's coach or students.
-
-**Forbids.** Creating a lesson row with an invented or borrowed `coach_id` — an unresolvable coach
-is `coach_id: null` plus `coach_name`. Creating a second row for a booking that already has one.
-Treating a recording as a precondition for a lesson existing. Inferring the reservation type.
-Dropping a participant to fit a single-student column.
-
 ### D-0186 — The open-play rotation board is a court-side tablet in Third Shot Academy; a board game is a candidate set of four on the server clock, never an assignment
 
 *2026-10-17 · scope: `**/board*/**, **/rotation*/**, supabase/migrations/**, supabase/functions/**board*, courtreserve_api/migrations/**` · source: daemon#716 (SP-16), routed by the Chief of Staff with Ron's approval 2026-10-16; daemon drain 2026-10-17. Table run per PROCESS.md — third-shot-academy CONCERN (no read path, no device auth, explicit numbers), courtreserve-api CONCERN (no tablet-reachable route; walk-in lag). No VETO; both concerns are folded into rules 2, 3, 4 and 6. Filed in daemon's register, not TSA's, as a D-0134 class-3 boundary-spanner: it elaborates D-0060 rule 2 and one of its two enforcing sides is a courtreserve-api grant.*
@@ -3988,6 +3936,154 @@ by CI on merge" into a record, doc or prompt for a repo whose `DEPLOYMENT.md` sa
 Inferring a repo's migration path from a CI workflow, a plist or a `wrangler.*` instead of parsing its
 `DEPLOYMENT.md` YAML block. `supabase db push` from a session or agent, or a migration outside a PR.
 
+### D-0241 — A decision record never carries a person's name, and the register refuses one that does
+
+*2026-10-28 · scope: `decisions/**, infrastructure/decision-register/**, DECISIONS.md` · source: Ron 2026-10-28, "Go", on daemon#974 — stop the register publishing real people's names into public repositories, and write the rule so the next one is refused rather than caught. The finding behind it: writing D-0238 the day before, a session was about to commit two members' names into a record and the permission gate refused the write on [PII Data Handling] — "the gate is the thing that caught it and not me".*
+
+**Decision.** A person's name does not go into a decision record. Not a member's, not an
+instructor's, not a prospect's, not a caller's — and not in the body, the `title`, or the
+`source:` line, which publishes too.
+
+1. **Say what the person IS to the decision.** "the coach", "a member", "three instructors,
+   333 / 68 / 5 bookings, one with a login". Every record that named someone would have been
+   complete without them: the name was colour, and the measurement was the finding. Who they are
+   lives in the club database, which is where a reader with a reason to know already looks.
+
+2. **The register refuses a record that carries one.** `no-person-names.sh` reads every active
+   and proposed record for a `Firstname Lastname` token and refuses any that is not on the
+   committed `TERMS-NOT-PEOPLE` allowlist. It is wired into `render.sh check` **as an integrity
+   fault, not a quality fault** — the one place this record departs from D-0160. D-0160 ruled that
+   incomplete metadata must not withhold a rule from the repo it binds, because a stale slice is
+   recoverable. **A name on public GitHub is not.** Disclosure is one-way, so it blocks
+   distribution and a missing `enforced-by` does not.
+
+3. **The test is shape, and the allowlist holds only non-people.** A roster check was rejected for
+   two independent reasons: the gate has to be the required pre-merge check, which D-0149 rule 2
+   holds to host-independent, network-free and credential-free — a detector needing database
+   credentials goes amber on its own, teaches its readers to merge past it, and cannot run in a
+   cloud session, which is where most records are now written. And **a roster committed to a repo
+   is itself the disclosure.** So nothing in this mechanism writes a person's name to disk: the
+   allowlist is product names, board columns, lesson types and ordinary English pairs, and is
+   publishable as it stands.
+
+4. **It fails closed, and the friction is the point.** An unrecognised `Firstname Lastname` is
+   refused, so a new product or lesson name costs the author one line in `TERMS-NOT-PEOPLE`, in
+   the same change. **It is a floor, not a guarantee**: it does not catch a lone first name, a
+   nickname, an email address, a phone number or a member number. Rule 1 is the rule; the script
+   is the part of it a machine can decide.
+
+5. **Superseding is the remedy for a record already merged.** A merged record's decision text is
+   never edited (`README.md`), and `render.sh slice` renders a superseded record as a one-line
+   title with no body and no `source:` — so a name-free successor removes the name from all
+   twelve slices without touching the original, which stays in daemon's private history where the
+   audit trail belongs. The gate agrees with the renderer: a superseded record is read on its
+   title line only.
+
+6. **What was already public is removed in the same change as this rule.** D-0183 clause 2 named
+   three instructors with their individual lesson counts in `rating-session-manager`, which is
+   **public**; it is superseded by D-0242, name-free. D-0141's `source:` named a member; D-0108's
+   named a caller and carried a phone number; D-0079's quoted a prospect's name. Those three are
+   **frontmatter metadata, not decision text** — the same class of field as `status` and
+   `superseded_by`, which a supersession edits as a matter of course — so each was redacted in
+   place, marked as redacted, with the original in daemon's git history. Three records name
+   someone in their **body** and publish only into private slices: `GRANDFATHERED` lists their
+   ids and reasons, never their names, and it shrinks only.
+
+**Why.** `render.sh slice` writes a record's **full body** into `DECISIONS.md` and `publish.sh`
+pushes that file into every repo in `REPOS`. **Three of those repos are public.** daemon being
+private contains nothing: the register's whole purpose is to reach the repos it binds, so a name
+typed into a record is a name on public GitHub, and nobody writing a record had reason to know
+that. Measured 2026-10-28 (daemon#974): three named instructors with their individual lesson
+counts were in plain text in a public repository, from a record thirteen days old and `active`.
+
+The attempt caught the day before was caught by a **classifier** firing on [PII Data Handling] —
+not by a rule, and not by the author. Under D-0071 a convention is a gate deployed via a hook or
+it is not a rule, and there was no written convention saying a person's name stays out of a
+record. A control that depends on a general-purpose classifier noticing is a control that has
+already failed six times in this register without anyone hearing about it.
+
+Severity, stated rather than inflated: what was exposed is names with work volumes attached, not
+billing, membership state or contact details. It needed a decision, not an alarm. The decision is
+that the register stops being able to do it.
+
+**Applies to.** Every decision record in every operation's register, and anything generated from
+one. The register's own tooling. Any proposal to loosen the gate to make a record pass.
+
+**Forbids.** A person's name in a record's body, `title` or `source:`. Adding a person's name to
+`TERMS-NOT-PEOPLE` to make a record pass — the refusal is the ask it exists to raise, and the
+allowlist is publishable only because it holds no people. Adding a record to `GRANDFATHERED` for
+anything not already merged, or to spare a record that publishes into a public repo. Editing a
+merged record's decision text to remove a name — supersede it. Making the check a quality fault,
+or skipping it in `--for-publish`, so a slice carrying a name can publish. Giving the check a
+database, a credential or a network call (D-0149 rule 2). A member's phone number, email address
+or member number in a record, which the shape test does not catch and this rule still forbids.
+
+### D-0242 — A lesson record is created from the Court Reserve booking, with or without a recording; the coach may be named without an account
+
+*2026-10-28 · scope: `**/lesson*/**, supabase/migrations/**, src/services/lesson-*.ts` · source: Ron 2026-10-15 — "we will always have a lesson booked in CR -- there may or may not be a video associated with it -- we still want to include that as data on their TSA profile"; and 2026-10-14 — "one shared record, all students on it", "clinics will not be recorded as of now". Re-issued 2026-10-28 under D-0241 with three individuals' names removed from clause 2; nothing else is reconsidered.*
+
+**Decision.** Ron, 2026-10-15: *"we will always have a lesson booked in CR — there may or may not
+be a video associated with it — we still want to include that as data on their TSA profile."*
+
+1. **The booking is the record; the recording is optional evidence.** A lesson row is created for
+   **every** teaching reservation in Court Reserve, whether or not a camera was pointed at it. This
+   settles the creation question D-0064 left to "the job that materializes the occupancy read" and
+   which nothing had built: there are **407 teaching bookings across 102 students** going back to
+   2025-04-03, and they are the student's history whether or not we filmed any of it.
+
+2. **The coach is NAMED on every booking; the coach's ACCOUNT is not guaranteed.** Measured:
+   **three instructors, 333 / 68 / 5 bookings, zero bookings with no instructor named, one
+   co-taught — and only one of the three has a login.** So `lessons.coach_id` becomes
+   **nullable** and gains a sibling `coach_name` carrying what Court Reserve actually said.
+   Forcing a uuid would mean writing a player id into a column that otherwise holds an auth user
+   id — the exact silent inconsistency that column already invites, since it has no foreign key.
+   **A named coach with no account is the truth, and the schema must be able to say it.**
+
+3. **A lesson has participants, not a participant.** Ron, 2026-10-14: *"one shared record, all
+   students on it."* 368 of 407 bookings have one student, 36 have two to four. Participants move
+   to a join table following `game_players`, the existing precedent. The transcript stays shared
+   across them, by the same ruling.
+
+4. **Creation is idempotent on the Court Reserve reservation id**, which `lessons` already indexes
+   uniquely and which D-0064 calls the stable key. Re-running the job must never produce a second
+   row for a booking.
+
+5. **`Clinic` is not a lesson** (Ron, 2026-10-14: "clinics will not be recorded as of now"), and
+   neither is a Court Booking. The five teaching types are `Private Lesson`, `Private Drill
+   Session`, `Pro + 3`, `Semi-Private`, `Pro 2+2`, read from Court Reserve's declared
+   `reservation_type` and never inferred.
+
+**Why.** The surface Ron asked for — *"what they are working on and what they have accomplished"* —
+needs a spine, and the transcripts are two weeks old while the bookings are eighteen months deep.
+Waiting for recordings would show a student with 50 lessons an empty profile. Making the booking the
+unit means every student's history is present immediately and video enriches it where it exists.
+
+The coach-account finding is the reason this is a record rather than a ticket: the obvious
+implementation writes *some* uuid into `coach_id` and moves on, and nothing in the schema would stop
+it or ever reveal it.
+
+**Why this record and not D-0183.** D-0183 said all of the above and was correct. Its clause 2
+also named the three instructors individually, each with their own booking count — and the
+register publishes a record's full body into `rating-session-manager`, which is **public**. Those
+three names were therefore on public GitHub, with work volumes attached, for thirteen days. A
+merged record's decision text is never edited (`README.md`), and a superseded record renders in
+every slice as a one-line title with no body, so re-issuing the ruling is what removes the names
+from the published file. **The only change is the removal of the three names from clause 2.** The
+measurement they carried — three instructors, 333 / 68 / 5, one with a login — is kept in full,
+because it is the evidence clause 2 rests on; who the three are is in the club database, where it
+was always sufficient. Nothing else here is reconsidered, and a session that finds a difference
+beyond that should treat it as an error in this record, not a new ruling. See D-0241 for the rule
+this is the first application of, and daemon#974 for the measurement of the publication path.
+
+**Applies to.** Any job that creates or updates lesson rows; the lesson schema; any surface that
+reads a lesson's coach or students.
+
+**Forbids.** Creating a lesson row with an invented or borrowed `coach_id` — an unresolvable coach
+is `coach_id: null` plus `coach_name`. Creating a second row for a booking that already has one.
+Treating a recording as a precondition for a lesson existing. Inferring the reservation type.
+Dropping a participant to fit a single-student column. Restoring the three names to clause 2 or to
+any successor of it (D-0241).
+
 ### D-0243 — Lesson analysis is a standalone analyzer: a video link in, a versioned document out, and neither the club's data nor its keys go in with it
 
 *2026-10-27 · scope: `**lesson*, **transcri*, **analyz*, src/services/lesson-transcribe.ts, supabase/functions/draft-lesson-writeup/**` · source: Ron 2026-10-27 — "I need to make this part of the app disconnected from our system so it can grow and become a service on its own. In the future I see it allowing someone to upload a lesson video and get back structured data… What we build in the video analysis could become valuable just like PB.Vision." Four questions put to him and answered the same day: the **customer hosts the video and we read a link**; the outputs are transcript + timestamped cues, the lesson timeline, per-student technique events and a coach-editable draft, **plus "FPTM analysis, in the future posture analysis — many more features"**; the buyers are **"a club purchase, a coach purchase and eventually a student"**; reuse of a tenant's data for model work is **opt-in, isolated by default**. Table run per PROCESS.md, four voices: rating-session-manager **VETO** (scoped to the move list, and it is clause 5), third-shot-academy CONCERN, daemon CONCERN, courtreserve-api CONCERN.*
@@ -4128,3 +4224,4 @@ Standing the analyzer up under a product name or price nobody has decided.
 - D-0064 — Lesson analysis is a coaching plan, not computer vision; the Lesson Plan is TSA's lesson surface and pb.vision is not asked about lesson footage (2026-10-07) → superseded by D-0243
 - D-0130 — The fleet watchdog lives off the fleet, and a quiet agent is an alarm (2026-10-11) → superseded by D-0155
 - D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable (2026-10-14) → superseded by D-0189
+- D-0183 — A lesson record is created from the Court Reserve booking, with or without a recording; the coach may be named without an account (2026-10-15) → superseded by D-0242
