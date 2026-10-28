@@ -549,61 +549,6 @@ did not verify, or that continues past a mismatch. Writing an assignment below t
 threshold, or filling an unknown with a guess. Automating a partner account that is not ours. A
 second confirm-card component.
 
-### D-0064 — Lesson analysis is a coaching plan, not computer vision; the Lesson Plan is TSA's lesson surface and pb.vision is not asked about lesson footage
-
-*2026-10-07 · scope: `**/lesson*/**, **/lesson_plan*, **/lessons*, **/transcri*, agents/chief-of-staff/initiatives/lesson-plan.md` · source: Ron 2026-10-07 — "I want all three — but I don't want to use PB.vision for the coaching analysis. The body movement and analysis is something we can add later. I am looking for a way for us to help coaches and students stay focused and move through a plan." Then "4. Yes" to the shape in STATUS 2026-10-07.*
-
-**Decision.** What Third Shot Academy does with a lesson is keep the coach and the student on a
-plan. The unit is the **Lesson Plan**: the student's ordered priorities (the existing
-draft / active / mastered lifecycle in TSA), one active at a time, with a goal and a horizon. A
-**lesson** is a dated entry on that plan, created automatically from the Court Reserve lesson
-booking through the one cached occupancy read (D-0060): the job that materializes `court_occupancy`
-includes lesson reservations with their instructor, participants, court when known, start and end,
-and the Court Reserve reservation/occurrence id as the stable key. courtreserve-api's existing live
-`/lessons/upcoming` Report Builder read is folded into that job, not kept as a second path to Court
-Reserve, holding the focus, what was done, the
-drills assigned, homework, the coach's note, and the recording attached by time. The student sees
-**one card**: today's focus, homework, the last lesson's clip and note, and how far along the plan
-they are. Progress is a priority moving to mastered, with open-play evidence from the existing game
-engine flowing in on its own.
-
-**Video's job is evidence on the lesson, not analysis of it.** Phase one does two things with the
-recording: the coach marks moments while reviewing, which become the lesson's clips; and the coach's
-mic audio on the recording is **transcribed locally on the mini** so the spoken cues draft the
-lesson write-up and homework for the coach to edit. Recordings stay where D-0010 and D-0041 put them
-and are delivered the way D-0010 says. The transcription job lives in rating-session-manager's
-NAS-side video work, runs **after the recording closes** (never during a lesson, when camd's legs own
-the mini's CPU), and a recording is matched to a lesson by **time window** against the cached
-occupancy read, because teaching recordings are started and stopped by hand and carry no booking
-id. **A lesson recording awaiting its write-up is a fourth exemption to D-0059's 14-day deletion**,
-alongside an analyzed game, a granted session and an open takedown request. **pb.vision is not sent lesson footage.** Body-movement
-analysis is a later evidence source on the same lesson object, decided separately when wanted.
-
-Three forks, settled: the plan **belongs to the student** and any assigned coach edits it, so it
-survives a change of coach; **transcription is in phase one** and is the only new plumbing; the
-student surface is **in the TSA app**, with a Front Desk card (D-0063) sent when a lesson is
-written up.
-
-**Why.** D-0024's Feed A assumed lessons went to pb.vision for movement and shot analysis. Nothing
-was built on that, and the engine assumes a four-player game: a lesson is feeding, drills and two
-people, which it cannot parse. Ron's stated need is focus and follow-through, not metrics. The
-pieces already exist in TSA (priorities with a lifecycle, coach-player assignments, coaching
-requests, coach notes and shot marks, the drill library renderer in #478 / #235), so this is UI
-over existing tables plus one transcription job. Reuse before build (D-0049).
-
-**Applies to.** Any lesson, coaching-plan, homework, drill-assignment, lesson-recording or
-transcription surface in third-shot-academy; any job on the mini that touches lesson recordings
-(rating-session-manager); the Court Reserve lesson-booking read in courtreserve-api. Amends
-D-0024's Feed A; D-0024 otherwise stands.
-
-**Forbids.** Sending lesson recordings to pb.vision or any vision analysis under this record.
-A second priorities object, a second notes table, or a second drill list (D-0049). A plan owned by
-a coach-student pair. Transcripts leaving the mini other than as the text attached to the lesson.
-A second Court Reserve read for lesson bookings (D-0060), including keeping `/lessons/upcoming` live
-beside the materialized table. Auto-sending the student card before the
-coach has written up the lesson. Deleting a lesson recording before its write-up exists.
-Transcribing while a lesson is being recorded.
-
 ### D-0065 — Design is a gate, not a review — every UI change is graded by a separate critic against the written principles before it can be pushed, enforced by hooks
 
 *2026-09-30 · scope: `infrastructure/design-gate/**, infrastructure/git-guards/**, agents/reviewer/**, agents/builder/**, docs/design-system.md, .design/**, web/src/**, src/**` · source: Ron 2026-09-30, from his phone — "you do stupid design things and I need you to get better … better than me. Rn I'm better than you." Asked how: "Hooks." Intake answers: fresh-context critic, hard block at push, principles written first.*
@@ -4008,6 +3953,129 @@ destination, because this board has no cancelled column and `In Review` is a wor
   than discovered later.
 - Re-writing a card already in `Done` on every tick. Churn on a board Ron reads is its own noise.
 
+### D-0243 — Lesson analysis is a standalone analyzer: a video link in, a versioned document out, and neither the club's data nor its keys go in with it
+
+*2026-10-27 · scope: `**lesson*, **transcri*, **analyz*, src/services/lesson-transcribe.ts, supabase/functions/draft-lesson-writeup/**` · source: Ron 2026-10-27 — "I need to make this part of the app disconnected from our system so it can grow and become a service on its own. In the future I see it allowing someone to upload a lesson video and get back structured data… What we build in the video analysis could become valuable just like PB.Vision." Four questions put to him and answered the same day: the **customer hosts the video and we read a link**; the outputs are transcript + timestamped cues, the lesson timeline, per-student technique events and a coach-editable draft, **plus "FPTM analysis, in the future posture analysis — many more features"**; the buyers are **"a club purchase, a coach purchase and eventually a student"**; reuse of a tenant's data for model work is **opt-in, isolated by default**. Table run per PROCESS.md, four voices: rating-session-manager **VETO** (scoped to the move list, and it is clause 5), third-shot-academy CONCERN, daemon CONCERN, courtreserve-api CONCERN.*
+
+**Decision.** Lesson analysis becomes a **service with a contract** rather than a feature of the
+club's own stack: a caller hands it a **link to a video the caller owns** and says what it wants;
+it returns **one versioned structured document**. Six clauses.
+
+1. **What D-0064 decided about coaching stands, restated unchanged.** The unit is the **Lesson
+   Plan** — the student's ordered priorities, draft / active / mastered, one active at a time, with
+   a goal and a horizon. The plan **belongs to the student** and any assigned coach edits it, so it
+   survives a change of coach. A **lesson** is a dated entry on that plan, created from the Court
+   Reserve booking with or without a recording (D-0183). **Video's job is evidence on the lesson,
+   not a score of it.** The student sees **one card**: today's focus, homework, the last lesson's
+   clip and note, how far along the plan they are. Nothing drafted reaches a student before the
+   coach marks the lesson written up. No second priorities object, notes table or drill list
+   (D-0049). **pb.vision is not sent lesson footage.**
+
+2. **Two of D-0064's clauses are reversed, and they are why this record exists.**
+   - *"Transcription is local on the mini"*, and the Forbids line *"transcripts leaving the mini
+     other than as the text attached to the lesson"*, bound the analysis to one machine. They
+     become: transcription is an **analyzer**, and **where it runs is a deployment choice of the
+     tenant, not a property of the decision**. For WMPC it keeps running on the mini, for the two
+     reasons that were always the real ones — the file is already there, and it costs about a cent
+     a lesson. A customer who hosts their own video gets the analyzer wherever their link is
+     readable. What D-0064 was protecting is kept by clause 4 instead, which is stronger: the
+     analyzer **stores nothing**.
+   - *"Body-movement analysis is a later evidence source… decided separately"*, and the Forbids
+     line *"sending lesson recordings to pb.vision **or any vision analysis** under this record"*,
+     put vision out of scope. Vision is now **in scope as one more output of the analyzer** —
+     FPTM first, posture later — on the same contract and the same versioning as the transcript.
+     The pb.vision half of that line survives unchanged in the Forbids below: out of scope and
+     not-this-vendor were one sentence in D-0064 and are two different rulings.
+
+3. **The contract, both directions. It is the whole product.**
+   - **In:** a URL the analyzer can read for the length of the job (fragmented mp4 per D-0237, or
+     an ordinary mp4), a **tenant id**, and the asks. Nothing else — no database, no schedule, no
+     roster.
+   - **Out:** one document carrying a `schema_version` and a section per ask: `transcript`;
+     `cues`, the coach's spoken instruction with timestamps; `timeline`, the drills in order with
+     durations; `events`, per-student technique moments; `fptm`, tags in the club's own teaching
+     vocabulary — footwork, paddle, tactics, mindset; `draft`, a coach-editable write-up.
+   - **A caller refuses a major version it does not know** rather than interpreting a document it
+     cannot read. New sections are added; existing ones do not change meaning inside a major.
+
+4. **Four rules the analyzer never breaks.** Each is a product boundary with a reason, not a
+   preference.
+   - **It stores no media.** It reads the link, works, and keeps no copy. This is what keeps
+     D-0010/D-0030's *"rating-session-manager is the only repo that serves or stores customer
+     video"* true while the analyzer handles bytes at all: **the analyzer is a reader, never a
+     store.** This record amends D-0030 and D-0141 to say exactly that and nothing more — neither
+     repo loses anything, and no second store is authorised.
+   - **It holds no caller's database key.** It returns a document; the caller writes its own rows.
+     D-0030 exists because one shared key also authorised `/book`, `/cancel` and
+     `/accounts/*/payment-method`; a multi-tenant analyzer holding any caller's privileged secret
+     is that same mistake with more customers on it.
+   - **It is tenant-scoped from the first line**, not retrofitted. Reuse of a tenant's lessons for
+     model work is **opt-in per tenant and isolated by default** (Ron's call, 2026-10-27).
+   - **It never overwrites a coach.** Everything it returns is a draft, including the write-up.
+
+5. **What moves, what stays, and three things that must not move — this clause is the veto.**
+   The seam is **two pure functions, not two files**: *audio → transcript* and
+   *transcript → draft*, with their parameters and prompts. Everything that knows a NAS path, a
+   court, a camd state, a booking, a student or a column **stays at the club**: `loadConfig`,
+   `discover`, `eligibility`, `camdState`, `liveTempExists`, `recordingRef` /
+   `parseRecordingPath`, `findLessonForRecording`, `attachTranscript` and `reattachPending` in
+   rating-session-manager, and the four column writes plus the write-up refusals in
+   third-shot-academy's `draft-lesson-writeup`.
+   - **`lesson-match.ts` and `lesson-sync.ts` do not move.** They reach courtreserve-api with
+     `CRAPI_KEY` and read the one sanctioned occupancy cache (D-0060, D-0103). Moving them puts
+     the club's master key inside a service that serves other clubs, which clause 4 and D-0030
+     both forbid.
+   - **The retention clock does not move.** D-0059 gives ungranted footage 14 days and D-0064
+     made *a lesson awaiting its write-up* an exemption, which D-0141 clause 3 extended to an
+     uploaded clip. The clock must stay with the repo that knows the write-up state; separated,
+     the cleanup job deletes footage a coach still needs and the exemption silently stops
+     working.
+   - **The job and the tests do not move.** rating-session-manager keeps `com.wmpc.lesson-transcribe`,
+     the camd guard that refuses to transcribe while a lesson is recording, and a test suite. An
+     extraction that leaves that repo with a scheduled job and no tests, or tests and no job, is
+     not done.
+
+6. **Register ownership, settled now so it is not re-litigated at standup.** The analyzer repo,
+   when it exists, joins **WMPC's** register and carries daemon's `DECISIONS.md` slice: under
+   D-0134 a record belongs to the register of the operation that owns the **enforcing** side, and
+   that is the mini, the NAS and `camd`. If the analyzer later becomes an operation of its own,
+   D-0134's first prerequisite binds first — `publish.sh`'s `$STATE/lock` and
+   `$STATE/published/<repo>` are namespaced per register **before** a second register publishes.
+   The product's **name and price are Ron's and are unanswered today**, so nothing is created
+   under an invented one.
+
+**Why.** D-0064 was the right decision for a club building one coaching surface, and in being
+right it wrote the club into the analyzer: *the mini* is in its decision text, and *no vision* was
+a scope ruling made when the only vision on offer was a vendor that cannot parse a lesson. Both
+are now the thing in the way. Ron's ambition is explicit — a service that takes someone else's
+lesson video and hands back structured data — and that is impossible while the decision names the
+machine.
+
+The separation is cheap now and expensive later. The code is about 1,700 lines and its only
+coupling in **code** is one import; the real coupling is the database and the physical need to sit
+beside the file, which is exactly what clause 3's contract removes. Measured, 2026-10-13:
+**0.50x realtime, about a cent a lesson, $7 for a year of lessons** — so the transcription is not
+the asset. The asset is the **structure over it**, in the club's own teaching vocabulary, which is
+why FPTM and the timeline come before posture in clause 3 and why a pooled model is opt-in. One
+week to cut the seam against three callers' worth of rewrite if it is cut after they exist.
+
+Written as a record rather than a refactor because it moves a responsibility and reverses two
+active clauses. The table was convened (PROCESS.md) and changed the proposal: the first draft
+moved four files, and the veto was correct — the booking match carries a key that can charge a
+member's card, and the deletion clock cannot be separated from the write-up state it exempts.
+Clause 5 is that verdict, kept in the record so the next session reads the reason and not just
+the smaller list.
+
+**Forbids.** Sending lesson footage to pb.vision (unchanged from D-0064). A second priorities
+object, notes table or drill list (unchanged, D-0049). Auto-sending the student card before the
+coach has written the lesson up (unchanged). Transcribing while a lesson is being recorded
+(unchanged). Deleting a lesson recording before its write-up exists (unchanged).
+**And newly:** an analyzer that stores media, holds any caller's database or booking key, writes a
+caller's rows, or is made tenant-aware after the fact. Pooling a tenant's lessons for model work
+without that tenant's opt-in. A caller that reads a document whose major schema version it does
+not know. Moving the booking match, the retention clock or the write-up state out of the club.
+Standing the analyzer up under a product name or price nobody has decided.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
@@ -4021,5 +4089,6 @@ destination, because this board has no cancelled column and `In Review` is a wor
 - D-0010 — Customer video is owned by rating-session-manager, served from the NAS behind an emailed code (2026-08-26) → superseded by D-0030
 - D-0016 — daemon is the architect of record; decisions live in a register and each repo carries its slice (2026-09-16) → superseded by D-0134
 - D-0031 — Lesson recordings are re-encoded at a pinned frame rate; smooth playback beats pristine bits (2026-09-26) → superseded by D-0041
+- D-0064 — Lesson analysis is a coaching plan, not computer vision; the Lesson Plan is TSA's lesson surface and pb.vision is not asked about lesson footage (2026-10-07) → superseded by D-0243
 - D-0130 — The fleet watchdog lives off the fleet, and a quiet agent is an alarm (2026-10-11) → superseded by D-0155
 - D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable (2026-10-14) → superseded by D-0189
