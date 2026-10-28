@@ -4297,6 +4297,90 @@ repo the sync could fast-forward, 43 and up for every one it could not.
   solved. Rules 2 and 3 are open gaps with no enforcement, stated here so a later
   session does not read this file and relax.
 
+### D-0249 — A rendered artefact is graded on what you can see in a still, and the gate decides which rubric applies — not the author
+
+*2026-10-28 · scope: `infrastructure/design-gate/**, infrastructure/git-guards/**, docs/design-system.md, .design/**, **artefact*` · source: the owner's ruling 2026-10-28 — "Put it live now and change the rule this week"; this is the rule half. daemon#949. Extends D-0065, whose text is unchanged.*
+
+**Decision.** The design gate keeps one checklist and grows a second **path** through it.
+Every principle in `infrastructure/design-gate/CHECKLIST.md` is tagged:
+
+- **`[both]`** — 1, 3, 5, 6, 10, 11, 13, 14, 17. Graded on a screen a person clicks **and**
+  on a rendered artefact (an image, a slide, a PDF, a video frame).
+- **`[screen]`** — 2, 4, 7, 8, 9, 12, 15, 16. Graded on a screen only. On the artefact path
+  these are **absent, not relaxed**: there is no tap to acknowledge and no fold to hide a
+  control below.
+
+Four `[both]` items are **re-pointed, not dropped**: every *data shape* the generator can be
+handed rather than every screen state (3); the words on the artefact, a log string's wording
+being item 17's business and not a design finding (6); the delivery size and the phone
+downscale rather than a 390 × 844 viewport (13); contrast in full, because an image has no
+tooltip and no second chance (14). One list, because a parallel artefact checklist would
+drift and the contrast floor would drift first.
+
+**The test is interaction, not visibility,** and it is not the author's to apply. Three facts
+must agree before a change is graded on the artefact path:
+
+1. **Declared** — every UI file in the range matches a glob in the repo's committed
+   `.design/artefacts`. A visible claim, in the same diff as the code.
+2. **Corroborated** — `artefact-scan.sh` finds, per file: no route-reachable importer,
+   something that writes an image/PDF/frame, and a test file that covers it.
+3. **Graded** — the critic re-reads the code and refuses the path anyway if what it finds is
+   interactive. It may overrule only **towards** the screen path, never away from it.
+
+One unregistered UI file makes the whole range a screen change. A repo with no registry
+cannot claim the path at all, so this is a no-op everywhere until a repo opts in, and a
+verdict with no `path:` line is a screen verdict — every verdict already on `main` across the
+fleet stays valid and nothing is re-graded.
+
+A new principle, **17 — advice you give is advice that works**, is added and graded on both
+paths: any message naming a corrective value must pass the check that produced it.
+
+**Why.** The gate graded a component that emits image files and has no route as though it
+were a screen people click. Three gradings found the visual output clean every time; what
+failed each time was arithmetic in an operator-facing error string, the last of them advising
+a crop to a number the same rule rejected two pixels later. A finished component sat a week
+and each round cost about an hour of compute. The gate was working — the defects were real —
+and aimed at the wrong surface.
+
+Exempting screenless components was the wrong fix twice over: it invites anything
+inconvenient to be declared non-visual, and it would throw away the half that was passing. A
+social image carries hierarchy, type scale, spacing and contrast that matter *more* than on a
+screen, because there is no tooltip, no detail view and no second chance. So the answer is a
+narrower rubric, not a waiver.
+
+The classification had to be evidence-based because a rule a session applies to its own
+component is worthless within a week. Hence three parties, only one of which is the session
+in a hurry; hence the deliberate exclusions — anything a route reaches, even a static-looking
+report; anything with no writer, so "internal", "admin only" and "a dev tool" are screens; an
+email template, which has links, a reader and a phone; and any mixed range.
+
+**And the gate's real catch is kept on purpose, with its loss stated.** The crop-advice defect
+lived in a string, not in a frame; the artefact path's rendering would not have found it, and
+item 6's new reading tells the critic explicitly not to grade a log string's wording. It was
+caught because a careful fresh reader was looking at arithmetic while grading something else
+— expensive and unrepeatable. Replacing it: item 17 makes it a citable number that needs no
+viewport, and a test covering the generator is the **price of admission** to the lighter path,
+because that is where arithmetic belongs — deterministic, every commit, seconds rather than an
+hour. The honest gap is that 17 is still a model's judgement and the scan only proves that *a*
+test exists, not that it asserts the round trip; a future variant could reach `main`. That is
+a real loss, accepted because the status quo caught it by spending three hours on a rubric
+that did not apply and still shipped nothing.
+
+**Forbids.** No session decides its own path: a `path: artefact` verdict without a committed
+registry entry for every UI file in the range, and without the scan's evidence line, is
+refused at Stop and at push. No `[screen]` item is cited as a finding on the artefact path,
+and no analogue of one is invented. No registry line is added to make a change pass — the
+refusal is the signal that the thing is a screen. The artefact path is never granted to a
+range that also changes a screen. A registered artefact wired into a route later is a screen
+from that moment: its verdict is stale, and the required check says so. And no component takes
+the lighter path without a test covering it.
+
+**Binds.** D-0065 (extended, text unchanged), D-0018 (the critic is still a separate context
+and still never grades its own work), D-0047 (the phone check survives as item 13's downscale
+reading), D-0049, D-0071 (every clause above is a hook, a guard or a required check), D-0149
+(the new required-check step is host-independent, network-free and credential-free, and
+measured). Pillar 5 `docs/design-system.md`, Pillar 2 `docs/change-discipline.md`.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
