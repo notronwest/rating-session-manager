@@ -1754,8 +1754,8 @@ the architect what to grow next, and no human has to notice the gap first. D-008
 still holds: a *permission* gap is never work.
 
 **Why.** The fleet is about to go from one operator-facing agent to several (a VP of
-Marketing reporting to the club's marketing lead; a product manager after that).
-Hand-building each one's reach is both expensive and decaying — the newest agent becomes the only capable one and
+Marketing reporting to Caryn; a product manager after that). Hand-building each one's
+reach is both expensive and decaying — the newest agent becomes the only capable one and
 last quarter's agents are stuck with last quarter's reach. It is also the load-bearing
 claim of the shareable framework: "it rolls in as a default for the new product manager"
 is only true if the capability was never written into the VP of Marketing. The pieces are
@@ -1958,7 +1958,7 @@ product repo — `club-dashboard`, `courtreserve-api`, `rating-session-manager` 
 
 ### D-0141 — Coach-supplied video enters through the one video repo, and its kind is declared at upload rather than inferred
 
-*2026-10-12 · scope: `**/video*/**, **/recordings/**, **/lesson*/**, src/pbvision/**` · source: Ron via Hopper card `31586e43` (2026-10-12) — "[a member] as the first Academy student — and a phone upload that gets processed". The card routed the upload half to architecture to be shaped before build.*
+*2026-10-12 · scope: `**/video*/**, **/recordings/**, **/lesson*/**, src/pbvision/**` · source: Ron via Hopper card `31586e43` (2026-10-12) — "Liz Manfredi as the first Academy student — and a phone upload that gets processed". The card routed the upload half to architecture to be shaped before build.*
 
 **Decision.** Every record so far describes video the club's own rig produced: camd captures it,
 D-0059 segments it, D-0030 delivers it. **Video a coach hands in from a phone is a new entry
@@ -3145,8 +3145,8 @@ be a video associated with it — we still want to include that as data on their
    2025-04-03, and they are the student's history whether or not we filmed any of it.
 
 2. **The coach is NAMED on every booking; the coach's ACCOUNT is not guaranteed.** Measured: three
-   instructors, zero bookings with no instructor named — their booking counts are 333, 68 and 5,
-   one co-taught. **Only one of the three has a login.** So `lessons.coach_id` becomes
+   instructors, zero bookings with no instructor named — Ron West (333), Celeste Goodhue (68),
+   April Smith (5), one co-taught. **Only Ron has a login.** So `lessons.coach_id` becomes
    **nullable** and gains a sibling `coach_name` carrying what Court Reserve actually said.
    Forcing a uuid would mean writing a player id into a column that otherwise holds an auth user
    id — the exact silent inconsistency that column already invites, since it has no foreign key.
