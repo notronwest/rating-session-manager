@@ -6,7 +6,42 @@ before you wrap.** Newest on top; new entries supersede old — don't rewrite.
 Current state: **Local pipeline orchestrator (Express + Vite + Python);
 design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
-Last updated: **2026-10-13**
+Last updated: **2026-10-28**
+
+## 2026-10-28 — Removed real people's names from the published `DECISIONS.md`
+
+- **Ask:** this repo is **public**, and `DECISIONS.md` carried four real
+  people's names in plain text. Ron authorised the removal directly
+  (2026-10-28), having been told it means editing a generated file.
+- **Changed** (commit `45e4853`, direct to `main` — docs-only, and the stop
+  list puts a merge to `main` outside what waits for Ron):
+  - **D-0183 clause 2** — three named instructors with their individual
+    lesson counts → unattributed counts ("their booking counts are 333, 68
+    and 5", "Only one of the three has a login"). The measurement, the
+    co-taught case and the reasoning for a nullable `coach_id` all survive.
+  - **D-0141 source line** — a named member quoted from a Hopper card →
+    `[a member]`, bracketed inside the quote so the redaction is visible.
+  - **The capability-ratchet record's "Why"** — a named staff member in the
+    org structure → "the club's marketing lead".
+  - No clause deleted, no decision reworded, no number changed. "Ron" is
+    left throughout: author of record on every decision and owner of this
+    repo.
+- **This edits a generated artifact on purpose.** `DECISIONS.md` is rendered
+  in daemon (`infrastructure/decision-register/render.sh`) and copied here by
+  `publish.sh`. The source records in daemon are **unchanged**, so the next
+  publish will restore these names until the generator-side fix lands. That
+  fix, not this commit, is what makes the removal stick.
+- **Still in history.** The names remain reachable in earlier commits of this
+  public repo (~25 of the 31 commits that touched `DECISIONS.md`; the member
+  name in ~30). No history rewrite attempted — that is Ron's call and it
+  invalidates every clone.
+- **Audited the rest of the repo** — more exposure found and **not** changed
+  (outside this authorisation; see the session report): member names paired
+  with Court Reserve member ID numbers in two source comments, a test
+  fixture with a name + `org_member_id`, a `REAL_NAMES` lookup array in a
+  one-off data-fix script, four member names repeated through
+  `mockups/session-workflow.html`, one name in this file's own 2026-07-16
+  entry region, and a staff first name in the synced `CLAUDE.md`.
 
 ## 2026-10-13 — Reviewed PR #79 (LP-08 lesson transcription) — REQUEST CHANGES
 
