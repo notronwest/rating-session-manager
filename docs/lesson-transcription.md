@@ -1,7 +1,18 @@
 # lesson-transcribe — the coach's mic becomes the lesson's write-up
 
-LP-08, issue #74. Architecture: **D-0064** (*lesson analysis is a coaching plan,
-not computer vision*). Spec: daemon `agents/chief-of-staff/initiatives/lesson-plan.md`.
+LP-08, issue #74. Architecture: **D-0243** (*lesson analysis is a standalone
+analyzer: a video link in, a versioned document out*), superseding D-0064. Spec:
+daemon `agents/cto/initiatives/lesson-analyzer.md` for the analyzer and
+`agents/chief-of-staff/initiatives/lesson-plan.md` for the coaching surface.
+
+> **The job is in two halves, and the seam is the product.** `src/analyzer/`
+> takes a video it does not own and returns one versioned document; it imports
+> nothing but node builtins and names no club path, host or table, which
+> `tests/analyzer-boundary.test.ts` refuses rather than asks for.
+> `src/services/lesson-transcribe.ts` is the club half — the NAS, the settle
+> window, the camd guard, the lesson row, the write-up draft — and it stays
+> here. D-0243 clause 5 says what may move and what may not: the booking match,
+> the retention clock and the write-up state stay with WMPC.
 
 > **Where this came from.** On 2026-10-07 Ron was handed write-ups for two
 > lessons. They were produced by a 14-line zsh script in his home directory on
@@ -27,9 +38,14 @@ every 10 min (launchd, user agent)
    │
    └─ for the first eligible recording:
         ffprobe duration ─ under 10 min? a camera test, skip
-        ffmpeg  -vn -ac 1 -ar 16000      → wav   (nice 15)
-        volumedetect ─ mean ≤ -70 dBFS? silent: record it, do NOT transcribe
-        whisper-cli --vad -mc 0          → .txt + .srt   (nice 15)
+        │
+        ├── THE ANALYZER (src/analyzer, knows nothing about the club) ──────────
+        │   ffmpeg  -vn -ac 1 -ar 16000      → wav   (nice 15)
+        │   volumedetect ─ mean ≤ -70 dBFS? → result: "silent", no transcript
+        │   whisper-cli --vad -mc 0          → .txt + .srt   (nice 15)
+        │   returns ONE document: schema_version, result, source, transcript
+        └───────────────────────────────────────────────────────────────────────
+        assertSupportedDocument(doc)     ← refuses a major it cannot read
         lessons.recording_ref == ref?    → lessons.transcript
                                          → TSA drafts what_we_did + homework
 ```
@@ -98,7 +114,7 @@ rework, and nothing is lost in the interval.
 | 8 | Failure mode? | **Fail closed.** No `TRANSCRIBE-HOST` → refuse. camd unreachable → hold off (we cannot prove no lesson is recording) and exit **75**, which the wrapper reads as "did not run" and withholds the heartbeat, so a permanent block becomes watchdog silence rather than a cheerful beat over a dead job. Six consecutive unreachable ticks (~1 h) also post to Discord. |
 | 9 | Secrets? | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` from the repo `.env` (already present). `LESSON_DRAFT_URL` + `LESSON_DRAFT_SECRET` for the TSA draft function; without them transcripts still attach and the job logs that drafting is off. No Anthropic key on the mini — the AI call is TSA's, so the key stays in one place. |
 | 10 | Observability? | One line per recording in `~/.local/state/wmpc-lesson-transcribe/transcribe.log` with words and seconds taken. `npm run transcribe:status` lists every recording and whether it is transcribed, pending attach, or silent. Discord on failure only. `heartbeat.sh lesson-transcribe` on a completed run; registered in daemon's `infrastructure/heartbeat/JOBS`. |
-| 11 | Can the CoS reach it? | Yes: `npm run transcribe:status` and `npm run transcribe` under the host guard, both read-only-safe to invoke. She does not need the transcript text itself — D-0064 keeps it on the lesson. |
+| 11 | Can the CoS reach it? | Yes: `npm run transcribe:status` and `npm run transcribe` under the host guard, both read-only-safe to invoke. She does not need the transcript text itself — it lives on the lesson. |
 
 ## Known gaps, stated rather than papered over
 
@@ -111,6 +127,6 @@ rework, and nothing is lost in the interval.
   is `no`, so no *new* lesson recordings are being made automatically. This job
   will work through what is already on the NAS; new supply needs the recorder
   turned on (a two-file commit, documented in daemon's `JOBS`).
-- **Retention of transcripts is not set here.** D-0059's clock and D-0064's
+- **Retention of transcripts is not set here.** D-0059's clock and D-0243's
   write-up exemption are LP-07's scope (#73). This job writes a transcript and
   does not delete anything.

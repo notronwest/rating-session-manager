@@ -1,12 +1,21 @@
-// LP-08 — transcribe a finished teaching-camera lesson recording, locally, and
-// attach the text to its lesson. Issue #74. Architecture: D-0064.
+// LP-08 — transcribe a finished teaching-camera lesson recording and attach the
+// text to its lesson. Issue #74. Architecture: D-0243 (superseding D-0064).
 //
-// THE TWO RULES D-0064 PUTS ON THIS FILE, both enforced below:
+// THIS FILE IS THE CLUB HALF, and that is the point of it. D-0243 cuts the seam
+// between the analysis and the operation: `src/analyzer/` takes a video it does
+// not own and returns a versioned document, while everything here — the NAS, the
+// settle window, camd, the lesson row, the write-up — is WMPC's and stays.
+//
+// THE TWO RULES THAT STILL BIND THIS FILE, both enforced below:
 //   1. Never transcribe while a lesson is being recorded. The mini's CPU is
 //      camd's then, and a stalled encode loses a lesson no retry can recover.
-//   2. A transcript does not leave the mini other than as the text attached to
-//      the lesson. So the only network writes here are Supabase (lessons.transcript)
-//      and, when enabled, the TSA draft function — nothing else, ever.
+//   2. Nothing drafted reaches a student before the coach marks the lesson
+//      written up. So this file never sets `written_up_at` and never overwrites
+//      text a human has already put there.
+//
+// D-0064's rule that a transcript may not leave the mini is REVERSED by D-0243
+// clause 2: where the analyzer runs is a deployment choice, and what protects the
+// footage instead is clause 4 — the analyzer stores nothing.
 //
 // WHY THE NAS IS THE SOURCE AND NOT /opt/wmpc/recordings.
 // recordings-sync.sh copies a finished recording to the NAS, verifies it by
@@ -22,17 +31,29 @@
 // copy for a finished recording. Skipping dotfiles is therefore sufficient; we
 // do not need to second-guess it with our own size checks.
 
-import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
 import { getSupabase } from "../supabase.js";
+import {
+  type AnalyzerConfig,
+  decodeArgs,
+  probeDurationS,
+  probeMeanVolumeDb,
+  SILENCE_FLOOR_DB,
+  transcribeAudio,
+} from "../analyzer/transcribe.js";
+import { assertSupportedDocument } from "../analyzer/document.js";
+
+// Re-exported because they are this job's published surface and its tests read
+// them from here. The definitions live in the analyzer, where they belong.
+export { decodeArgs, probeDurationS, probeMeanVolumeDb, SILENCE_FLOOR_DB };
 
 // ── Config ───────────────────────────────────────────────────────────────────
 // Every value is env-overridable so a dry run on a laptop can point at copies,
 // but the DEFAULTS are production: this job has exactly one real deployment.
 
-export interface TranscribeConfig {
+export interface TranscribeConfig extends AnalyzerConfig {
   /** Finished recordings, the authoritative tree. */
   nasDir: string;
   /** Opportunistic fast path. May not exist; never required. */
@@ -42,13 +63,6 @@ export interface TranscribeConfig {
   /** Local scratch for the 16 kHz wav. Deleted after each recording. */
   scratchDir: string;
   stateDir: string;
-  whisperBin: string;
-  ffmpegBin: string;
-  ffprobeBin: string;
-  modelPath: string;
-  /** Silero VAD model. Empty disables VAD — see decodeArgs() for why that is bad. */
-  vadModelPath: string;
-  threads: number;
   /** Below this, it is a camera test, not a lesson. The 12 test files are ≤20 MB. */
   minDurationS: number;
   /** A file must be this old before we touch it. Belt to the .uploading brace. */
@@ -143,90 +157,6 @@ export function eligibility(opts: {
   }
   return { skip: false };
 }
-
-/**
- * whisper-cli arguments.
- *
- * VAD IS NOT OPTIONAL, and this is the bug the 2026-10-07 prototype found:
- * whisper looped on silence mid-file, emitting the same phrase for minutes, and
- * on the 09-27 clinic — whose mic was never connected — it produced 166 words of
- * pure hallucination from digital silence. Without a VAD model we would ship
- * that bug again, so the caller refuses to run rather than transcribe blind.
- *
- * `--max-context 0` is the second half of the fix: it stops the decoder feeding
- * its own previous output back as the prompt, which is what turns one bad
- * segment into a loop that runs to the end of the file.
- */
-export function decodeArgs(cfg: TranscribeConfig, wav: string, outBase: string): string[] {
-  return [
-    "-m", cfg.modelPath,
-    "-t", String(cfg.threads),
-    "-f", wav,
-    "-otxt", "-osrt",
-    "-of", outBase,
-    "-np",
-    "--vad",
-    "-vm", cfg.vadModelPath,
-    "-mc", "0",
-    "-et", "2.8",
-  ];
-}
-
-// ── Process helpers ──────────────────────────────────────────────────────────
-
-interface RunResult { code: number; stdout: string; stderr: string }
-
-/**
- * Run a child at nice 15. EVERY external process this job starts is niced:
- * Court 4 streams to YouTube off the same box, and an un-niced ffmpeg on a
- * 10-core mini was measured at load 2.1 during the prototype.
- */
-function run(bin: string, args: string[], opts: { timeoutMs?: number } = {}): Promise<RunResult> {
-  return new Promise((resolve) => {
-    const child = spawn("nice", ["-n", "15", bin, ...args], { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    let timer: NodeJS.Timeout | undefined;
-    if (opts.timeoutMs) {
-      timer = setTimeout(() => child.kill("SIGKILL"), opts.timeoutMs);
-    }
-    child.stdout.on("data", (d) => { stdout += d.toString(); });
-    child.stderr.on("data", (d) => { stderr += d.toString(); });
-    child.on("close", (code) => {
-      if (timer) clearTimeout(timer);
-      resolve({ code: code ?? -1, stdout, stderr });
-    });
-    child.on("error", (err) => {
-      if (timer) clearTimeout(timer);
-      resolve({ code: -1, stdout, stderr: String(err) });
-    });
-  });
-}
-
-export async function probeDurationS(cfg: TranscribeConfig, file: string): Promise<number | null> {
-  const r = await run(cfg.ffprobeBin, [
-    "-v", "error", "-show_entries", "format=duration",
-    "-of", "default=noprint_wrappers=1:nokey=1", file,
-  ], { timeoutMs: 120_000 });
-  const v = Number(r.stdout.trim());
-  return Number.isFinite(v) && v > 0 ? v : null;
-}
-
-/**
- * Mean volume in dBFS, or null if unreadable. Digital silence reads as -91 dB
- * (or -inf). We refuse to transcribe a silent recording rather than store
- * hallucinated text on a lesson: the 09-27 clinic is exactly this case, and its
- * "transcript" was 166 invented words.
- */
-export async function probeMeanVolumeDb(cfg: TranscribeConfig, wav: string): Promise<number | null> {
-  const r = await run(cfg.ffmpegBin, ["-v", "info", "-i", wav, "-af", "volumedetect", "-f", "null", "-"],
-    { timeoutMs: 600_000 });
-  const m = /mean_volume:\s*(-?[\d.]+) dB/.exec(r.stderr);
-  if (!m) return /mean_volume:\s*-inf/.test(r.stderr) ? -Infinity : null;
-  return Number(m[1]);
-}
-
-export const SILENCE_FLOOR_DB = -70;
 
 // ── camd guard ───────────────────────────────────────────────────────────────
 
@@ -410,92 +340,79 @@ export async function transcribeOne(
 ): Promise<Outcome> {
   const paths = transcriptPaths(cfg, rec);
   fs.mkdirSync(paths.dir, { recursive: true });
-  fs.mkdirSync(cfg.scratchDir, { recursive: true });
-  const wav = path.join(cfg.scratchDir, `${rec.date}_${rec.base}.wav`);
   const started = Date.now();
 
-  try {
-    const durationS = await probeDurationS(cfg, rec.file);
+  // The analysis. Everything after this line is the club's, and none of it is
+  // analysis — which is the seam D-0243 clause 5 draws.
+  const doc = await transcribeAudio(cfg, {
+    file: rec.file,
+    scratchDir: cfg.scratchDir,
+    outBase: path.join(paths.dir, rec.base),
+  }, log);
+  // Fail closed on a document this caller was not written against (D-0243
+  // clause 3). Today it can only be our own; tomorrow it may be a service's.
+  assertSupportedDocument(doc);
 
-    // Audio extraction. This is the slow step — 44 minutes for a 2.2 GB file in
-    // the 2026-10-07 prototype, because the mini reaches the NAS over Wi-Fi at
-    // ~9 Mbps while its gigabit NIC sits below Wi-Fi in the service order (an
-    // open item on Ron's ledger, D-0069). It is not this job's bug to fix, but
-    // it IS why the timeout is generous and why maxPerRun is 1.
-    log(`extracting audio from ${rec.file}`);
-    const ext = await run(cfg.ffmpegBin, ["-v", "error", "-y", "-i", rec.file, "-vn", "-ac", "1", "-ar", "16000", wav],
-      { timeoutMs: 3 * 60 * 60 * 1000 });
-    if (ext.code !== 0 || !fs.existsSync(wav)) {
-      return { kind: "failed", error: `ffmpeg exited ${ext.code}: ${ext.stderr.slice(-300)}` };
-    }
+  if (doc.result === "failed") {
+    // Deliberately no meta file: the next tick retries, exactly as before.
+    return { kind: "failed", error: doc.error ?? "analysis failed" };
+  }
 
-    // Silence gate, before whisper rather than after. See probeMeanVolumeDb.
-    const meanDb = await probeMeanVolumeDb(cfg, wav);
-    if (meanDb !== null && meanDb <= SILENCE_FLOOR_DB) {
-      fs.writeFileSync(paths.meta, JSON.stringify({
-        ref: rec.ref, durationS, meanVolumeDb: meanDb === -Infinity ? "-inf" : meanDb,
-        result: "silent", note: "no audio on this recording — not transcribed, because whisper invents words from silence",
-        at: new Date().toISOString(),
-      }, null, 2));
-      return { kind: "silent" };
-    }
-
-    log(`transcribing (${durationS ? Math.round(durationS / 60) : "?"} min of audio)`);
-    const outBase = path.join(paths.dir, rec.base);
-    const w = await run(cfg.whisperBin, decodeArgs(cfg, wav, outBase), { timeoutMs: 6 * 60 * 60 * 1000 });
-    if (w.code !== 0 || !fs.existsSync(paths.txt)) {
-      return { kind: "failed", error: `whisper exited ${w.code}: ${w.stderr.slice(-300)}` };
-    }
-
-    const transcript = fs.readFileSync(paths.txt, "utf8");
-    const words = transcript.split(/\s+/).filter(Boolean).length;
-
-    // Attach + draft. A failure here must NOT lose the transcription we just
-    // spent an hour on, so the meta is written first and the attach is retried
-    // by the next tick (see reattachPending).
-    let attached = false;
-    let drafted = false;
-    let attachNote = "";
-    try {
-      const lesson = await findLessonForRecording(rec.ref);
-      if (!lesson) {
-        attachNote = "pending — no lesson references this recording yet (LP-07)";
-      } else if (lesson.transcript) {
-        attached = true;
-        attachNote = "lesson already had a transcript; left as is";
-      } else {
-        await attachTranscript(lesson.id, transcript);
-        attached = true;
-        // The draft gets its OWN catch. Without it a failing draft call — the
-        // function not deployed to this project yet, say, which is exactly the
-        // state on 2026-10-13 — surfaces as "attach failed, will retry" on a
-        // transcript that in fact attached perfectly. A misleading log is worse
-        // than a missing feature.
-        try {
-          const d = await draftWriteUp({ ...lesson, transcript }, transcript);
-          drafted = d.drafted;
-          attachNote = d.drafted ? "drafted" : `draft skipped: ${d.reason}`;
-        } catch (err) {
-          attachNote = `attached; draft failed (transcript is safe): ${(err as Error).message}`;
-        }
-      }
-    } catch (err) {
-      attachNote = `attach failed, will retry: ${(err as Error).message}`;
-    }
-
+  if (doc.result === "silent") {
     fs.writeFileSync(paths.meta, JSON.stringify({
-      ref: rec.ref, durationS, meanVolumeDb: meanDb, words,
-      result: "transcribed", attached, drafted, attachNote,
-      model: path.basename(cfg.modelPath), vad: path.basename(cfg.vadModelPath),
-      tookS: Math.round((Date.now() - started) / 1000),
+      ref: rec.ref, durationS: doc.source.durationS, meanVolumeDb: doc.source.meanVolumeDb,
+      result: "silent", note: "no audio on this recording — not transcribed, because whisper invents words from silence",
       at: new Date().toISOString(),
     }, null, 2));
-
-    log(`${rec.ref}: ${words} words in ${Math.round((Date.now() - started) / 1000)}s — ${attachNote}`);
-    return { kind: "transcribed", words, attached, drafted };
-  } finally {
-    try { fs.unlinkSync(wav); } catch { /* scratch only */ }
+    return { kind: "silent" };
   }
+
+  const transcript = doc.transcript?.text ?? "";
+  const words = doc.transcript?.words ?? 0;
+
+  // Attach + draft. A failure here must NOT lose the transcription we just
+  // spent an hour on, so the meta is written first and the attach is retried
+  // by the next tick (see reattachPending).
+  let attached = false;
+  let drafted = false;
+  let attachNote = "";
+  try {
+    const lesson = await findLessonForRecording(rec.ref);
+    if (!lesson) {
+      attachNote = "pending — no lesson references this recording yet (LP-07)";
+    } else if (lesson.transcript) {
+      attached = true;
+      attachNote = "lesson already had a transcript; left as is";
+    } else {
+      await attachTranscript(lesson.id, transcript);
+      attached = true;
+      // The draft gets its OWN catch. Without it a failing draft call — the
+      // function not deployed to this project yet, say, which is exactly the
+      // state on 2026-10-13 — surfaces as "attach failed, will retry" on a
+      // transcript that in fact attached perfectly. A misleading log is worse
+      // than a missing feature.
+      try {
+        const d = await draftWriteUp({ ...lesson, transcript }, transcript);
+        drafted = d.drafted;
+        attachNote = d.drafted ? "drafted" : `draft skipped: ${d.reason}`;
+      } catch (err) {
+        attachNote = `attached; draft failed (transcript is safe): ${(err as Error).message}`;
+      }
+    }
+  } catch (err) {
+    attachNote = `attach failed, will retry: ${(err as Error).message}`;
+  }
+
+  fs.writeFileSync(paths.meta, JSON.stringify({
+    ref: rec.ref, durationS: doc.source.durationS, meanVolumeDb: doc.source.meanVolumeDb, words,
+    result: "transcribed", attached, drafted, attachNote,
+    model: doc.engine.model, vad: doc.engine.vad,
+    tookS: Math.round((Date.now() - started) / 1000),
+    at: new Date().toISOString(),
+  }, null, 2));
+
+  log(`${rec.ref}: ${words} words in ${Math.round((Date.now() - started) / 1000)}s — ${attachNote}`);
+  return { kind: "transcribed", words, attached, drafted };
 }
 
 /**
