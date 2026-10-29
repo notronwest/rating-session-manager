@@ -682,7 +682,8 @@ go back and forth with you the more time and money it costs."
 
 
 
-<!-- wmpc-block:response-style:v5 START -->
+
+<!-- wmpc-block:response-style:v6 START -->
 ## Response style — a short summary, and the ask unmistakable (D-0177)
 
 Every reply, in every repo, from every prompt — interactive sessions, spawned
@@ -773,11 +774,32 @@ database-enforced for the cards on the dashboard, and the reply surface simply n
 inherited it. An id is a pointer into a filing system Ron does not read. Handing him one
 makes him ask what it is, which is the round trip the whole convention exists to remove.
 
+**The level is a dial, and short is the default (D-0259).** Ron, 2026-10-29: *"teaching the
+models to have different levels of responses should be easier to configure."* So:
+
+- **Short** unless he asked otherwise. Aim under ~200 words of prose; nine replies in ten
+  already are, and the median is 29.
+- **Full** when he asks for it in the prompt — "full account", "walk me through", "the long
+  version", "in detail", "give me everything", "don't summarize". For that turn only. A reply
+  is long because he asked for it, which is what rule 1 always meant.
+- The two levels differ in **LENGTH ONLY**. Plain language for every identifier, the second
+  person, the one question at the end, the numbered paste-safe steps and the silence between
+  tool calls bind at both. "Full" is not a licence to narrate.
+
+**And it is primed, not refused.** The contract is stated before the reply is written rather
+than charged for afterwards: nothing can read a reply while it is being generated, so a length
+check can only stand after the fact and can only refuse by buying a second reply. Measured over
+25,995 replies, that refusal fired on 0.5% of them and cost double every time. Length is now
+recorded and counted, not rewritten. What still refuses, once, is a **sentence** fault — an
+identifier reaching him, a machine clock, a fix claimed without a re-run — because the
+correction there is one clause. And a turn that narrates itself is stopped **mid-turn**, at the
+tool call after the third line, so the rest of the commentary is never written.
+
 **Forbids.** A step-by-step narration of what you did as the body of a reply. A reply that
 restates the request before answering it. Several questions stacked for Ron to sort out. A
 question or an action buried mid-paragraph. Padding a short answer to look thorough —
 "this was already done" is a complete reply. Any identifier used as a noun in a reply:
 an id, a path, a repo, a component, a phase number, a bare issue number. And restating a
 card he has already been sent — its text, its choices or its steps — when a clause and a
-link would do.
-<!-- wmpc-block:response-style:v5 END -->
+link would do. Enforcing length by throwing away a finished reply and asking for it again.
+<!-- wmpc-block:response-style:v6 END -->
