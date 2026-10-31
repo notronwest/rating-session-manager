@@ -1,0 +1,91 @@
+# Tell Ron when a pull request arrives from somebody else's fork.
+#
+# Ron, 2026-10-30: "Make sure that if someone creates a PR from a fork that it
+# requires my approval. And make sure I am notified."
+#
+# The approval half is a repository setting, not this file: every outside
+# contributor's workflows now wait for him. This file is the second half, because
+# a gate nobody is told about is a gate that stalls somebody's pull request for a
+# week.
+#
+# WHY pull_request_target AND WHY IT IS SAFE HERE. A plain `pull_request` run from
+# a fork gets no secrets, so it could not post anywhere. `pull_request_target`
+# runs in the base repository with its secrets — which is exactly the privilege
+# the approval setting exists to withhold. It is safe in this one file for one
+# reason: IT NEVER CHECKS OUT THE FORK'S CODE. There is no actions/checkout, no
+# build, no install, no script from the branch. It reads event metadata that
+# GitHub produced and posts it. Adding a checkout step here would hand an
+# untrusted branch the webhook, so do not.
+#
+# Everything interpolated into the message goes in through env, never directly
+# into the shell, because a branch or title is attacker-chosen text.
+name: Fork pull request alert
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions: {}
+
+jobs:
+  tell-ron:
+    # Only a fork. A pull request from a branch on this repository is Ron's own
+    # work and does not need announcing.
+    if: github.event.pull_request.head.repo.fork == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the card
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          URL: ${{ github.event.pull_request.html_url }}
+          FROM: ${{ github.event.pull_request.head.repo.full_name }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          CHANGED: ${{ github.event.pull_request.changed_files }}
+        run: |
+          if [ -z "${WEBHOOK}" ]; then
+            echo "No channel webhook is set for this repository, so there is nobody to tell."
+            echo "Add it as the repository secret DISCORD_WEBHOOK and this starts working."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          # The group's one accent, same value the pages and the deck use.
+          BRASS = 0xB07D3A
+
+          def clean(s, n=300):
+              s = (s or "").replace("@everyone", "@​everyone").replace("@here", "@​here")
+              return s[:n]
+
+          body = {
+              "embeds": [{
+                  "author": {"name": "GITHUB · PULL REQUEST FROM A FORK"},
+                  "title": clean(os.environ["TITLE"], 240) or "(no title)",
+                  "url": os.environ["URL"],
+                  "description": (
+                      f"**{clean(os.environ['AUTHOR'], 60)}** opened this on "
+                      f"**{clean(os.environ['REPO'], 80)}** from `{clean(os.environ['FROM'], 80)}`"
+                      f" (`{clean(os.environ['BRANCH'], 60)}`).\n\n"
+                      "Its checks are waiting for you to approve them — nothing from this branch "
+                      "runs until you do. Read the diff before you press it."
+                  ),
+                  "fields": [
+                      {"name": "Files changed", "value": str(os.environ.get("CHANGED") or "?"), "inline": True},
+                      {"name": "Number", "value": "#" + str(os.environ["NUMBER"]), "inline": True},
+                  ],
+                  "color": BRASS,
+              }],
+              "allowed_mentions": {"parse": []},
+          }
+          req = urllib.request.Request(
+              os.environ["WEBHOOK"],
+              data=json.dumps(body).encode(),
+              headers={"content-type": "application/json"},
+          )
+          with urllib.request.urlopen(req, timeout=20) as r:
+              print("posted:", r.status)
+          PY
