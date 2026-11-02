@@ -1789,51 +1789,6 @@ worked by hand every day. Reading "no PR carries an approve verdict" as "approva
 without checking whether the last one merged. Adding a repo to `NEVER-AUTO-MERGE-REPOS` to slow
 a pile down — the pile is inflow, and merging is what removes it.
 
-### D-0132 — A worktree is retired by the mechanism that made it, and "merged" is proven by content
-
-*2026-10-12 · scope: `infrastructure/worktrees/**` · source: daemon STATUS 2026-10-12 (136 registered worktrees across 12 repos; D-0069 recovered from an orphaned directory in /private/tmp)*
-
-**Promoted to `active` by Ron, 2026-10-12** ("and promote"), in the same change that
-landed the mechanism.
-
-**Decision.** Two rules, one cause.
-
-1. **A mechanism that creates worktrees retires them.** `new-worktree.sh` reaps worktrees
-   whose branch is merged and whose tree is clean, on every run. Isolation (D-0005) is only
-   useful while `git worktree list` shows live work; a list of finished branches is not a
-   smaller problem than no isolation, because a registered worktree **holds its branch
-   checked out**, so `git branch -D` refuses even after the PR merged.
-
-2. **"Merged" is proven against content, never inferred from a PR's state or a branch name.**
-   The accepted proofs are: `HEAD` is an ancestor of `origin/main`, **or** every file the
-   branch touched is byte-identical on `origin/main`. Nothing else counts.
-
-**Why.** Measured on 2026-10-12: **136 registered worktrees across 12 repos** on one laptop,
-plus ~34 orphaned directories no repo still referenced. Three costs, all observed.
-
-A registered worktree pins its branch, so cleanup needed a manual `worktree remove --force`
-twice on 2026-10-11. A session reading the list cannot separate live work from residue — 23
-of the 136 were real. And an orphaned directory is **outside git's protection entirely**: one
-held the only copy of **D-0069**, absent from `origin/main`, as loose files in `/private/tmp`,
-which macOS clears.
-
-Rule 2 is the sharp one, because the obvious shortcut is wrong in both directions. A **squash
-merge** makes ancestry *and* `git cherry` report "unmerged" on a branch that is fully shipped —
-the squashed commit shares no SHA and no patch-id with the branch's commits. And in the other
-direction, **6 branches whose PR was MERGED had diverged from the merged head afterwards**
-(reused or rebased branch names), so "PR merged → delete" would have destroyed real commits.
-Neither a PR's state nor ancestry alone is evidence; the content test is.
-
-**Forbids.** Deleting a worktree on an inference — a PR's state, a branch's name, or ancestry
-alone. Reaping a worktree whose `git status --porcelain` is non-empty: uncommitted and
-untracked files are the only thing a worktree holds that the repository does not. Reaping with
-`--force`, which would defeat git's own independent refusal.
-
-**Guard (D-0097 rule 2).** The block is in code, not prose: dry run is the default, removal
-requires an empty status, removal runs without `--force`, and `.no-reap` exempts a directory.
-Every uncertainty — detached HEAD, missing `origin/main`, a failed removal — resolves to KEEP.
-Design and the verification of all three paths: `infrastructure/worktrees/DESIGN.md`.
-
 ### D-0134 — Third Shot Academy is its own Cairn operation, and a repo belongs to exactly one decision register
 
 *2026-10-12 · scope: `decisions/**, DECISIONS.md, infrastructure/decision-register/**, framework/**` · source: Ron, 2026-10-12 — "I am ready to build Third Shot Academy as its own Cairn application with its own dashboard and its own context" and, asked the two open questions, "TSA gets its own decision register". Table run per PROCESS.md: four voices, four concerns, no veto.*
@@ -4444,6 +4399,68 @@ reading), D-0049, D-0071 (every clause above is a hook, a guard or a required ch
 (the new required-check step is host-independent, network-free and credential-free, and
 measured). Pillar 5 `docs/design-system.md`, Pillar 2 `docs/change-discipline.md`.
 
+### D-0268 — A merged pull request is a third proof, bound to the commit it merged
+
+*2026-11-02 · scope: `infrastructure/worktrees/**` · source: daemon STATUS 2026-10-29 (a sweep of 56 worktrees across 19 repos reaped 21 and kept most of the remaining merged ones forever, because `origin/main` had edited their files after the squash merge); the owner, 2026-11-02, on the offer to teach the reaper to read the pull request — "Yes, teach it"*
+
+**Decision.** Three rules, one cause. Rules 1 and 2 are D-0132's, restated because this
+record replaces it; rule 3 is what changes.
+
+1. **A mechanism that creates worktrees retires them.** `new-worktree.sh` reaps worktrees
+   whose branch is merged and whose tree is clean, on every run. Isolation (D-0005) is only
+   useful while `git worktree list` shows live work; a list of finished branches is not a
+   smaller problem than no isolation, because a registered worktree **holds its branch
+   checked out**, so `git branch -D` refuses even after the pull request merged.
+
+2. **"Merged" is proven, never inferred from a branch name.** Two content proofs, both
+   git-only: `HEAD` is an ancestor of `origin/main`, **or** every file the branch touched is
+   byte-identical on `origin/main`.
+
+3. **A third proof: the branch's own pull request is MERGED *and* this `HEAD` is contained
+   in the commit that pull request merged.** The containment half is not a refinement, it is
+   the proof. A pull request stays MERGED after someone pushes to its branch again, so the
+   state **alone** says nothing about the commits sitting in the directory — which is why
+   D-0132 refused pull-request state outright. Bound to the merged head oid it says exactly
+   the right thing: everything here went through that pull request.
+
+**Why.** D-0132's rule 2 is correct and insufficient, and the insufficiency compounds with
+time. Content proof (b) asks whether `origin/main`'s copy of each touched file is still
+byte-identical to the branch's — so it is false for exactly the branches that merged
+**longest ago**, because `origin/main` has had the most time to edit those files since.
+
+Measured 2026-10-29 across 56 worktrees in 19 repos: 21 were reapable, and the merged ones
+that were kept were kept for that reason, permanently. That is what grew the list back to 56
+after a sweep had taken it to 35. Re-measured 2026-11-02 against 108 registrations on the
+same laptop: the content proofs offer up 4, the three proofs together offer up 8. The four it
+adds are all MERGED with `HEAD` equal to the merged head — verified one by one against the
+API before the proof was accepted.
+
+The reason D-0132 refused pull-request state is unchanged and is honoured here: on 2026-10-12
+**6 branches whose pull request was MERGED had diverged from the merged head afterwards**
+(reused or rebased branch names), so "MERGED → delete" would have destroyed real commits. The
+oid is the whole of the answer to that, and it is the case the test suite asserts first.
+
+This proof is the only one that needs the network, so it is also the only one that can be
+unavailable. Every way `gh` can fail — absent, unauthenticated, offline, rate-limited,
+answering about a repository with no pull requests — produces no proof, and no proof means
+KEEP. The failure direction is the safe one, which is why the lock may be added at all.
+
+**Forbids.** Reaping a worktree because its pull request is MERGED, without proving `HEAD`
+is contained in the commit that pull request merged. Reading the pull request **before** the
+two content proofs, which would make the reaper's steady-state behaviour depend on the
+network. Treating a `gh` failure as anything but "no proof". Reaping a worktree whose
+`git status --porcelain` is non-empty: uncommitted and untracked files are the only thing a
+worktree holds that the repository does not. Reaping with `--force`, which would defeat
+git's own independent refusal. Reporting "merged + clean" without naming which proof
+answered — an operator who cannot see which lock opened cannot audit the one that is new.
+
+**Guard (D-0097 rule 2).** The block is in code, not prose: dry run is the default, removal
+requires an empty status, removal runs without `--force`, `.no-reap` exempts a directory, and
+proof (c) requires the ancestry check to pass. Proof (c) has a kill switch (`WMPC_REAP_GH=0`)
+because a proof nobody can roll back is a proof nobody can retract. Every uncertainty
+resolves to KEEP. Design and the verification of all three proofs:
+`infrastructure/worktrees/DESIGN.md`.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
@@ -4458,6 +4475,7 @@ measured). Pillar 5 `docs/design-system.md`, Pillar 2 `docs/change-discipline.md
 - D-0031 — Lesson recordings are re-encoded at a pinned frame rate; smooth playback beats pristine bits (2026-09-26) → superseded by D-0041
 - D-0064 — Lesson analysis is a coaching plan, not computer vision; the Lesson Plan is TSA's lesson surface and pb.vision is not asked about lesson footage (2026-10-07) → superseded by D-0243
 - D-0130 — The fleet watchdog lives off the fleet, and a quiet agent is an alarm (2026-10-11) → superseded by D-0155
+- D-0132 — A worktree is retired by the mechanism that made it, and "merged" is proven by content (2026-10-12) → superseded by D-0268
 - D-0161 — A pause covers one phase, and the phase it covers is named in code (2026-10-13) → superseded by D-0181
 - D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable (2026-10-14) → superseded by D-0189
 - D-0183 — A lesson record is created from the Court Reserve booking, with or without a recording; the coach may be named without an account (2026-10-15) → superseded by D-0242
