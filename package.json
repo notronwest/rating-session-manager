@@ -8,6 +8,7 @@
     "dev:server": "tsx src/server.ts",
     "dev:web": "vite",
     "build": "tsc && vite build && ./scripts/restart-api.sh",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
     "build:only": "tsc && vite build",
     "restart": "./scripts/restart-api.sh",
     "start": "node dist/server.js",
