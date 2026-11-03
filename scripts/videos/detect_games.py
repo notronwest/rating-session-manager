@@ -273,7 +273,9 @@ def segment_games(rows,
                   empty_max_n=DEFAULT_EMPTY_MAX_N,
                   active_min_n=DEFAULT_ACTIVE_MIN_N,
                   min_game_sec=DEFAULT_MIN_GAME_SEC,
-                  verbose=True):
+                  verbose=True,
+                  capture_ended=True,
+                  state=None):
     """Segment a session into games using the empty-court signal.
 
     A game ends when all four players leave the court — it goes EMPTY
@@ -285,7 +287,16 @@ def segment_games(rows,
     The final game runs to end-of-video and is marked UNFINISHED only when
     it isn't itself followed by a break — i.e. the recording stopped while
     players were still on court rather than after a clean changeover.
+
+    Continuous footage (index_continuous.py) passes capture_ended=False when
+    `rows` is a window onto a recording that is still going: the trailing span
+    is then NOT a game yet — play may simply continue past the window — so it is
+    withheld and its start is reported as state["open_tail_start"] for the next
+    window to carry. UNFINISHED then means "capture ended while play was still
+    going", never "the window ran out".
     """
+    if state is not None:
+        state["open_tail_start"] = None
     if not rows:
         return []
 
@@ -313,6 +324,11 @@ def segment_games(rows,
 
     games = []
     for idx, (span_start, span_end) in enumerate(zip(span_starts, span_ends)):
+        if idx == last_idx and not capture_ended:
+            if state is not None:
+                state["open_tail_start"] = span_start
+            continue
+
         # Pin the start to the first sample where play is actually underway,
         # skipping the few seconds of players walking back onto the court.
         start_t = span_start
