@@ -85,16 +85,17 @@ export function recordingWindow(date: string, base: string, durationS: number) {
  */
 export async function askOccupancy(
   start: Date, end: Date, env: NodeJS.ProcessEnv = process.env,
+  opts: { court?: string; onlyTeaching?: boolean } = {},
 ): Promise<OccupancyAnswer> {
   const base = env.CRAPI_LOOPBACK_URL || `http://127.0.0.1:${env.CRAPI_PORT || "8787"}`;
   const key = env.CRAPI_KEY;
   if (!key) throw new Error("CRAPI_KEY is not set — cannot ask which lesson this was");
-  const court = env.LESSON_COURT || "Court #4";
+  const court = opts.court ?? (env.LESSON_COURT || "Court #4");
   const u = new URL("/occupancy/at", base);
   u.searchParams.set("start", start.toISOString());
   u.searchParams.set("end", end.toISOString());
   u.searchParams.set("court", court);
-  u.searchParams.set("only_teaching", "true");
+  if (opts.onlyTeaching ?? true) u.searchParams.set("only_teaching", "true");
   const res = await fetch(u, {
     headers: { "x-api-key": key },
     signal: AbortSignal.timeout(20_000),

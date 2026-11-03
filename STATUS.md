@@ -495,6 +495,19 @@ Last updated: **2026-10-12**
 - Note: `web/src/pages/Dashboard.tsx` had separate in-progress (uncommitted)
   work at the time — left untouched.
 
+## 2026-11-03 — SP-11 continuous-footage game indexer (PR for #71)
+
+- `scripts/videos/index_continuous.py` stitches rows from consecutive recorder
+  segments onto one wall-clock timeline, gates them to booked windows, and calls
+  the existing `segment_games` (no second detector). `segment_games` gained
+  `capture_ended`/`state` so UNFINISHED means capture ended mid-play.
+- `src/indexer/*` + `npm run index:court`: occupancy gate (cached read only),
+  deterministic seeded sampler, shared ROI dir (`WMPC_ROI_DIR`), JSON game store
+  in `data/indexed-games/` (rows point into segments; nothing re-encoded).
+- Tests: `npm test`, `npm run test:py`. Next: move the court polygon into the
+  shared dir and point the switcher's judge at it (daemon side); a Supabase table
+  for game rows if the JSON store should be shared across machines.
+
 ## ⏳ In flight / pending
 
 - (from [`CLAUDE.md`](./CLAUDE.md) status) Webhook does NOT yet poll

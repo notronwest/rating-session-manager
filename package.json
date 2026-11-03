@@ -16,6 +16,8 @@
     "pbvision:tag": "venv/bin/python scripts/pbvision-tag.py",
     "ratinghub:backfill": "tsx scripts/ratinghub-backfill.ts",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:py": "cd scripts/videos && venv/bin/python -m unittest test_index_continuous",
+    "index:court": "tsx src/cli/index-court.ts",
     "transcribe": "./scripts/lesson-transcribe.sh",
     "transcribe:status": "./scripts/lesson-transcribe.sh --status",
     "transcribe:self-test": "./scripts/lesson-transcribe.sh --self-test",
