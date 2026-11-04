@@ -541,3 +541,6 @@ Last updated: **2026-10-12**
 Added `index:nightly` (23:30 launchd job, `install-game-indexer.sh`, `INDEXER-HOST`), `indexed_through` on the
 court store (advanced only by a finished run), failure ping once a day, tests in `tests/index-nightly.test.ts`.
 Next: Ron runs the installer on the mini; confirm the footage path (`INDEX_RECORDINGS_DIR`); deletion job reads `indexed_through`.
+
+## 2026-11-04 — #101 rework (PR #103)
+Reviewer fix: nightly indexer now probes only recorder-segment filenames that overlap the range; a file that fails ffprobe is skipped + logged, not a failed court. Test added (junk file beside valid). Next: re-review.

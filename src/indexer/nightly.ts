@@ -9,6 +9,7 @@
 // A directory that exists with no segments in it IS a clean night.
 import fs from "fs";
 import path from "path";
+import { segmentStart } from "./segments.js";
 import { indexCourt, loadStore, NO_SEGMENTS, storePath, type IndexOptions } from "./run.js";
 
 export interface NightlyCourt { court: string; label: string; dir: string }
@@ -26,6 +27,9 @@ export function parseCourts(env: NodeJS.ProcessEnv): NightlyCourt[] {
     return { court, label: label || court, dir: dir || path.join(root, court) };
   });
 }
+
+/** A segment can start this long before `from` and still overlap the range. */
+const MAX_SEGMENT_S = 4 * 3600;
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
@@ -60,8 +64,17 @@ export async function runNightly(o: NightlyOptions): Promise<NightlyOutcome[]> {
       const from = loadStore(storeFile).indexed_through ?? to - (o.lookbackS ?? 86400);
       const files: { path: string; duration: number }[] = [];
       for (const f of walk(c.dir)) {
-        const d = await o.durationOf(f);
-        if (Number.isFinite(d)) files.push({ path: f, duration: d });
+        // Only recorder segments that could overlap the range are probed; a
+        // stray .DS_Store or partial sync file must not fail the court.
+        const start = segmentStart(f, c.court);
+        if (start === null || start >= to || start + MAX_SEGMENT_S <= from) continue;
+        try {
+          const d = await o.durationOf(f);
+          if (Number.isFinite(d)) files.push({ path: f, duration: d });
+          else o.log(`${c.court}: skipped ${f} — no duration`);
+        } catch (e) {
+          o.log(`${c.court}: skipped ${f} — ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       const r = await indexCourt({
         ...o.indexOpts, court: c.court, courtLabel: c.label, roiFile: o.roiFor(c.court),

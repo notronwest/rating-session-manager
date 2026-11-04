@@ -59,6 +59,22 @@ test("a failed run leaves indexed_through where it was", async () => {
   assert.equal(loadStore(r.storeFile).indexed_through, 1000);
 });
 
+test("a junk file or an unprobeable segment is skipped, not a failed court; out-of-range files are not probed", async () => {
+  const r = rig();
+  fs.writeFileSync(path.join(r.dir, ".DS_Store"), "x");
+  fs.writeFileSync(path.join(r.dir, "notes.txt"), "x");
+  fs.writeFileSync(path.join(r.dir, "court4-20261103T200000Z.ts"), "");
+  fs.writeFileSync(path.join(r.dir, "court4-20261103T210000Z.ts"), "");
+  fs.writeFileSync(path.join(r.dir, "court4-20200101T000000Z.ts"), "");
+  const probed: string[] = [];
+  const out = await runNightly({ ...r.base,
+    durationOf: async (f) => { probed.push(path.basename(f)); if (f.includes("210000")) throw new Error("ffprobe exit 1"); return 600; },
+    indexOpts: { maxStaleS: 3600, ask: async () => ans() } });
+  assert.equal(out[0].status, "done");
+  assert.deepEqual(probed.sort(), ["court4-20261103T200000Z.ts", "court4-20261103T210000Z.ts"]);
+  assert.equal(loadStore(r.storeFile).indexed_through, Math.floor(NOW));
+});
+
 test("a missing footage directory is unreachable and does not advance indexed_through", async () => {
   const r = rig(false);
   saveStore(r.storeFile, { games: [], openTailStart: null, sampled: [], indexed_through: 1000 });
