@@ -536,3 +536,8 @@ Last updated: **2026-10-12**
 - [`CLAUDE.md`](./CLAUDE.md) — pipeline states, rating-hub webhook contract.
 - End-to-end workflow source of truth: rating-hub's `CLAUDE.md`.
 - [`../wmpc-meta/strategy.md`](../wmpc-meta/strategy.md).
+
+## 2026-11-04 — nightly game indexer (#101, daemon#241)
+Added `index:nightly` (23:30 launchd job, `install-game-indexer.sh`, `INDEXER-HOST`), `indexed_through` on the
+court store (advanced only by a finished run), failure ping once a day, tests in `tests/index-nightly.test.ts`.
+Next: Ron runs the installer on the mini; confirm the footage path (`INDEX_RECORDINGS_DIR`); deletion job reads `indexed_through`.

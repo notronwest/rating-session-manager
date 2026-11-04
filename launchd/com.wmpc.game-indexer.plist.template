@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- daemon#241 — nightly game index over the continuous recorder's footage.
+     A TEMPLATE: __REPO__ and __HOME__ are filled in by scripts/install-game-indexer.sh
+     from the checkout it runs in (same reason as the lesson-transcribe plist).
+     A USER LaunchAgent: the footage may sit on the Finder-mounted SMB share,
+     which root cannot see. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wmpc.game-indexer</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO__/scripts/index-nightly.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <!-- 23:30 local: after the club closes and the 22:00 Court 4 broadcast ends. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>23</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>15</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.local/state/wmpc-game-indexer/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.local/state/wmpc-game-indexer/launchd.err.log</string>
+</dict>
+</plist>
