@@ -4461,6 +4461,105 @@ because a proof nobody can roll back is a proof nobody can retract. Every uncert
 resolves to KEEP. Design and the verification of all three proofs:
 `infrastructure/worktrees/DESIGN.md`.
 
+### D-0273 — A lesson's marked moments are a column on the lesson, and a signed-in student reaches their clip by a signed token
+
+*2026-11-04 · scope: `**lesson*, src/routes/videos.ts, src/middleware/cf-access.ts, deploy/cloudflared/**, supabase/functions/**lesson*` · source: daemon's ruling on daemon#1185 (cos_requests b57ac91d), routed from the Chief of Staff's approved backlog, holding third-shot-academy#751. Table run per PROCESS.md, two voices against origin/main: third-shot-academy CONCERN, rating-session-manager CONCERN, no veto. Every concern is folded into the rules below.*
+
+**Decision.** The question was where a lesson's coach-marked moments live. Answering it found a
+second gap: the delivery path the question assumed does not exist. Six rules cover both.
+
+1. **Marks are one column on `lessons`.** `lessons.marks jsonb`, an array of
+   `{id uuid, start_ms int, end_ms int}`: offsets into the file `recording_ref` names, at most
+   3 minutes each and 10 per lesson. **A mark carries no text.** The note on the student's card
+   stays `coach_note`, so D-0243's one note is still the only one and no second notes table exists
+   under another name. The analyzer's future `events` and `cues` are suggestions a coach accepts;
+   they never write `marks` (D-0243 clause 4).
+
+2. **What was rejected, and why.** `coach_shot_marks` has `shot_id NOT NULL`, is unique per shot and
+   type, and holds no time range; a lesson has no shots. `game_analysis_notes` has
+   `analysis_id NOT NULL`, which leads to `game_analyses.game_id NOT NULL`. Making either key
+   nullable to fit a lesson breaks what those constraints say about every game row. A new marks
+   table buys nothing here: the rows are few, are read only with their lesson, and inherit the
+   lesson's read policy, which already holds a student out until `written_up_at` is set
+   (`20261015120000_lessons_from_bookings.sql`).
+
+3. **The cut result is a second column with one writer.** `lessons.clips jsonb`, an array of
+   `{mark_id, ready_at, duration_ms}`, written only by rating-session-manager's cutter. A coach's
+   save and the cutter touch different columns, so neither can lose the other's write, and a trigger
+   refuses a non-service-role write to `clips`, because the coach's write policy covers every column
+   and one writer per column would otherwise be a convention. A trigger also refuses changing
+   `recording_ref` to a different file while `marks` is non-empty, because the offsets mean nothing
+   against another file. Attaching a first recording, and re-writing the same one, still pass.
+   Editing a mark gives it a new id.
+
+4. **A clip is a real file, cut by stream copy.** The cutter takes written-up lessons' marks, cuts
+   each with ffmpeg `-c copy` (D-0041; keyframe-aligned bounds are accepted) into one faststart mp4
+   at a NAS path derived only from lesson id and mark id. It is idempotent. It reuses the
+   transcription job's fail-closed camd guard, so it does not run while a lesson is recording, and a
+   missing NAS mount exits 0 with no write and no local shadow directory. rating-session-manager
+   stays the only repo storing or serving customer video (D-0030, unchanged). A range on the full
+   recording was rejected: a token for a moment would open the whole lesson.
+
+5. **Group lessons can be marked, and reach a student only when the notice is published.** D-0238
+   clause 5 names the gap: no published notice tells a `Pro + 3` participant they may be recorded,
+   and a clip shows them to someone else. So the token function refuses a student on a lesson with
+   more than one participant. D-0242 measured 368 of 407 bookings at one student, so this holds
+   back about one lesson in ten. Publishing the notice is stop-list work and the owner's. The
+   hold comes off in a later change once it is out.
+
+6. **Delivery is a signed token, and this is the amendment to D-0030.** Measured 2026-11-04:
+   `docs/VIDEO_DELIVERY.md` still reads "not yet built", `video_grants` does not exist (filed as
+   third-shot-academy#753), and the only video route is `/api/videos/stream?path=`, behind Cloudflare
+   Access for staff. So the "existing delivery path" that #751, rating-session-manager#73 and the
+   sweep all cite is a design, not a path.
+   - **The gate.** A third-shot-academy edge function checks the caller's login and mints an
+     HMAC-signed token, valid 15 minutes, naming exactly one file. A student may mint for a mark on
+     a written-up, single-participant lesson they are on. A coach of the player may mint the same,
+     and a whole-recording token for the marking page. No caller-supplied path exists anywhere.
+   - **The route.** A new public hostname on the Academy's domain, `video.thirdshotacademy.com`,
+     reaches rating-session-manager's tunnel by a path-restricted ingress rule. Express serves
+     `/lesson-video/:token` with HTTP Range and the rest of the app stays behind Cloudflare Access.
+     `cfAccessGate`'s exemption must match **hostname and prefix together**; it matches exact paths
+     on any host today. An unset signing secret refuses every request, the way an unset `CF_ACCESS_*`
+     does.
+   - **What D-0030 keeps.** The only repo serving video, own footage only, every access logged, and
+     Academy branding. `video_access_log` is append-only, its migration lives in third-shot-academy,
+     and a row is written before any bytes are served.
+   - **What changes.** For this path, and only this path, the emailed code and the 30-day grant give
+     way to the student's existing login and a 15-minute token. D-0010 chose a code because a magic
+     link breaks on a LAN-only host and mail scanners consume single-use links. Neither applies: this
+     token is never emailed, is minted at the moment of play for someone already signed in, and is
+     served from a public host. The code page stays the design for someone with no account. It is
+     not built here, and neither is the R2 off-site cache.
+
+**Why.** The sweep's leaning, a column rather than a table, is right, and rule 2 says why. It was
+incomplete on two counts. A single column written by both the coach and the cutter loses writes,
+which is rule 3. And "served through the existing delivery path" would have dispatched a build whose
+acceptance test could not pass, because a student's phone has no route to a lesson file today.
+
+The amendment beats building the code page first. The ask is a clip on a card a student is already
+signed in to, and a second sign-in by emailed code, on a separate page, would serve no reason D-0010
+gave. It also needs no new member-facing email, no rate limiter and no code table.
+
+The clip being a separate file means it outlives its recording if lesson mp4s ever get a deletion
+clock. Today they have none: the D-0059 job walks segment `.ts` files only, and its own comment says
+a lesson's mp4 is outside it, while #241's text says a written-up recording follows the normal rules.
+That disagreement is filed separately, and this work deletes nothing.
+
+**Costs, from the table.** The signing secret is set by hand in both Supabase projects and on the
+mini, and CI does not cover it. `FloorReviewPlayer` seeks a Mux `videoRef`, so reusing it (D-0049)
+means extracting a source abstraction, not a second player. The tunnel README's security model
+changes in kind, because on the new hostname the Express route is the only protection; the README
+and `setup.sh`, which writes a single-host config, are rewritten in the same change. The API is not
+yet reboot-durable, so after a reboot the public route answers 502 until someone starts it; a public
+route cannot carry that, so it is fixed in the same build. Range streaming through the tunnel puts
+load on the mini's API process, which the 3-minute cap bounds.
+
+**Forbids.** Video bytes in third-shot-academy (D-0030, unchanged). A caller-supplied path on the
+public route. Free text on a mark. A second notes table (D-0243, unchanged). A token sent by email
+or any other channel. A clip reaching a student before write-up (D-0243, unchanged), or from a group
+lesson before the notice is published. Deleting a clip or a recording under this record.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
