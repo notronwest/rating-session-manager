@@ -87,6 +87,12 @@ test("segment start is club wall-clock, DST-aware, and rejects other courts", ()
   assert.equal(segmentStart("/r/court4/2026-11-03/notes.txt", "court4"), null);
 });
 
+test("segmentStart reads the recorder's UTC names and rejects a wrong court or bad stamp", () => {
+  assert.equal(segmentStart("/r/court4/segments/2026-11-04/court4-20261104T130000Z.ts", "court4"), T("2026-11-04T13:00:00Z"));
+  assert.equal(segmentStart("/r/court4/segments/2026-11-04/court5-20261104T130000Z.ts", "court4"), null);
+  assert.equal(segmentStart("/r/court4/segments/2026-11-04/court4-20261304T130000Z.ts", "court4"), null);
+});
+
 test("segmentsInRange keeps overlaps in order", () => {
   const s = segmentsInRange([
     { path: "/r/2026-11-03/court4-100000.ts", duration: 600 },
@@ -147,4 +153,17 @@ test("driver: stores game rows as segment pointers, resumes from the open tail, 
   assert.equal(loadStore(b.storeFile).games.length, 1);
   // second run resumed from the carried tail, not the range start
   assert.equal((seen[1] as { segments: unknown[] }).segments.length, 1);
+});
+
+test("driver: an empty night writes a readable store; a skipped range writes nothing", async () => {
+  const b = base();
+  const detect: Detector = async () => { throw new Error("must not run"); };
+  const opts = { court: "court4", courtLabel: "Court #4", roiFile: "x", range: rng, files,
+    captureEnded: true, maxStaleS: 3600, storeFile: b.storeFile, log: (s: string) => b.logs.push(s), detect };
+  await indexCourt({ ...opts, ask: async () => ans({ status: "none" }) });
+  assert.deepEqual(loadStore(b.storeFile), { games: [], openTailStart: null, sampled: [] });
+  assert.ok(fs.existsSync(b.storeFile));
+  const c = base();
+  await indexCourt({ ...opts, storeFile: c.storeFile, ask: async () => ans({ stale_seconds: 99999 }) });
+  assert.equal(fs.existsSync(c.storeFile), false);
 });

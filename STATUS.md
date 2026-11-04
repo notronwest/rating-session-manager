@@ -8,6 +8,16 @@ design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
 Last updated: **2026-10-28**
 
+## 2026-11-04 — Indexer reads the recorder's UTC segment names; empty nights write the store (#98)
+
+- `segmentStart` now parses `<court>/segments/<UTC date>/<court>-<YYYYMMDDTHHMMSSZ>.ts`
+  (local `HHMMSS` form kept for lesson mp4s). Tests added.
+- `indexCourt` writes the store (`games: []`, `sampled: []`) on a confident empty
+  answer; a stale/failed occupancy read or a range with no readable segments
+  writes nothing (unknown stays unknown).
+- **Not done here:** `video_grants` table. Migrations for this Supabase project live
+  in `third-shot-academy/supabase/migrations`, not this repo — needs a PR there.
+
 ## 2026-10-28 — Removed real people's names from the published `DECISIONS.md`
 
 - **Ask:** this repo is **public**, and `DECISIONS.md` carried four real
