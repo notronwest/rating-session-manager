@@ -4560,6 +4560,51 @@ public route. Free text on a mark. A second notes table (D-0243, unchanged). A t
 or any other channel. A clip reaching a student before write-up (D-0243, unchanged), or from a group
 lesson before the notice is published. Deleting a clip or a recording under this record.
 
+### D-0274 — A written-up lesson recording is on the 14-day clock, and a recording no lesson names is kept and listed
+
+*2026-11-04 · scope: `infrastructure/pi-capture/**` · source: daemon's build of daemon#1189 (cos_requests 2b4f11d5), filed by the ruling on daemon#1185 (D-0273). The issue left the choice open: bring these files under the clock, or record plainly that they are out. Both, split by what the job can prove.*
+
+**Decision.** The rules said a written-up lesson recording follows the normal 14-day clock (D-0064,
+D-0243, daemon#241). The job walked only `.ts` segments, so that recording had no clock at all, and
+the lesson exemption guarded files the job could never reach. Measured 2026-11-04, one report-only
+pass on the mini with the NAS mounted: 83 finished lesson mp4s, of which 60 are over age and 23 are
+young. Lessons name six of them, none written up. So this deletes nothing today.
+
+1. **A recording a lesson names exactly, once that lesson is written up, is on the clock.** Fourteen
+   days, the same switch and the same one `delete` approval as D-0271 rule 3. Age runs from the end of
+   the day in the file's dated folder, which is the conservative reading, and it needs no probe. A late
+   write-up does not restart it: the rules say "normal", and a longer hold keeps a group lesson's other
+   participants on file for longer, which the recording policy's own notes flag as an open worry.
+
+2. **A recording no lesson names is kept, and listed with that reason.** It may be a lesson nobody has
+   matched yet, or one of several files for one lesson, which `recording_ref` cannot hold, and D-0064
+   forbids deleting a lesson recording before its write-up. This class is **plainly out of the clock**:
+   that is 54 of the 60 today. D-0059's "keeping ungranted footage past its window" still stands against
+   it, so the report lists every one rather than letting them be invisible. It comes onto the clock when
+   a lesson can hold several recordings, in the change that builds that.
+
+3. **It is still held by an open takedown, a grant, or a marked moment not yet cut.** D-0273 rule 4 cuts
+   clips from this file, so it stays until each mark has a ready clip. A takedown is matched by camera
+   and whole day, which can over-hold and never under-holds. An analyzed game is not checked, because
+   D-0064 sends no lesson footage to analysis.
+
+4. **A list it cannot read keeps the file and reports why, and only where that list matters.** The
+   `video_grants` table and the marks columns do not exist yet, so a written-up lesson's recording is
+   kept as indeterminate until both land. An unnamed file stays a plain keep and raises no alarm, and a
+   failed marks read does not touch a segment.
+
+**Why.** D-0141 called a class of footage with no clock "the hole D-0059 exists to close", so recording
+this class as permanently out was the wrong half of the choice. Bringing every mp4 in was wrong too:
+deleting on absence of a lesson would destroy exactly what D-0064 protects. Positive evidence is the one
+rule that satisfies both records, and it matches D-0271's direction that this job fails toward keeping.
+
+**Costs.** Once the switch is on and a recording ages out, a coach cannot re-mark that lesson, and
+`recording_ref` points at a file that is gone. A transcript outlives its recording; it is text, not
+footage, and D-0064 governs it. A clip outlives its recording by design (D-0273).
+
+**Forbids.** Deleting a lesson recording on the absence of a lesson row. Deleting one from a lesson with
+an uncut mark. Moving this class's switch separately from D-0271's. Deleting a clip under this record.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
