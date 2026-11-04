@@ -8,7 +8,11 @@ LAN. Express **also** serves that same built directory, and a **Cloudflare
 Tunnel** publishes Express at **`https://session.wmpc.app`** behind **Cloudflare
 Access** for use off the LAN. Pushing to `main` deploys nothing.
 
-> ⚠️ Two known gaps, recorded rather than papered over:
+> ⚠️ Known gaps, recorded rather than papered over:
+> - **The API is reboot-durable only after `./scripts/install-api.sh` has been run
+>   on the mini** (rsm#102; `launchd/com.wmpc.session-api.plist.template`, label
+>   `com.wmpc.session-api`, KeepAlive). Until then the old situation holds. The
+>   stale plist below is superseded by it.
 > - **`launchd/ai.wmpc.sessions.plist` is stale and not installed.** Its
 >   `WorkingDirectory` still points at `…/projects/rating-session-manager`, the
 >   repo's old name. `setup.sh` never installs it, and the API is actually run as
@@ -57,9 +61,19 @@ targets:
     config_scope: repo-root .env — VITE_* values are BAKED INTO THE BUNDLE at build time
     verify: load the Caddy-served host and confirm the change is present
     rollback: git checkout an earlier commit on the mini and rebuild
+  - name: session-api-agent
+    kind: mac-mini-launchd
+    trigger: MANUAL, one time — `./scripts/install-api.sh` on the mini after `npm run build` (idempotent). Once loaded, `npm run build`'s restart goes through `launchctl kickstart`.
+    source: launchd/com.wmpc.session-api.plist.template (REPO substituted by the installer)
+    env: LAN
+    url: http://localhost:3001 on the mini — the same API as the `api` target, now restarted by launchd after a reboot or crash
+    host: wmpcMacMini1
+    config_scope: repo-root .env (dotenv, unchanged); log at ~/.local/state/wmpc-session-api/server.log
+    verify: "launchctl list | grep com.wmpc.session-api; then a real reboot and curl localhost:3001/api/health"
+    rollback: ./scripts/install-api.sh --uninstall (the API is then started by hand with npm run start, as before)
   - name: launchd-plist
     kind: none
-    trigger: NOT INSTALLED — setup.sh does not install it, and its path is stale
+    trigger: NOT INSTALLED — setup.sh does not install it, and its path is stale; superseded by session-api-agent
     source: launchd/ai.wmpc.sessions.plist
     env: n/a
     url: n/a
@@ -92,9 +106,9 @@ targets:
     trigger: MANUAL, one time — `bash deploy/cloudflared/setup.sh` on the mini (idempotent; re-run to update)
     source: deploy/cloudflared/
     env: PROD
-    url: https://session.wmpc.app → http://localhost:3001 on the mini (Express, SPA + /api)
+    url: https://session.wmpc.app → http://localhost:3001 on the mini (Express, SPA + /api); AND https://video.thirdshotacademy.com → the same origin, restricted by ingress path to /lesson-video/<token> (PUBLIC, no Access — the HMAC token is the only protection)
     host: wmpcMacMini1
-    config_scope: ~/.cloudflared/config-session.yml + the session.wmpc.app CNAME on the wmpc.app zone; LaunchAgent com.wmpc.cloudflared-session; Cloudflare Access app for session.wmpc.app (Zero Trust) whose AUD tag goes in the mini's .env
+    config_scope: LESSON_VIDEO_SIGNING_SECRET in the mini's .env (same value as the Academy function secret; unset refuses every public request); the video.thirdshotacademy.com proxied CNAME on the Academy zone (hand-made if setup.sh cannot); ~/.cloudflared/config-session.yml + the session.wmpc.app CNAME on the wmpc.app zone; LaunchAgent com.wmpc.cloudflared-session; Cloudflare Access app for session.wmpc.app (Zero Trust) whose AUD tag goes in the mini's .env
     verify: "curl -sI https://session.wmpc.app/ | head -1 — expect a 302 to *.cloudflareaccess.com; signed in, the dashboard loads"
     rollback: launchctl bootout the agent, delete the tunnel + its CNAME + the Access app (deploy/cloudflared/README.md → Undo)
 ```
@@ -105,7 +119,9 @@ targets:
 |---|---|---|
 | `api` | `npm run build` on the mini | `localhost:3001` on the mini |
 | `web` | `npm run build` on the mini | `../www/sessionmanager` → Caddy |
-| `launchd-plist` | — | **not installed**; see the warning above |
+| `session-api-agent` | one-time `./scripts/install-api.sh` on the mini | the API, restarted by launchd after a reboot |
+| `launchd-plist` | — | **not installed**; superseded by `session-api-agent` |
+| `lesson-clips` | rides the lesson-transcribe tick | clip mp4s on the NAS + `lessons.clips` |
 | `lesson-transcribe` | one-time `./scripts/install-lesson-transcribe.sh` on the mini | a LaunchAgent ticking every 10 min; transcripts on the NAS, text on `lessons.transcript` |
 | `tunnel` | one-time `bash deploy/cloudflared/setup.sh` on the mini | `https://session.wmpc.app` (behind Cloudflare Access) |
 

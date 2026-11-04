@@ -38,13 +38,32 @@ function accessIssuer(): string | null {
   return `https://${host.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
 }
 
+/**
+ * A route that is public on ONE hostname and nowhere else (D-0273 rule 6). The
+ * host and the path must match TOGETHER: the same path on session.wmpc.app is
+ * still gated, and every other path on this host is refused outright.
+ */
+export interface PublicHostRoute {
+  /** Lower-case hostname, no port, e.g. `video.thirdshotacademy.com`. */
+  host: string;
+  /** Matched against the whole path, so `/lesson-video/x/../../api` cannot slip through. */
+  path: RegExp;
+}
+
 export interface CfAccessGateOptions {
   /** Exact paths that skip the gate (e.g. a health check for the tunnel smoke test). */
   exempt?: string[];
+  publicHostRoutes?: PublicHostRoute[];
+}
+
+function requestHost(req: Request): string {
+  return (req.hostname || "").toLowerCase();
 }
 
 export function cfAccessGate(opts: CfAccessGateOptions = {}): RequestHandler {
   const exempt = new Set(opts.exempt ?? []);
+  const publicRoutes = opts.publicHostRoutes ?? [];
+  const publicHosts = new Set(publicRoutes.map((r) => r.host.toLowerCase()));
 
   if (process.env.CF_ACCESS_DISABLE === "1") {
     console.warn(
@@ -69,6 +88,16 @@ export function cfAccessGate(opts: CfAccessGateOptions = {}): RequestHandler {
 
   return async (req, res, next) => {
     if (!isViaCloudflare(req)) return next();
+
+    // A public hostname serves its one route and NOTHING else — a valid Access
+    // token does not widen it, because Access is not in front of this host.
+    const host = requestHost(req);
+    if (publicHosts.has(host)) {
+      if (publicRoutes.some((r) => r.host.toLowerCase() === host && r.path.test(req.path))) return next();
+      res.status(403).json({ error: "not_served_here" });
+      return;
+    }
+
     if (exempt.has(req.path)) return next();
 
     if (!configured || !jwks || !issuer) {

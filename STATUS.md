@@ -518,6 +518,19 @@ Last updated: **2026-10-12**
   shared dir and point the switcher's judge at it (daemon side); a Supabase table
   for game rows if the JSON store should be shared across machines.
 
+## 2026-11-04 — lesson clips + signed public route (#102, D-0273)
+
+- Cutter (`src/services/lesson-clips.ts`) runs inside the lesson-transcribe tick
+  after its camd guard: written-up lessons' `marks` → `-c copy` faststart mp4 at
+  `<clips>/<lessonId>/<markId>.mp4`, then `lessons.clips` (service role only).
+  Idempotent; deletes nothing; no-op without the NAS mount or the columns.
+- Route `/lesson-video/:token` (HMAC, Range, access-log-before-bytes, unset
+  secret refuses all). Gate exemption matches host + path together; tunnel gets a
+  path-restricted ingress for `video.thirdshotacademy.com`; README/setup.sh rewritten.
+- API reboot gap closed: `scripts/install-api.sh` + `com.wmpc.session-api` agent.
+- Next: owner runs tunnel `setup.sh`, installs the API agent, sets the secret, DNS.
+  Not verified on the mini: real ffmpeg cut, iPhone playback, reboot.
+
 ## ⏳ In flight / pending
 
 - (from [`CLAUDE.md`](./CLAUDE.md) status) Webhook does NOT yet poll

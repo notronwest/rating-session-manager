@@ -9,6 +9,7 @@ import videosRouter from "./routes/videos.js";
 import membersRouter from "./routes/members.js";
 import scheduleRouter from "./routes/schedule.js";
 import pbvisionRouter from "./routes/pbvision.js";
+import lessonVideoRouter from "./routes/lesson-video.js";
 import { cfAccessGate, isViaCloudflare } from "./middleware/cf-access.js";
 
 const app = express();
@@ -28,7 +29,16 @@ app.use(express.json());
 // Anything that arrived through the Cloudflare Tunnel must carry a valid
 // Cloudflare Access token (fail closed). LAN / localhost traffic is untouched.
 // /api/health stays open so the tunnel's smoke test and uptime checks work.
-app.use(cfAccessGate({ exempt: ["/api/health"] }));
+// The one exception is the signed lesson-video route, public ONLY on its own
+// hostname (D-0273): host and path must match together, and every other path on
+// that host is refused.
+const LESSON_VIDEO_HOST = (process.env.LESSON_VIDEO_HOST || "video.thirdshotacademy.com").toLowerCase();
+app.use(cfAccessGate({
+  exempt: ["/api/health"],
+  publicHostRoutes: [{ host: LESSON_VIDEO_HOST, path: /^\/lesson-video\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/ }],
+}));
+
+app.use("/lesson-video", lessonVideoRouter);
 
 app.use("/api/sessions", sessionsRouter);
 app.use("/api/videos", videosRouter);

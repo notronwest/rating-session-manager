@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The session-manager API, kept alive across reboots (rsm#102, D-0273).
+
+     The old ai.wmpc.sessions.plist hardcoded the repo's pre-rename path and was
+     never installed, so the API did not survive a reboot. A public route cannot
+     carry that. This is a TEMPLATE like com.wmpc.lesson-transcribe.plist.template:
+     scripts/install-api.sh substitutes __REPO__ and __HOME__ from the checkout it
+     is run in, so a rename cannot strand it again.
+
+     A user LaunchAgent (not a root daemon): the API reads the NAS share, which is
+     mounted in the user's GUI session. KeepAlive restarts it if it ever dies.
+     scripts/restart-api.sh knows to use `launchctl kickstart` when this is loaded. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wmpc.session-api</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>cd "__REPO__" &amp;&amp; exec node dist/server.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.local/state/wmpc-session-api/server.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.local/state/wmpc-session-api/server.err.log</string>
+</dict>
+</plist>

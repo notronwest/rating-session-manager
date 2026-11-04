@@ -34,6 +34,24 @@ if [[ ! -f "$ROOT/dist/server.js" ]]; then
   exit 0
 fi
 
+# When the LaunchAgent from scripts/install-api.sh owns the API, ask launchd to
+# restart it. Killing the pid and nohup-ing a second copy would fight launchd's
+# KeepAlive for the port.
+AGENT_TARGET="gui/$(id -u)/com.wmpc.session-api"
+if launchctl print "$AGENT_TARGET" >/dev/null 2>&1; then
+  echo "[restart-api] LaunchAgent com.wmpc.session-api owns the API — kickstarting it..."
+  launchctl kickstart -k "$AGENT_TARGET"
+  for _ in {1..20}; do
+    if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t > /dev/null 2>&1; then
+      echo "[restart-api] ✓ API listening on $PORT (launchd)."
+      exit 0
+    fi
+    sleep 0.5
+  done
+  echo "[restart-api] ✗ API didn't come up on $PORT within 10s — see ~/.local/state/wmpc-session-api/server.err.log"
+  exit 1
+fi
+
 # Find the current process bound to the API port (if any).
 # "Preserve the state I found you in" — if the API was already
 # running, restart it with the new build; if it wasn't, leave the
