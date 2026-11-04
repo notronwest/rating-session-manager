@@ -117,7 +117,13 @@ export async function indexCourt(o: IndexOptions): Promise<{ added: number; skip
     return { added: 0, skipped: [why] };
   }
   plan.skipped.forEach((s) => o.log(`skip: ${s}`));
-  if (plan.windows.length === 0) return { added: 0, skipped: plan.skipped };
+  if (plan.windows.length === 0) {
+    // A confident empty answer ("no bookings, nothing skipped") is recorded as
+    // indexed-with-no-games so the deletion job can tell it from "never indexed".
+    // Anything skipped is unknown and leaves the store alone.
+    if (plan.skipped.length === 0) saveStore(o.storeFile, store);
+    return { added: 0, skipped: plan.skipped };
+  }
 
   const segments = segmentsInRange(o.files, o.court, from, to);
   if (segments.length === 0) {
