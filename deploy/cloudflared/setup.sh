@@ -31,6 +31,11 @@ set -euo pipefail
 
 TUNNEL="${TUNNEL_NAME:-session}"
 HOSTNAME_FQDN="${PUBLIC_HOST:-session.wmpc.app}"
+# The second, PUBLIC hostname (D-0273): the signed lesson-clip route and nothing
+# else. NOT behind Cloudflare Access — the Express route's HMAC token is the only
+# protection there, which is why the ingress below is path-restricted too.
+VIDEO_HOST="${VIDEO_HOST:-video.thirdshotacademy.com}"
+VIDEO_PATH_REGEX='^/lesson-video/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # Honour PORT from the repo's .env (the API's port) unless PORT is already exported.
 if [[ -z "${PORT:-}" && -f "$REPO_ROOT/.env" ]]; then
@@ -104,6 +109,11 @@ credentials-file: $CREDS
 ingress:
   - hostname: $HOSTNAME_FQDN
     service: $SERVICE_URL
+  # PUBLIC, no Access in front: only the signed lesson-clip route reaches Express
+  # (the server enforces the same host+path rule again, and refuses anything else).
+  - hostname: $VIDEO_HOST
+    path: '$VIDEO_PATH_REGEX'
+    service: $SERVICE_URL
   # everything else that reaches this tunnel gets a 404 (defence in depth)
   - service: http_status:404
 YAML
@@ -122,6 +132,21 @@ else
   else
     cat /tmp/cf_route_err >&2; err "failed to create DNS route (see above)"
   fi
+fi
+
+# The video hostname lives on the Academy's zone, which this machine's
+# `cloudflared tunnel login` (the wmpc.app zone) usually cannot write. Try; if it
+# fails, say exactly what to add by hand rather than pretending it worked.
+step "DNS route $VIDEO_HOST"
+if "$CFBIN" tunnel route dns --overwrite-dns "$UUID" "$VIDEO_HOST" 2>/tmp/cf_route_err2; then
+  ok "routed $VIDEO_HOST → $TUNNEL ($UUID)"
+else
+  warn "could not create DNS for $VIDEO_HOST from here (the login is for the wmpc.app zone)."
+  warn "In the Cloudflare dashboard for thirdshotacademy.com add a PROXIED CNAME:"
+  warn "  Name field: video"
+  warn "  Target field — copy the next line exactly (nothing else on it):"
+  echo "$UUID.cfargotunnel.com"
+  warn "  (proxy status: Proxied; do not add an Access application to this hostname)"
 fi
 
 # ── Run persistently as a user LaunchAgent (RunAtLoad + KeepAlive) ───────────
@@ -211,5 +236,13 @@ fail closed) — LAN access via Caddy is unaffected.
 
   Verify:  open https://$HOSTNAME_FQDN in a private window → Access login → the app.
            curl -sI https://$HOSTNAME_FQDN/ | head -1        # expect a 302 to *.cloudflareaccess.com
+
+${YELLOW}── $VIDEO_HOST is PUBLIC and has NO Access in front ───────────────────────────${RESET}
+Do NOT put an Access application on it. The only protection is the signed token:
+set LESSON_VIDEO_SIGNING_SECRET in $REPO_ROOT/.env (the SAME value the Academy's
+lesson-video-token function signs with), then restart the API: npm run restart.
+Unset, the route refuses every request. Verify:
+  curl -s -o /dev/null -w '%{http_code}\n' https://$VIDEO_HOST/api/health     # expect 404 (ingress) — never 200
+  curl -s -o /dev/null -w '%{http_code}\n' https://$VIDEO_HOST/lesson-video/x.y   # expect 403 (token refused)
 Runbook + troubleshooting: deploy/cloudflared/README.md
 NOTE

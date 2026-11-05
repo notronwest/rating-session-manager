@@ -20,6 +20,7 @@ import {
   findLessonForRecording, type Recording,
 } from "../services/lesson-transcribe.js";
 import { sendDiscordAlert } from "../services/discord-alert.js";
+import { cutClips, clipColumnsExist, loadClipConfig } from "../services/lesson-clips.js";
 import {
   recordingWindow, askOccupancy, classify, playersForMembers,
   findLessonByReservation, linkRecording, type Match,
@@ -64,6 +65,14 @@ async function selfTest(): Promise<number> {
   check(fs.existsSync(cfg.nasDir), `recordings tree at ${cfg.nasDir}`, "mount the wmpc-video share in Finder as the owner");
   check(!!process.env.SUPABASE_URL, "SUPABASE_URL", "set it in .env");
   check(!!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY), "SUPABASE_SERVICE_ROLE_KEY", "set it in .env");
+  try {
+    const have = await clipColumnsExist();
+    log(`${have ? "ok  " : "note"} lessons.marks / lessons.clips ${have ? "present" : "NOT present yet (third-shot-academy#751) — the clip cutter reports this and writes nothing"}`);
+  } catch (err) {
+    check(false, "lessons table readable for clips", (err as Error).message);
+  }
+  const secretSet = (process.env.LESSON_VIDEO_SIGNING_SECRET ?? "").length >= 16;
+  log(`${secretSet ? "ok  " : "note"} LESSON_VIDEO_SIGNING_SECRET ${secretSet ? "set" : "NOT set — /lesson-video refuses every request until it is"}`);
   const draftConfigured = !!(process.env.LESSON_DRAFT_URL && process.env.LESSON_DRAFT_SECRET);
   log(`${draftConfigured ? "ok  " : "note"} AI draft ${draftConfigured ? "configured" : "NOT configured — transcripts attach, the coach's form stays blank"}`);
   return bad;
@@ -265,6 +274,13 @@ async function tick(dryRun: boolean): Promise<number> {
   // Attach anything that finished while no lesson referenced it. Cheap, and it
   // is how LP-07 landing completes this feature with no rework.
   await reattachPending(cfg, log);
+
+  // Cut coach-marked moments into clips (rsm#102). Same guards as above, so it
+  // never runs while a lesson is recording; a failure here must not stop transcription.
+  if (!dryRun) {
+    try { await cutClips(loadClipConfig(), log); }
+    catch (err) { log(`clips: failed — ${(err as Error).message}`); }
+  }
 
   let done = 0;
   for (const rec of discover(cfg)) {

@@ -518,6 +518,19 @@ Last updated: **2026-10-12**
   shared dir and point the switcher's judge at it (daemon side); a Supabase table
   for game rows if the JSON store should be shared across machines.
 
+## 2026-11-04 — lesson clips + signed public route (#102, D-0273)
+
+- Cutter (`src/services/lesson-clips.ts`) runs inside the lesson-transcribe tick
+  after its camd guard: written-up lessons' `marks` → `-c copy` faststart mp4 at
+  `<clips>/<lessonId>/<markId>.mp4`, then `lessons.clips` (service role only).
+  Idempotent; deletes nothing; no-op without the NAS mount or the columns.
+- Route `/lesson-video/:token` (HMAC, Range, access-log-before-bytes, unset
+  secret refuses all). Gate exemption matches host + path together; tunnel gets a
+  path-restricted ingress for `video.thirdshotacademy.com`; README/setup.sh rewritten.
+- API reboot gap closed: `scripts/install-api.sh` + `com.wmpc.session-api` agent.
+- Next: owner runs tunnel `setup.sh`, installs the API agent, sets the secret, DNS.
+  Not verified on the mini: real ffmpeg cut, iPhone playback, reboot.
+
 ## ⏳ In flight / pending
 
 - (from [`CLAUDE.md`](./CLAUDE.md) status) Webhook does NOT yet poll
@@ -544,3 +557,11 @@ Next: Ron runs the installer on the mini; confirm the footage path (`INDEX_RECOR
 
 ## 2026-11-04 — #101 rework (PR #103)
 Reviewer fix: nightly indexer now probes only recorder-segment filenames that overlap the range; a file that fails ffprobe is skipped + logged, not a failed court. Test added (junk file beside valid). Next: re-review.
+## 2026-11-05 — PR #104 (issue #102) rework
+- Lesson-video route: access-log write is now a per-token in-flight promise all overlapping requests await; cleared on failure so retry works. Test added (concurrent + failing write → both 503).
+- Setup steps made paste-safe (full `cd` path, one copy box per DNS field) in PR body, `deploy/cloudflared/README.md`, `setup.sh` output.
+- Next: reviewer re-review; Ron decides whether clip cutting gets its own launchd job; mini-only checks (ffmpeg `-c copy`, iPhone seek, reboot, DNS) still unverified.
+
+## 2026-11-05 — PR #104 rework 2 (issue #102)
+- DNS Target is now paste-safe: `setup.sh` prints the full `<uuid>.cfargotunnel.com` alone on its own line; README and PR body say "copy the line printed under Target field"; no placeholder in any copy box.
+- Next: reviewer re-review.
