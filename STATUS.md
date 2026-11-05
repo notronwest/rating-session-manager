@@ -561,3 +561,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 - Lesson-video route: access-log write is now a per-token in-flight promise all overlapping requests await; cleared on failure so retry works. Test added (concurrent + failing write → both 503).
 - Setup steps made paste-safe (full `cd` path, one copy box per DNS field) in PR body, `deploy/cloudflared/README.md`, `setup.sh` output.
 - Next: reviewer re-review; Ron decides whether clip cutting gets its own launchd job; mini-only checks (ffmpeg `-c copy`, iPhone seek, reboot, DNS) still unverified.
+
+## 2026-11-05 — PR #104 rework 2 (issue #102)
+- DNS Target is now paste-safe: `setup.sh` prints the full `<uuid>.cfargotunnel.com` alone on its own line; README and PR body say "copy the line printed under Target field"; no placeholder in any copy box.
+- Next: reviewer re-review.
