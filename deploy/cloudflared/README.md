@@ -43,7 +43,20 @@ is the design. It is held in three layers, each failing closed on its own:
 function secrets and in the mini's `.env`. Never put an Access application on
 `video.thirdshotacademy.com` — it would 302 the phone's player to a login page.
 Its DNS record is on the Academy's zone (a proxied CNAME to `<tunnel-uuid>.cfargotunnel.com`),
-which `setup.sh` prints if it cannot create it.
+which `setup.sh` prints if it cannot create it. When it does, add the record in the
+Cloudflare dashboard (thirdshotacademy.com → DNS → Add record, type CNAME, Proxied), one value per field:
+
+**Name** field:
+
+```
+video
+```
+
+**Target** field (the tunnel UUID is the one `setup.sh` printed):
+
+```
+<tunnel-uuid>.cfargotunnel.com
+```
 
 The rest of this file describes `session.wmpc.app`.
 

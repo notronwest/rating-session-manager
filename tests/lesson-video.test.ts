@@ -138,7 +138,7 @@ function get(port: number, p: string, headers: Record<string, string> = {}): Pro
   });
 }
 
-function fixture(secret: string | undefined, failLog = false) {
+function fixture(secret: string | undefined, failLog = false, writer?: (r: AccessLogRow) => Promise<void>) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "route-"));
   const cfg = loadClipConfig({ LESSON_CLIPS_DIR: dir, LESSON_RECORDINGS_DIR: path.join(dir, "rec") } as NodeJS.ProcessEnv);
   fs.mkdirSync(path.join(dir, L));
@@ -149,7 +149,7 @@ function fixture(secret: string | undefined, failLog = false) {
     secret: () => secret,
     cfg: () => cfg,
     now: () => NOW,
-    writeAccessLog: async (r) => { if (failLog) throw new Error("db down"); logs.push(r); },
+    writeAccessLog: writer ?? (async (r) => { if (failLog) throw new Error("db down"); logs.push(r); }),
   });
   const app = express();
   app.use(cfAccessGate({ publicHostRoutes: [{ host: "video.thirdshotacademy.com", path: /^\/lesson-video\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/ }] }));
@@ -229,4 +229,28 @@ test("parseRange", () => {
   assert.deepEqual(parseRange("bytes=-10", 100), { start: 90, end: 99 });
   assert.equal(parseRange("bytes=100-", 100), null);
   assert.equal(parseRange("nonsense", 100), "none");
+});
+
+test("overlapping requests wait on one failing log write: neither gets bytes, then a retry works", async () => {
+  let calls = 0;
+  let fail = true;
+  const { app } = fixture(SECRET, false, async () => {
+    calls++;
+    await new Promise((r) => setTimeout(r, 50));
+    if (fail) throw new Error("db down");
+  });
+  const s = await serve(app);
+  try {
+    const t = tok({ exp: NOW + 777 });
+    const [a, b] = await Promise.all([
+      get(s.port, `/lesson-video/${t}`, { ...VIDEO_HOST, Range: "bytes=0-9" }),
+      get(s.port, `/lesson-video/${t}`, { ...VIDEO_HOST, Range: "bytes=10-19" }),
+    ]);
+    assert.equal(a.status, 503);
+    assert.equal(b.status, 503);
+    assert.equal(a.body.includes("0123456789"), false);
+    assert.equal(calls, 1);
+    fail = false;
+    assert.equal((await get(s.port, `/lesson-video/${t}`, { ...VIDEO_HOST, Range: "bytes=0-9" })).status, 206);
+  } finally { s.close(); }
 });

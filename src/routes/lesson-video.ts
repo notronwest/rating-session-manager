@@ -41,13 +41,22 @@ const defaultDeps: LessonVideoDeps = {
   now: () => Math.floor(Date.now() / 1000),
 };
 
-/** Tokens whose first use is already logged, so a Range-seeking player writes one row, not fifty. */
-const loggedTokens = new Map<string, number>();
-function markLogged(sig: string, exp: number, nowS: number): boolean {
-  for (const [k, e] of loggedTokens) if (e <= nowS) loggedTokens.delete(k);
-  if (loggedTokens.has(sig)) return false;
-  loggedTokens.set(sig, exp);
-  return true;
+/**
+ * Per-token in-flight/settled access-log write, so a Range-seeking player writes one row, not
+ * fifty, and overlapping requests for a token all wait on the SAME write (none gets bytes before
+ * it lands). A failed write is cleared so the next request retries.
+ */
+const loggedTokens = new Map<string, { exp: number; done: Promise<void> }>();
+function logOnce(sig: string, exp: number, nowS: number, write: () => Promise<void>): Promise<void> {
+  for (const [k, v] of loggedTokens) if (v.exp <= nowS) loggedTokens.delete(k);
+  const existing = loggedTokens.get(sig);
+  if (existing) return existing.done;
+  const done = write().catch((err) => {
+    loggedTokens.delete(sig);
+    throw err;
+  });
+  loggedTokens.set(sig, { exp, done });
+  return done;
 }
 
 /** `bytes=a-b`, `bytes=a-`, `bytes=-n` → inclusive [start, end], or null when unsatisfiable. */
@@ -97,19 +106,16 @@ export function makeLessonVideoRouter(deps: LessonVideoDeps = defaultDeps): Rout
 
     // Log BEFORE any bytes, once per token. Fail closed: no log, no video.
     const sig = String(req.params.token).split(".")[1];
-    if (markLogged(sig, p.exp, nowS)) {
-      try {
-        await deps.writeAccessLog({
-          user_id: p.sub,
-          lesson_id: p.lid,
-          mark_id: p.k === "clip" ? p.mid : null,
-          file: p.k === "clip" ? `clip:${p.lid}:${p.mid}` : p.f!,
-        });
-      } catch (err) {
-        loggedTokens.delete(sig);
-        console.error(`[lesson-video] access log failed, refusing to serve: ${(err as Error).message}`);
-        return refuse(res, 503, "access_log_unavailable");
-      }
+    try {
+      await logOnce(sig, p.exp, nowS, () => deps.writeAccessLog({
+        user_id: p.sub,
+        lesson_id: p.lid,
+        mark_id: p.k === "clip" ? p.mid : null,
+        file: p.k === "clip" ? `clip:${p.lid}:${p.mid}` : p.f!,
+      }));
+    } catch (err) {
+      console.error(`[lesson-video] access log failed, refusing to serve: ${(err as Error).message}`);
+      return refuse(res, 503, "access_log_unavailable");
     }
 
     const size = stat.size;
