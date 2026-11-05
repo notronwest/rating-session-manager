@@ -4605,6 +4605,63 @@ footage, and D-0064 governs it. A clip outlives its recording by design (D-0273)
 **Forbids.** Deleting a lesson recording on the absence of a lesson row. Deleting one from a lesson with
 an uncut mark. Moving this class's switch separately from D-0271's. Deleting a clip under this record.
 
+### D-0281 — An avatar scorer that names a member from a picture is recognition, so the matcher ships with none and a coach confirms every game
+
+*2026-11-05 · scope: `**/avatar*, **/tagging/**` · source: third-shot-academy#676, routed by the Chief of Staff's blocked sweep 2026-11-05 (cos_requests 855be36e). Table run per PROCESS.md — third-shot-academy CONCERN (crop needs the bucket, placeholders must be excluded from the roster), rating-session-manager CONCERN (the matcher is not this repo's, and nothing here reads assignments yet). No VETO; both are folded into rules 3, 4 and 6.*
+
+**Decision.** D-0061 rule 3 says avatar matching assigns positions within the candidates. Nobody said
+what does the matching, and the #676 split left the scorer "undefined in the spec". This record defines
+it, and applies D-0062 and D-0061 to it without changing either.
+
+1. **A scorer that names a member from what a picture of them looks like is recognition under D-0062.**
+   That holds for a face, a body or any learned appearance match, because the effect on the member is
+   the same. It therefore needs the per-member recognition flag (off by default, never a guest, never a
+   minor), it runs on the mini, and no template or embedding goes to Supabase, a tablet or a cloud
+   service. The analysis-consent answer does not cover it (D-0062 rule 1).
+2. **`player_avatar_gallery` may hold pb.vision avatar URLs.** They are pointers to images pb.vision
+   already hosts for our own videos, the same value `players.avatar_url` has carried since import. No
+   image bytes are copied and nothing derived from an image is stored. A confirmation by a person is
+   not recognition.
+3. **No visual scorer ships now.** The one implementation of `AvatarScorer` is a no-visual scorer that
+   returns 0. `matchOnCourt` treats a best score of 0 as no guess, so the card never pre-selects a name.
+   Nothing is auto-assigned; every unidentified player goes to a coach. Which host runs the future
+   scorer and how the tagging loop reads assignments are not decided here: D-0061 rule 5 leaves the
+   matcher in third-shot-academy and the loop in rating-session-manager (rsm#72).
+4. **Unidentified, and the crop.** A player is unidentified when their `game_players` row points at a
+   placeholder player (`^Player \d+$`, the pattern `prune-placeholder-players.mjs` already uses) and no
+   `game_player_assignments` row exists. The crop comes from the one shared `buildPbvAvatarUrl`, fed
+   `games.pbvision_video_id`, `games.ai_engine_version`, `games.pbvision_bucket` and
+   `raw_player_data.avatar_id`. Measured on production: all 32 placeholder slots carry all of these, and
+   one sample URL answers 200.
+5. **The session roster is the booked names the session manager already holds.**
+   `session_manager_sessions.player_names`, linked through `pbvision_video_ids` and resolved to
+   `players` by exact normalised match, as `ratinghub/sync.ts` does. Placeholders are excluded. A name
+   that does not resolve is dropped and counted in the degraded reason, never matched by similarity.
+   Measured on production: all 54 sessions carry names, including the one session holding placeholder
+   games. That table has row security on and no policies, so the read is a definer function gated on
+   `is_coach(org_id)`, not a browser policy over the whole row.
+6. **The card mounts in the coach-only area of the session page**, and only when a session has an
+   unidentified player and at least one candidate. Not the rotation board: pb.vision results arrive
+   hours after play, the board has no navigation and no game context, and D-0186 rule 5 keeps the board
+   a source of candidates. Not a player-facing surface: the assignment tables are coach-only, and
+   opening them to players is its own decision.
+7. **The M2 exit test cannot be met on its stated terms on 2026-11-20.** "80% of assignments above
+   threshold" needs a visual scorer, which needs members who have opted in, and the recognition flag
+   does not exist yet. M2 keeps "zero wrong on the record", which this design holds by construction.
+   The 80% line waits on the parked scorer issue.
+
+**Why.** A scorer is cheap to imagine and the wrong one is expensive: a matcher that quietly learned
+members' appearance would have done exactly what D-0062 forbids, under another name, because its scope
+globs named the door kiosk and not this file. Shipping with no scorer loses nothing that exists today.
+The gallery is empty on TEST and absent on production, so any threshold would be a guess with nothing to
+calibrate against, and confirmations are the only thing that can fill it (D-0061 rule 4). The roster
+looked like the gap and was not: 54 sessions already hold the booked names.
+
+**Forbids.** A scorer that compares appearance without the recognition flag, or off the mini. An
+embedding or template in any table. A pre-selected name when no scorer produced a real score. A roster
+built by name similarity, or from the whole club. A browser-readable policy over
+`session_manager_sessions`.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
