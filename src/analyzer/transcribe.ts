@@ -118,6 +118,26 @@ export async function probeDurationS(cfg: AnalyzerConfig, file: string): Promise
  * hallucinated text on a lesson: the 09-27 clinic is exactly this case, and its
  * "transcript" was 166 invented words.
  */
+/**
+ * Does this file carry an audio stream at all? true / false, or null when the
+ * question could not be asked (treated as "carry on", because refusing on an
+ * unreadable probe would stop work on a healthy file).
+ *
+ * Separate from probeMeanVolumeDb, which measures LOUDNESS of an existing
+ * track. A file with no track is a different fact with a different remedy —
+ * the microphone was not reaching the recorder — and it is permanent, so it
+ * must terminate rather than retry.
+ */
+export async function probeHasAudioStream(cfg: AnalyzerConfig, file: string): Promise<boolean | null> {
+  const r = await run(cfg.ffprobeBin, [
+    "-v", "error", "-select_streams", "a",
+    "-show_entries", "stream=codec_type",
+    "-of", "csv=p=0", file,
+  ], { timeoutMs: 300_000 });
+  if (r.code !== 0) return null;
+  return r.stdout.trim().length > 0;
+}
+
 export async function probeMeanVolumeDb(cfg: AnalyzerConfig, wav: string): Promise<number | null> {
   const r = await run(cfg.ffmpegBin, ["-v", "info", "-i", wav, "-af", "volumedetect", "-f", "null", "-"],
     { timeoutMs: 600_000 });
@@ -170,6 +190,29 @@ export async function transcribeAudio(
     // ~9 Mbps while its gigabit NIC sits below Wi-Fi in the service order (an
     // open item on Ron's ledger, D-0069). It is not this job's bug to fix, but
     // it IS why the timeout is generous.
+    // Does the file carry an audio track AT ALL? Distinct from digital
+    // silence, and the distinction is what stops an endless retry.
+    //
+    // Measured 2026-11-06: ten lessons from 10-15 onward have NO audio stream.
+    // `-vn` then leaves ffmpeg nothing to write, so it reports "Output file
+    // does not contain any stream" and — the part that matters — exits ZERO
+    // while producing no wav. That took the "failed" path, which deliberately
+    // writes no meta so the next tick retries. Over three weeks that was
+    // 1,585 extraction attempts and 20 completions, and because a failure was
+    // only ever sent to Discord and never written to the log, the other 1,562
+    // left no trace anywhere.
+    //
+    // A missing audio track is permanent, so it is recorded like silence:
+    // terminal, with the reason on the record.
+    const hasAudio = await probeHasAudioStream(cfg, input.file);
+    if (hasAudio === false) {
+      return doc({
+        result: "silent",
+        source: { durationS, meanVolumeDb: null },
+        note: "the recording has no audio track at all — the microphone was not reaching the recorder",
+      });
+    }
+
     log(`extracting audio from ${input.file}`);
     const ext = await run(cfg.ffmpegBin,
       ["-v", "error", "-y", "-i", input.file, "-vn", "-ac", "1", "-ar", "16000", wav],

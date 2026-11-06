@@ -361,7 +361,8 @@ export async function transcribeOne(
   if (doc.result === "silent") {
     fs.writeFileSync(paths.meta, JSON.stringify({
       ref: rec.ref, durationS: doc.source.durationS, meanVolumeDb: doc.source.meanVolumeDb,
-      result: "silent", note: "no audio on this recording — not transcribed, because whisper invents words from silence",
+      result: "silent",
+      note: doc.note ?? "no audio on this recording — not transcribed, because whisper invents words from silence",
       at: new Date().toISOString(),
     }, null, 2));
     return { kind: "silent" };

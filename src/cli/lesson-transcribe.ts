@@ -339,6 +339,12 @@ async function tick(dryRun: boolean): Promise<number> {
     done++;
     if (outcome.kind === "transcribed") await recordMatch(rec, match);
     if (outcome.kind === "failed") {
+      // Write it to the LOG as well as to Discord. Until 2026-11-06 a failure
+      // went only to Discord, so when the webhook was unset the failure left no
+      // trace at all: 1,562 silent extraction failures over three weeks, with
+      // the log showing only cheerful "extracting audio" lines that never
+      // completed. A failure nobody can read is indistinguishable from work.
+      log(`${rec.ref}: FAILED — ${outcome.error}`);
       await sendDiscordAlert({
         title: "Lesson transcription failed",
         level: "error",
