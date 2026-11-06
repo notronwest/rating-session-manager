@@ -15,7 +15,7 @@
 export type AnalyzerAsk = "transcript" | "cues" | "timeline" | "events" | "fptm" | "draft";
 
 /** `major.minor`. Bump the minor to add a section; the major to change one. */
-export const ANALYZER_SCHEMA_VERSION = "1.0";
+export const ANALYZER_SCHEMA_VERSION = "1.1";
 
 export interface AnalyzerDocument {
   schema_version: string;
@@ -28,6 +28,12 @@ export interface AnalyzerDocument {
     meanVolumeDb: number | "-inf" | null;
   };
   transcript?: { text: string; words: number };
+  /** Why this document says what it says, in plain words, for a human reading
+   *  the record. Added in 1.1: `silent` has two causes with different remedies
+   *  — a connected microphone that heard nothing, and no audio track at all —
+   *  and the result alone cannot tell them apart. Optional, so a 1.0 reader is
+   *  unaffected. */
+  note?: string;
   /** Set only when `result` is `failed`. The caller decides whether to retry. */
   error?: string;
   engine: { model: string; vad: string; tookS: number };
