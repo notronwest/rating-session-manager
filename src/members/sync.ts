@@ -81,6 +81,23 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
+// Supabase returns at most 1000 rows per request and says nothing when it stops
+// there, so read page by page until a short page. A truncated players list makes
+// everyone past the cut look new, and the sync would insert them again.
+const PAGE_SIZE = 1000;
+
+export async function readAllPages<T>(
+  fetchPage: (from: number, to: number) => Promise<T[]>,
+  pageSize = PAGE_SIZE,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = await fetchPage(from, from + pageSize - 1);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
 // Pull the full membership-assignment feed from courtreserve-api and dedupe it
 // to one row per member (keyed by CR member number, preferring a row that
 // carries an email). Throws SyncError on any config/transport/parse failure.
@@ -164,17 +181,22 @@ export async function syncMembers(options: SyncOptions = {}): Promise<SyncResult
   const crMembers = await fetchMembers(onLog);
   onLog(`Fetched ${crMembers.length} members from courtreserve-api`);
 
-  const { data: players, error: pErr } = await getSupabase()
-    .from("players")
-    .select("id, slug, display_name, email, cr_member_id")
-    .eq("org_id", orgId);
-  if (pErr || !players) throw new SyncError("fetch_failed", `Failed to fetch players: ${pErr?.message}`);
+  const players = await readAllPages<Player>(async (from, to) => {
+    const { data, error } = await getSupabase()
+      .from("players")
+      .select("id, slug, display_name, email, cr_member_id")
+      .eq("org_id", orgId)
+      .order("id")
+      .range(from, to);
+    if (error || !data) throw new SyncError("fetch_failed", `Failed to fetch players: ${error?.message}`);
+    return data as Player[];
+  });
 
   const byCrId = new Map<string, Player>();
   const byEmail = new Map<string, Player>();
   const byName = new Map<string, Player>();
   const existingSlugs = new Set<string>();
-  for (const p of players as Player[]) {
+  for (const p of players) {
     if (p.cr_member_id) byCrId.set(p.cr_member_id, p);
     if (p.email) byEmail.set(p.email.toLowerCase(), p);
     byName.set(normalize(p.display_name), p);

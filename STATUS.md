@@ -8,6 +8,20 @@ design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
 Last updated: **2026-10-28**
 
+## 2026-11-06 — Member list pulled in; the sync now reads every player
+
+- **Asked:** the owner pressed "Pull it in now" on the card for the unrun member import.
+- **Found first:** `syncMembers` read `players` with one unpaged select, and Supabase caps that at
+  1000 rows silently. With 1634 rows it planned 713 inserts. Fixed with `readAllPages`; the
+  dry run then read 117 inserts and 1 update, matching a separate paged reconcile.
+- **Ran:** 1696 Court Reserve members, 117 inserted, players 1634 -> 1751, no insert errors.
+- **The 1 update failed on the unique member-number index:** one member has two rows, a linked
+  account with 9 games and no member number, and an empty row holding the number with a mistyped
+  email. Moved the number to the real row by hand; the empty row stays, unlinked, not deleted.
+  Re-preview reads 0 to insert, 0 to update.
+- **Still old:** the running API keeps the unpaged read until the next `npm run build` on the mini.
+  Not on a schedule, so the list drifts until the next manual sync.
+
 ## 2026-11-04 — Indexer reads the recorder's UTC segment names; empty nights write the store (#98)
 
 - `segmentStart` now parses `<court>/segments/<UTC date>/<court>-<YYYYMMDDTHHMMSSZ>.ts`
