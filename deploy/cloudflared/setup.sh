@@ -143,9 +143,8 @@ if "$CFBIN" tunnel route dns --overwrite-dns "$UUID" "$VIDEO_HOST" 2>/tmp/cf_rou
 else
   warn "could not create DNS for $VIDEO_HOST from here (the login is for the wmpc.app zone)."
   warn "In the Cloudflare dashboard for thirdshotacademy.com add a PROXIED CNAME:"
-  warn "  Name field: video"
-  warn "  Target field — copy the next line exactly (nothing else on it):"
-  echo "$UUID.cfargotunnel.com"
+  warn "  Name field:   video"
+  warn "  Target field: $UUID.cfargotunnel.com"
   warn "  (proxy status: Proxied; do not add an Access application to this hostname)"
 fi
 
