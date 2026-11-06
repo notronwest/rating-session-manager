@@ -91,16 +91,6 @@ targets:
     config_scope: repo-root .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, optional LESSON_DRAFT_URL + LESSON_DRAFT_SECRET, optional DISCORD_WEBHOOK_URL); models in ~/.local/share/wmpc-lesson-transcribe/
     verify: "npm run transcribe:self-test — every line ok; then npm run transcribe:status for what is transcribed, pending or silent; log at ~/.local/state/wmpc-lesson-transcribe/transcribe.log"
     rollback: ./scripts/install-lesson-transcribe.sh --uninstall (leaves transcripts and state alone)
-  - name: game-indexer
-    kind: mac-mini-launchd
-    trigger: MANUAL, one time — `./scripts/install-game-indexer.sh` on the mini (idempotent; re-run after a pull that touches it). Fires nightly at 23:30 local.
-    source: src/cli/index-nightly.ts + src/indexer/nightly.ts, via scripts/index-nightly.sh
-    env: LAN
-    url: n/a — no listener; it reads the recorder's segments and writes data/indexed-games/<court>.json
-    host: wmpcMacMini1 (the committed INDEXER-HOST fact; every other machine exits 0)
-    config_scope: repo-root .env (SUPABASE_URL etc. for the occupancy read); optional INDEX_COURTS ("court4|Court #4|/dir;…"), INDEX_RECORDINGS_DIR (default /opt/wmpc/recordings — TODO confirm this is where the continuous recorder's segments are readable from on the mini)
-    verify: "launchctl list | grep com.wmpc.game-indexer; then npm run index:nightly once by hand and read ~/.local/state/wmpc-game-indexer/index.log; data/indexed-games/court4.json must exist with an indexed_through"
-    rollback: ./scripts/install-game-indexer.sh --uninstall (leaves the game store and state alone)
   - name: tunnel
     kind: cloudflare-tunnel
     trigger: MANUAL, one time — `bash deploy/cloudflared/setup.sh` on the mini (idempotent; re-run to update)
@@ -273,20 +263,3 @@ the tunnel, CNAME and Access app entirely).
   Pi emitters, `deploy.sh`, the recordings sync. The source of truth for
   anything that records.
 - `../wmpc-meta/conventions/deployment-doc.md` — why this file exists and its shape.
-
-## Game indexer — INFRA-INTAKE answers (daemon#241)
-
-- **Unattended / singleton.** Yes, nightly via launchd. One machine acts: the committed
-  `INDEXER-HOST` names it; a same-host `mkdir` lock stops overlapping runs.
-- **Propagation.** Code arrives with `git pull`; the plist is rendered from the checkout, so
-  re-running `install-game-indexer.sh` after a pull is the update and the self-heal.
-- **Bootstrap (the one manual touch).** `./scripts/install-game-indexer.sh` on the mini, once.
-- **Fail-closed.** `data/indexed-games/<court>.json` carries `indexed_through`, advanced only by
-  a run that finished. A failed run, an unreachable footage directory (NAS unmounted) and an
-  unreadable booking cache all leave it where it was. An existing but empty footage directory is a
-  clean night (recorder off). The 14-day deletion job must treat a missing/old `indexed_through`
-  as unknown.
-- **Visible while Ron is away.** Any court not "done" exits 1 and the wrapper sends one phone ping
-  per day (`daemon/infrastructure/ping/ping.sh`, identical text deduped 24 h); success beats the
-  `game-indexer` heartbeat; log at `~/.local/state/wmpc-game-indexer/index.log`.
-- **Chief of Staff surface.** `npm run index:nightly` on the mini; the store is plain JSON.

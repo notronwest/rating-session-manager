@@ -161,7 +161,7 @@ test("driver: an empty night writes a readable store; a skipped range writes not
   const opts = { court: "court4", courtLabel: "Court #4", roiFile: "x", range: rng, files,
     captureEnded: true, maxStaleS: 3600, storeFile: b.storeFile, log: (s: string) => b.logs.push(s), detect };
   await indexCourt({ ...opts, ask: async () => ans({ status: "none" }) });
-  assert.deepEqual(loadStore(b.storeFile), { games: [], openTailStart: null, sampled: [], indexed_through: rng[1] });
+  assert.deepEqual(loadStore(b.storeFile), { games: [], openTailStart: null, sampled: [] });
   assert.ok(fs.existsSync(b.storeFile));
   const c = base();
   await indexCourt({ ...opts, storeFile: c.storeFile, ask: async () => ans({ stale_seconds: 99999 }) });

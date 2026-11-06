@@ -550,18 +550,7 @@ Last updated: **2026-10-12**
 - End-to-end workflow source of truth: rating-hub's `CLAUDE.md`.
 - [`../wmpc-meta/strategy.md`](../wmpc-meta/strategy.md).
 
-## 2026-11-04 — nightly game indexer (#101, daemon#241)
-Added `index:nightly` (23:30 launchd job, `install-game-indexer.sh`, `INDEXER-HOST`), `indexed_through` on the
-court store (advanced only by a finished run), failure ping once a day, tests in `tests/index-nightly.test.ts`.
-Next: Ron runs the installer on the mini; confirm the footage path (`INDEX_RECORDINGS_DIR`); deletion job reads `indexed_through`.
-
-## 2026-11-04 — #101 rework (PR #103)
-Reviewer fix: nightly indexer now probes only recorder-segment filenames that overlap the range; a file that fails ffprobe is skipped + logged, not a failed court. Test added (junk file beside valid). Next: re-review.
 ## 2026-11-05 — PR #104 (issue #102) rework
 - Lesson-video route: access-log write is now a per-token in-flight promise all overlapping requests await; cleared on failure so retry works. Test added (concurrent + failing write → both 503).
 - Setup steps made paste-safe (full `cd` path, one copy box per DNS field) in PR body, `deploy/cloudflared/README.md`, `setup.sh` output.
 - Next: reviewer re-review; Ron decides whether clip cutting gets its own launchd job; mini-only checks (ffmpeg `-c copy`, iPhone seek, reboot, DNS) still unverified.
-
-## 2026-11-05 — PR #104 rework 2 (issue #102)
-- DNS Target is now paste-safe: `setup.sh` prints the full `<uuid>.cfargotunnel.com` alone on its own line; README and PR body say "copy the line printed under Target field"; no placeholder in any copy box.
-- Next: reviewer re-review.
