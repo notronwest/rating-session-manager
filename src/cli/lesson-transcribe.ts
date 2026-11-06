@@ -227,7 +227,7 @@ async function relink(apply: boolean) {
   for (const rec of discover(cfg)) {
     const p = transcriptPaths(cfg, rec);
     if (!fs.existsSync(p.meta) || !fs.existsSync(p.txt)) continue;
-    let meta: { result?: string } = {};
+    let meta: { result?: string; durationS?: number } = {};
     try { meta = JSON.parse(fs.readFileSync(p.meta, "utf8")); } catch { continue; }
     if (meta.result !== "transcribed") continue;
     seen++;
@@ -235,7 +235,15 @@ async function relink(apply: boolean) {
     const lesson = await findLessonForRecording(rec.ref).catch(() => null);
     if (lesson) { already++; continue; }
 
-    const durationS = await probeDurationS(cfg, rec.file);
+    // THE DURATION IS ALREADY KNOWN: transcribeOne wrote it into this very meta
+    // file. Re-probing it reads the whole recording back off the club storage,
+    // which runs at about 1 MB/s over WiFi — measured 2026-11-06, 62.9 MB in
+    // 64.6 s. A hand-run relink over 20 transcripts was still going after
+    // twelve minutes for that reason alone, which would have made this pass
+    // unusable on a ten-minute tick and held the lock off the transcription.
+    // The probe stays as the fallback for a meta written before the field
+    // existed, so an old transcript is still linkable rather than skipped.
+    const durationS = meta.durationS ?? await probeDurationS(cfg, rec.file);
     const match = await resolveMatch(rec, durationS ?? 0);
     if (match.kind !== "lesson") {
       log(`${rec.ref}: cannot link — ${match.kind === "ambiguous" || match.kind === "unknown" ? match.reason : "no teaching booking covers it"}`);
