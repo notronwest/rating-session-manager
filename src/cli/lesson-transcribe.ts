@@ -57,6 +57,21 @@ function bumpStale(): number {
   fs.writeFileSync(STALE_FILE, String(n));
   return n;
 }
+/** Attempts on which one recording's duration came back unreadable. Keyed per
+ *  recording, because "this one file is unreadable" and "the storage is down"
+ *  need different answers and a single counter cannot tell them apart. */
+const UNREADABLE_ALERT_AT = 144;  // ~24h at a ten-minute tick
+
+function bumpUnreadable(ref: string): number {
+  const f = path.join(cfg.stateDir, `unreadable-${ref.replace(/[^a-zA-Z0-9]/g, "_")}`);
+  let n = 0;
+  try { n = Number(fs.readFileSync(f, "utf8").trim()) || 0; } catch { /* first */ }
+  n += 1;
+  fs.mkdirSync(cfg.stateDir, { recursive: true });
+  fs.writeFileSync(f, String(n));
+  return n;
+}
+
 function clearStale() {
   try { fs.unlinkSync(STALE_FILE); } catch { /* nothing to clear */ }
 }
@@ -308,7 +323,27 @@ async function tick(dryRun: boolean): Promise<number> {
     try { ageS = (Date.now() - fs.statSync(rec.file).mtimeMs) / 1000; } catch { continue; }
     const durationS = await probeDurationS(cfg, rec.file);
     const e = eligibility({ ageS, durationS, settleS: cfg.settleS, minDurationS: cfg.minDurationS, alreadyDone: false });
-    if (e.skip) { log(`${rec.ref}: ${e.reason}`); continue; }
+    if (e.skip) {
+      log(`${rec.ref}: ${e.reason}`);
+      // An unreadable duration is the one skip reason that can repeat forever
+      // without anyone seeing it — it writes no record, so the next tick tries
+      // again. Count it, and once it has been unreadable all day say so out
+      // loud instead of logging the same line into the void. The recording is
+      // never written off on this: the file may be fine and the storage slow.
+      if (durationS === null) {
+        const n = bumpUnreadable(rec.ref);
+        if (n === UNREADABLE_ALERT_AT) {
+          await sendDiscordAlert({
+            title: "A recording cannot be read off the club storage",
+            level: "warning",
+            message: `One recording has been unreadable for ${n} attempts — long enough that it is not a passing blip. The recording itself is untouched and will be processed as soon as it can be read.`,
+            fields: [{ name: "Recording", value: rec.ref }],
+            dedupeKey: `lesson-unreadable:${rec.ref}`,
+          });
+        }
+      }
+      continue;
+    }
 
     // ── Which lesson was this? ────────────────────────────────────────────
     // Resolved BEFORE transcribing, because the cheapest transcription is the
