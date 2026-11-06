@@ -107,7 +107,15 @@ export async function probeDurationS(cfg: AnalyzerConfig, file: string): Promise
   const r = await run(cfg.ffprobeBin, [
     "-v", "error", "-show_entries", "format=duration",
     "-of", "default=noprint_wrappers=1:nokey=1", file,
-  ], { timeoutMs: 120_000 });
+    // Twenty minutes, not two. Measured 2026-11-06: a hand-run ffprobe on a
+    // 1.6 GB lesson on the club storage had not returned after SEVERAL
+    // minutes, because the mini reaches that share over Wi-Fi. At the old
+    // two-minute ceiling the probe timed out, the duration came back null, and
+    // the job logged "duration unreadable", wrote no record and retried on the
+    // next tick — forever, and silently, which is the same shape as the
+    // no-audio bug this sits beside. A ceiling has to clear the slowest real
+    // read, not the fastest.
+  ], { timeoutMs: 20 * 60_000 });
   const v = Number(r.stdout.trim());
   return Number.isFinite(v) && v > 0 ? v : null;
 }
