@@ -8,6 +8,45 @@ design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
 Last updated: **2026-10-28**
 
+## 2026-11-06 — A transcript had nowhere to land: the lesson creator had never been scheduled (#114, #115)
+
+Five transcribed lessons resolved to a real booking, a type and a student, and
+then sat `pending`: *"no lesson exists for this booking yet — resolved and
+waiting"*. The matcher was working. The record those transcripts attach to did
+not exist, because **the lesson creator had never been scheduled at all** — no
+launch agent, no state directory, run by hand exactly twice. Measured over
+1 Oct – 7 Nov: **38 bookings seen, 24 lessons missing.** Those 24 were created.
+
+**Creating them was not enough, and that is the part worth keeping.** A
+recording is matched to its lesson ONCE, at transcription time. If no record
+existed then, the match is never retried, because the next tick sees the
+recording as done and skips it entirely — and `reattachPending` cannot rescue
+it either, since it looks a lesson up BY the recording reference, the very field
+the match would have set. Proved live: the 24 records appeared and all five
+transcripts stayed `pending` anyway. The relink pass is what closes the loop.
+
+The tick now does three things in order — make the records from bookings, link
+transcripts whose record only appeared later, then transcribe — inside the
+existing wrapper, which already carries the host gate, the atomic lock, the
+`.env` handling and the heartbeat. Both new passes run with errexit off across
+the call, because a non-zero command substitution inside an assignment trips
+`set -e` and would kill the wrapper before the transcription ran: the exact
+failure that sourcing `.env` already caused once, when this job ticked every ten
+minutes doing nothing for a week.
+
+**The test's first version passed vacuously** and that is worth remembering. It
+stubbed `node` on `PATH`; the wrapper deliberately prepends
+`/opt/homebrew/bin`, so the real `node` ran two empty files, all assertions held,
+and the stub never executed. Rewritten with real Node entry points, and since
+one entry point serves both the relink pass and the transcription, the fake now
+reports WHICH invocation it was — otherwise "the transcription ran" passes on the
+relink call. 13 assertions, and the ordering is held by mtime rather than by
+reading the script.
+
+Still outstanding: two students are booked with no player row, so their lessons
+carry the name and no link. That waits on the member roster import, which is
+already its own ask.
+
 ## 2026-11-06 — Member list pulled in; the sync now reads every player
 
 - **Asked:** the owner pressed "Pull it in now" on the card for the unrun member import.
