@@ -4662,6 +4662,122 @@ embedding or template in any table. A pre-selected name when no scorer produced 
 built by name similarity, or from the whole club. A browser-readable policy over
 `session_manager_sessions`.
 
+### D-0294 — The lesson analyzer keeps no analysis, and a replayed callback cannot freeze a coach's draft
+
+*2026-11-06 · scope: `**lesson*, **analyz*, **transcri*, src/analyzer/**, supabase/functions/**lesson*` · source: the six questions D-0243's table raised and D-0243 never ruled, written down on 2026-11-06 in `agents/cto/initiatives/lesson-analyzer-handoff.md` ("What D-0243 left unsettled") once the verdicts and the approved page were committed and the gap became visible. Table run per PROCESS.md, three voices against origin/main — rating-session-manager CONCERN, third-shot-academy CONCERN, daemon CONCERN, no veto. Every concern is folded into the rules below, and two of them CHANGED the proposal: the three-variable-scope rule was factually wrong (rule 3) and the record said nothing about where the engine runs (rule 7).*
+
+**Decision.** D-0243 made lesson analysis a standalone analyzer and its table raised six
+questions it then did not answer. They are answered here, because an unanswered privacy question
+is the first thing a customer asks and an unanswered replay question permanently freezes a
+coach's words. Seven rules.
+
+1. **The engine keeps no analysis, and no fingerprint of one.** A finished document is held **in
+   memory only**, until it has been delivered to the caller's callback or polled, and a retention
+   window has passed; then it is forgotten. What survives is a **job row with no content** — id,
+   tenant, status, timings, delivery attempts — and a tenant may force the document to be
+   forgotten before the window (`DELETE /v1/jobs/:id`). This is narrower than the proposal the
+   2026-10-27 table vetoed, which stored the job, the output *and* a media hash, and narrower
+   than the page approved that day, which said the engine holds "only the data plus a
+   fingerprint". The hash is dropped too: it identifies a file we are not keeping, and keeping it
+   buys nothing we need.
+
+   **The consequence is accepted and is not a side effect.** There is no store, so no
+   cross-tenant model work is possible from the engine's own data. D-0243's "pooling is opt-in,
+   isolated by default" therefore means a tenant deliberately sending its own material somewhere
+   — its own decision, with its own record — and never a flag flipped on material the engine
+   happens to be holding.
+
+2. **A replayed callback writes nothing.** Once the drafting half returns instead of writing, the
+   receiver owns the first write into columns that are write-once. Both ends carry a guard.
+   - *The engine's end, done:* a re-submitted idempotency key returns the **same job** rather
+     than a second decode, and every callback carries `job.id` with a rising `job.attempt`
+     **inside the document**, so a receiver that stores only the document can still tell a
+     replay from a new result.
+   - *The receiver's end, owed before the drafting half moves:* idempotent on `job.id` — a
+     second delivery of the same job writes nothing; it re-implements **both** refusals that
+     leave with the departing function (refuse when the lesson is marked written up, refuse when
+     either draft field already has text); it **never** marks a lesson written up; and it
+     refuses an unsigned body or one whose signature does not verify.
+   - *The club half keeps its own refusals until the drafting half actually moves.* They are not
+     redundant and they are not deleted in advance.
+
+3. **The callback secret exists in each scope that can run a receiver, and it is its own secret.**
+   Two scopes, not three: the Academy's functions take their runtime secrets per database
+   project, so TEST and PROD each need the callback secret, and the **preview scope holds no
+   function secret at all** — it is build-time frontend configuration. A preview build therefore
+   must not be pointed at a receiver it has no secret for. And the callback secret is **not** the
+   shared bearer secret every function in that repo already authenticates on: handing the engine
+   that one would hand it every function in the repo.
+
+   *This rule replaces the "three variable scopes" item as written. It was wrong on the facts,
+   and it was wrong in a way that would have sent someone looking for a place to put a secret
+   that does not exist.*
+
+4. **Pending and failed are states on the coach's review surface**, because asynchronous analysis
+   makes "being analysed" and "analysis failed" real things a coach will see. They go through the
+   design gate (D-0065) like any other screen, after the migration that gives the receiver
+   somewhere to record a job id.
+
+5. **The model key lives with whoever runs the drafting analyzer, and only there.** Today that is
+   the Academy's own function, so nothing moves today. When the drafting half moves into the
+   engine the key moves with it and becomes the engine's own per-job cost — which is an input to
+   the price, which is Ron's. Never two copies.
+
+6. **A group lesson: the engine returns times, the caller attaches names.** Up to four members
+   can be on one recording (D-0238). The engine holds no roster and must not (D-0243 clause 4),
+   so it may not decide who is who: per-student moments come back **speaker-relative and
+   unattributed** — a stable speaker label with times — and the **caller** maps a label to a
+   student from the booking it already owns. An engine that guessed at identity would be holding
+   a roster it is forbidden to hold and would be wrong on a club it has never seen.
+
+   **Named cost, not hidden:** that mapping is new work for the repo that owns the booking, which
+   today attaches one transcript to one lesson and distinguishes no voices; and some bookings
+   still have no player row, so a group lesson's evidence sits unassigned until that is closed.
+
+7. **Where the engine runs is named, and a remote reader of club media is not authorised here.**
+   For WMPC the analyzer runs **in process, beside the file**, which is what D-0243 clause 2
+   says and what the measured reasons support — the file is already there and it costs about a
+   cent a lesson. Nothing crosses a network in that shape. Handing a reader **outside the club's
+   own network** a link to lesson media is a different act: it meets D-0029 (the live media path
+   stays on the LAN) and D-0030 (one repo serves or stores customer video), and it needs its own
+   record. The input being a URL is what makes the engine *portable*, not permission to point it
+   at this club's footage from somewhere else.
+
+**Not ruled here, and deliberately.** The product's **name and its price are Ron's** (D-0243
+clause 6), so nothing is created or stood up under an invented one. Whether vision gets funded is
+his. Both are on his ledger rather than in this record.
+
+**Why.** D-0243's table did its job — it caught a veto that would have put the club's booking key
+inside a service sold to other clubs — and then the record absorbed the veto and lost the
+concerns. Two of them were the kind that only hurt later: "does the engine keep the output" is
+the first question a buyer asks about a transcript of a lesson, possibly a child's, and
+"a replayed callback freezes the wrong draft" is unrecoverable by design, because the columns are
+write-once on purpose. Writing the verdicts and the approved page down on 2026-11-06 is what made
+the gap visible; before that they existed only in one session's transcript.
+
+Rule 1 goes the strict way on purpose. The engine is the thing meant to be sold, and the cheapest
+possible answer to "what do you keep about my lessons" is "nothing, and here is the record that
+says so". A store would have to be built, secured, retained, deleted on request and explained;
+not having one costs a caller one callback handler.
+
+Rules 3 and 7 exist because the table corrected the proposal rather than merely objecting to it.
+The three-scope rule described an environment that does not hold function secrets, and the
+proposal never said where the engine runs — which is the whole of whether club footage stays on
+the club's network.
+
+**Forbids.** An engine deployment that retains a document past delivery and its retention window,
+or that stores a media hash, a transcript or a draft. Pooling material the engine is holding for
+a job, with or without a flag. A receiver that writes a draft without being idempotent on the
+job id, that does not re-implement both of the departing function's refusals, that marks a lesson
+written up, or that accepts an unsigned or wrong-signature callback. Using the Academy's shared
+bearer secret as the callback secret. Pointing a preview build at a receiver whose scope has no
+callback secret. An engine that decides which student a moment belongs to, or that holds a roster
+to do it. A second copy of the model key. Pointing a reader outside the club's own network at
+this club's lesson media under this record. Creating a repo, a service or a price under a name
+nobody decided (D-0243 clause 6, unchanged). And everything D-0243 already forbids, unchanged —
+in particular moving the booking match, the retention clock or the write-up state out of the
+club, and sending lesson footage to pb.vision.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
