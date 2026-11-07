@@ -618,3 +618,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 ## 2026-11-05 — PR #104 rework 2 (issue #102)
 - DNS Target is now paste-safe: `setup.sh` prints the full `<uuid>.cfargotunnel.com` alone on its own line; README and PR body say "copy the line printed under Target field"; no placeholder in any copy box.
 - Next: reviewer re-review.
+
+## 2026-11-06 — rsm#116: restart script and deploy doc match the mini's system daemon
+- `restart-api.sh` now restarts through `ai.wmpc.sessions` (kill pid, wait for launchd respawn, confirm NEW pid + `/api/health`), resolves `lsof` by absolute path, and treats a failed lookup as an error. `install-api.sh` refuses while the system plist exists. `DEPLOYMENT.md` corrected. Tests: `tests/restart-api.test.ts`.
+- Not done (out of scope): moving the API to the user agent; running any installer or restarting the live API.
