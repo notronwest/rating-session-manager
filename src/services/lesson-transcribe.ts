@@ -60,6 +60,13 @@ export interface TranscribeConfig extends AnalyzerConfig {
   localDir: string;
   /** Where .txt/.srt/.json land. On the NAS: same trust boundary as the video. */
   transcriptsDir: string;
+  /**
+   * Who this club is TO THE ANALYZER. D-0243 clause 4: tenant-scoped from the
+   * first line. It lives in the caller's config and not in the analyzer,
+   * because the analyzer may not know a club exists — this is the club naming
+   * itself when it submits a job, exactly as a second club would.
+   */
+  tenantId: string;
   /** Local scratch for the 16 kHz wav. Deleted after each recording. */
   scratchDir: string;
   stateDir: string;
@@ -82,6 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): TranscribeConf
     nasDir: env.LESSON_RECORDINGS_DIR || "/Volumes/wmpc-video/teaching",
     localDir: env.LESSON_RECORDINGS_LOCAL_DIR || "/opt/wmpc/recordings/teaching",
     transcriptsDir: env.LESSON_TRANSCRIPTS_DIR || "/Volumes/wmpc-video/transcripts",
+    tenantId: env.LESSON_TENANT_ID || "wmpc",
     scratchDir: env.LESSON_SCRATCH_DIR || path.join(home, ".cache", "wmpc-lesson-transcribe"),
     stateDir: env.LESSON_STATE_DIR || path.join(home, ".local", "state", "wmpc-lesson-transcribe"),
     whisperBin: env.LESSON_WHISPER_BIN || "/opt/homebrew/bin/whisper-cli",
@@ -345,9 +353,9 @@ export async function transcribeOne(
   // The analysis. Everything after this line is the club's, and none of it is
   // analysis — which is the seam D-0243 clause 5 draws.
   const doc = await transcribeAudio(cfg, {
-    file: rec.file,
+    tenant: cfg.tenantId,
+    video: rec.file,
     scratchDir: cfg.scratchDir,
-    outBase: path.join(paths.dir, rec.base),
   }, log);
   // Fail closed on a document this caller was not written against (D-0243
   // clause 3). Today it can only be our own; tomorrow it may be a service's.
@@ -370,6 +378,19 @@ export async function transcribeOne(
 
   const transcript = doc.transcript?.text ?? "";
   const words = doc.transcript?.words ?? 0;
+
+  // OUR TREE, OUR WRITE. Until 2026-11-07 whisper wrote `.txt` and `.srt`
+  // straight into this directory, because the analyzer was handed a path inside
+  // it (`outBase`). That is the one thing a service reachable over a network
+  // cannot do, so the analyzer now returns the text and its timings in the
+  // document and the club writes them where the club keeps them.
+  //
+  // THE .txt IS LOAD-BEARING, not an artifact: reattachPending() refuses a
+  // recording whose `.txt` is missing, so a transcript written only into the
+  // database would never be re-attached when its lesson record appears later.
+  // Write it before anything that can throw.
+  fs.writeFileSync(paths.txt, transcript);
+  if (doc.transcript?.srt) fs.writeFileSync(paths.srt, doc.transcript.srt);
 
   // Attach + draft. A failure here must NOT lose the transcription we just
   // spent an hour on, so the meta is written first and the attach is retried
@@ -407,6 +428,7 @@ export async function transcribeOne(
   fs.writeFileSync(paths.meta, JSON.stringify({
     ref: rec.ref, durationS: doc.source.durationS, meanVolumeDb: doc.source.meanVolumeDb, words,
     result: "transcribed", attached, drafted, attachNote,
+    segments: doc.transcript?.segments?.length ?? 0,
     model: doc.engine.model, vad: doc.engine.vad,
     tookS: Math.round((Date.now() - started) / 1000),
     at: new Date().toISOString(),

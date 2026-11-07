@@ -15,19 +15,60 @@
 export type AnalyzerAsk = "transcript" | "cues" | "timeline" | "events" | "fptm" | "draft";
 
 /** `major.minor`. Bump the minor to add a section; the major to change one. */
-export const ANALYZER_SCHEMA_VERSION = "1.1";
+export const ANALYZER_SCHEMA_VERSION = "1.2";
+
+/**
+ * One timed stretch of speech. Times are seconds from the start of the media,
+ * as floats, because that is what every later section needs to point AT the
+ * video: `cues` is a filtered, labelled view of these, and `timeline` is their
+ * gaps and clusters. Added in 1.2.
+ *
+ * WHY THIS EXISTS AT ALL. Whisper has always written an `.srt` beside the
+ * transcript and the document never carried it, so every timed output on the
+ * roadmap — cues, the drill timeline, per-student events — had no times to be
+ * built from and a caller could not have pointed a clip at a moment. The
+ * timings were being computed and thrown away.
+ */
+export interface TranscriptSegment {
+  startS: number;
+  endS: number;
+  text: string;
+}
 
 export interface AnalyzerDocument {
   schema_version: string;
+  /**
+   * Whose job this was. D-0243 clause 4: tenant-scoped from the first line,
+   * not retrofitted — so it is required, it is on the document as well as the
+   * input, and the analyzer refuses a job without one. A stored or forwarded
+   * document that cannot say whose it is cannot be isolated by default, which
+   * is the whole of the "opt-in, isolated" rule.
+   */
+  tenant: string;
   /** What this document was asked for. A section is absent when it was not asked for. */
   asks: AnalyzerAsk[];
   result: "transcribed" | "silent" | "failed";
+  /**
+   * Set when the document arrived through the async job surface. `id` is stable
+   * across callback deliveries and `attempt` counts them, which is what lets a
+   * receiver write once and ignore a replay (D-0243's unsettled item 2: the
+   * Academy's draft columns are write-once, so a replayed callback would
+   * otherwise freeze the wrong draft permanently). Absent on an in-process call.
+   */
+  job?: { id: string; attempt: number };
   source: {
     durationS: number | null;
     /** `-inf` rather than -Infinity so the document is JSON-safe as it stands. */
     meanVolumeDb: number | "-inf" | null;
   };
-  transcript?: { text: string; words: number };
+  transcript?: {
+    text: string;
+    words: number;
+    /** The timed segments, in order. Added in 1.2; absent when unparseable. */
+    segments?: TranscriptSegment[];
+    /** The same timings as a SubRip document, for a caller that stores subtitles. */
+    srt?: string;
+  };
   /** Why this document says what it says, in plain words, for a human reading
    *  the record. Added in 1.1: `silent` has two causes with different remedies
    *  — a connected microphone that heard nothing, and no audio track at all —
@@ -64,4 +105,22 @@ export function assertSupportedDocument(
       `analyzer document is schema ${v}; this caller reads major ${supportedMajors.join(", ")} only`,
     );
   }
+}
+
+/**
+ * A tenant id the analyzer will accept. Refused rather than defaulted: a job
+ * with no tenant is the retrofit D-0243 clause 4 forbids, and "" or "default"
+ * is how one customer's lessons end up in another's bucket.
+ *
+ * Deliberately narrow — it is an identifier a caller chose, and it ends up in
+ * log lines and (later) a store key, so it may not carry a path separator, a
+ * space or a control character.
+ */
+export function assertTenant(tenant: unknown): string {
+  if (typeof tenant !== "string" || !/^[a-z0-9][a-z0-9_-]{1,63}$/i.test(tenant)) {
+    throw new Error(
+      `a job needs a tenant id (2-64 chars, letters, digits, - and _); got ${JSON.stringify(tenant)}`,
+    );
+  }
+  return tenant;
 }

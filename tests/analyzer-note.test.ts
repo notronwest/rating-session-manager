@@ -7,7 +7,7 @@ test("the document schema carries a reason, so two silent causes are distinguish
   // `silent` has two causes with different remedies: a connected microphone
   // that heard nothing, and no audio track at all. The result alone cannot
   // tell them apart, and the second one means go and check the microphone.
-  assert.equal(ANALYZER_SCHEMA_VERSION, "1.1");
+  assert.equal(ANALYZER_SCHEMA_VERSION, "1.2");
 });
 
 test("a 1.1 document is still readable by a 1.0 reader", () => {
