@@ -4778,6 +4778,54 @@ nobody decided (D-0243 clause 6, unchanged). And everything D-0243 already forbi
 in particular moving the booking match, the retention clock or the write-up state out of the
 club, and sending lesson footage to pb.vision.
 
+### D-0295 — An agreed build goes to Mr. Robot as a card, not into the session that agreed it — and the lane is checked every 5 minutes
+
+*2026-11-07 · scope: `infrastructure/builder-dispatch/**, infrastructure/build-route-gate/**, infrastructure/reviewer-dispatch/**, infrastructure/heartbeat/RAILS, infrastructure/heartbeat/JOBS, infrastructure/daemon-sync/reconcile.sh, agents/**PROMPT*, infrastructure/daemon-dispatch/DAEMON-PROMPT.md, CLAUDE.md, docs/ai-agents.md, docs/synchronization.md` · source: Ron, 2026-11-07, answering daemon#1220 ("Send agreed builds to Mr. Robot | Keep building them with me"): "send agreements and change Mr. Robots cadence to every 5 minutes (assumubg these checks don't use tokens)". The measurement behind the question (daemon#1220, Builder host log 2026-09-16 → 11-06): 646 ticks, 48 found work, 48 of 48 built unassisted, 598 found an empty lane — because every agreement was built in the session that reached it.*
+
+**Decision.** Seven rules.
+
+1. **When a session and Ron agree how something in a repo Mr. Robot builds (BUILDER-REPOS) gets
+   built, the session files it and stops.** `infrastructure/builder-dispatch/file-build-card.sh`
+   — right repo, an `area:` label, the agreement as the body with an `## Acceptance` checklist,
+   label `build:agreed`, Agent Ready. Ron is told it is up (one sentence in the reply, and a silent
+   line from the filer in the channel his cards arrive in). The session does not build it while he waits.
+2. **`build:agreed` is the explicit ask that lets the dispatcher move a card out of Backlog.**
+   Each tick it queues any OPEN issue in a served repo carrying the label, adding it to the board
+   first if a cloud session (which has no Projects access) could not. A Backlog card without it stays
+   human territory, unchanged. A human who parks an agreed card removes the label.
+3. **What stays in the session:** the paths the Builder refuses by design (D-0089 rule 1's
+   daemon-only groups — `agents/**`, `decisions/**`, `infrastructure/*-dispatch/**`,
+   `docs/ai-agents.md` — and the rest of daemon, which the Builder does not serve, D-0152);
+   a member being harmed right now (D-0197: put it right first); anything Ron says to build now,
+   in those words; and a fix to work already in flight (a rework on an open PR, a failing check).
+   The session says which, in the PR body: `In-session-build: <reason>`.
+4. **The gate** (`build-route-gate`) refuses a session-built PR in a served repo that names no
+   such reason. It is a routing check, so it fails open on anything it cannot read.
+5. **Ron is told when it ships, and his phone does not ring for it.** When the reviewer merges a
+   PR whose issue carries `build:agreed`, it posts one line to the channel his cards arrive in: what
+   finished, and the link. Before this, an unassisted build finished with no word anywhere. Both this
+   line and rule 1's are news, not asks, so they whisper (D-0211 rule 2 names completions; Ron,
+   2026-11-06, of builder alerts: "Should only notify me when its crtiical", D-0296).
+6. **The dispatcher ticks every 5 minutes** (was 30). Ron's premise held: an idle tick runs no
+   model — `claude -p` is called in exactly one place, `run_item`, reached only with a work item.
+   Its only cost is GitHub GraphQL points from the hourly pool the mini's jobs share, so the tick
+   now meters its own spend (`graphql_pts=` in the summary) and stands down below a floor of 1,500
+   points remaining. A run that outlasts the tick cannot be doubled: a lock is reclaimed only when
+   it is old AND its recorded holder is gone.
+7. **The dispatcher's self-update pull keeps its old 30-minute frequency**, and reconcile never
+   reloads the launchd job it is running inside (it defers to the next sync from outside).
+
+**Why.** The machine was never the constraint — supply was. 48 of 48 queued items built
+unassisted; 598 of 646 ticks found nothing, because agreement turned into session work instead
+of a card. A card also outlives the session: the agreement is written down where the reviewer
+and the next run read it. Five minutes makes "it gets built" feel immediate; at 30 a card waited
+up to half an hour to start.
+
+**Forbids.** Building an agreed change in a served repo in-session without an
+`In-session-build:` reason; filing a card without acceptance criteria or an area label; treating
+an unlabelled Backlog card as queued; moving the tick under 5 minutes, or removing the floor, the
+meter or the live-holder lock check, without new measurements.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
