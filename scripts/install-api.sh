@@ -26,6 +26,15 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
+# On the mini a system LaunchDaemon already owns the API. A second KeepAlive job
+# on the same port would crash-loop against it (rsm#116), so refuse.
+SYSTEM_PLIST="${SM_SYSTEM_PLIST:-/Library/LaunchDaemons/ai.wmpc.sessions.plist}"
+if [ -f "$SYSTEM_PLIST" ]; then
+  echo "Not installing: $SYSTEM_PLIST already runs the API as a system service."
+  echo "A second job on port $PORT would fight it. Restart the API with: npm run restart"
+  exit 1
+fi
+
 [ -f "$REPO/dist/server.js" ] || { echo "dist/server.js is missing — run: npm run build   (then re-run this)"; exit 1; }
 
 mkdir -p "$STATE" "$HOME/Library/LaunchAgents"
@@ -35,7 +44,7 @@ plutil -lint "$AGENT" >/dev/null
 
 # A hand-started API (restart-api.sh's nohup) already owns the port; stop it so
 # launchd's copy can bind. Only that one process, found by port.
-OLD="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+OLD="$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true)"
 if [ -n "$OLD" ] && ! launchctl print "$TARGET" >/dev/null 2>&1; then
   echo "stopping the hand-started API (pid $OLD) so launchd can own port $PORT"
   kill "$OLD" 2>/dev/null || true

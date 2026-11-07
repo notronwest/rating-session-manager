@@ -9,15 +9,18 @@ Tunnel** publishes Express at **`https://session.wmpc.app`** behind **Cloudflare
 Access** for use off the LAN. Pushing to `main` deploys nothing.
 
 > ⚠️ Known gaps, recorded rather than papered over:
-> - **The API is reboot-durable only after `./scripts/install-api.sh` has been run
->   on the mini** (rsm#102; `launchd/com.wmpc.session-api.plist.template`, label
->   `com.wmpc.session-api`, KeepAlive). Until then the old situation holds. The
->   stale plist below is superseded by it.
-> - **`launchd/ai.wmpc.sessions.plist` is stale and not installed.** Its
->   `WorkingDirectory` still points at `…/projects/rating-session-manager`, the
->   repo's old name. `setup.sh` never installs it, and the API is actually run as
->   a backgrounded `node dist/server.js` by `scripts/restart-api.sh`. So the API
->   does **not** survive a reboot unless someone starts it.
+> - **On the mini the API is owned by a system LaunchDaemon, `ai.wmpc.sessions`**
+>   (`/Library/LaunchDaemons/ai.wmpc.sessions.plist`; `KeepAlive`, `RunAtLoad`;
+>   verified 2026-11-06, rsm#116). It owns port 3001 and survives a reboot. Its
+>   logs are `logs/server.log` and `logs/server.err` in the repo, not
+>   `/tmp/sm.log`. It lives in the *system* launchd domain, so a plain
+>   `launchctl list` as the user does not show it (use `sudo launchctl print
+>   system/ai.wmpc.sessions` or `ls /Library/LaunchDaemons`). `scripts/restart-api.sh`
+>   restarts it by killing the pid and waiting for launchd's respawn; it starts no
+>   second copy. `scripts/install-api.sh` refuses while that plist exists, because
+>   a second KeepAlive job would crash-loop against it.
+> - **`com.wmpc.session-api` (the user LaunchAgent from `install-api.sh`) is for a
+>   machine WITHOUT the system daemon.** Never both on one machine.
 > - **The LAN hostname is not recorded anywhere in this repo.** The SPA is
 >   served on the LAN by Caddy from `../www/sessionmanager`, but which host maps
 >   to it isn't written down here — read it off the mini's
@@ -29,9 +32,9 @@ Access** for use off the LAN. Pushing to `main` deploys nothing.
 >   (`launchd/com.wmpc.lesson-transcribe.plist.template`) whose `__REPO__` is
 >   substituted by the installer from the checkout it runs in — precisely so a
 >   rename cannot strand it the way it stranded `ai.wmpc.sessions.plist`.
-> - **The tunnel is only as durable as the API.** `cloudflared` restarts itself
->   (LaunchAgent), but until the plist gap above is fixed the API does not, so
->   after a reboot the public URL 502s until someone runs `npm run build`.
+> - **The repo's copy of `launchd/ai.wmpc.sessions.plist` may drift from the
+>   installed one.** Its `WorkingDirectory` here is the repo's old path; the
+>   installed plist is the source of truth (changing it needs root on the mini).
 
 ```yaml
 # wmpc-deployment: v1
@@ -43,13 +46,13 @@ branches:
 targets:
   - name: api
     kind: mac-mini-launchd
-    trigger: MANUAL — `npm run build` on the mini (tsc + vite build + ./scripts/restart-api.sh)
+    trigger: MANUAL — `npm run build` on the mini (tsc + vite build + ./scripts/restart-api.sh, which restarts through the ai.wmpc.sessions system LaunchDaemon)
     source: src/server.ts → dist/server.js, Express on port 3001
     env: LAN
     url: http://localhost:3001 on the mini — /api/* AND the built SPA (from ../www/${APP_NAME}, override WEB_DIST); this is the tunnel's origin
     host: wmpcMacMini1
     config_scope: .env in the repo root on the mini (also reads courtreserve-scheduler/.env for CR scraping); CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD gate tunnel traffic (fail closed)
-    verify: curl an /api/* endpoint on the mini AND curl localhost:3001/ for the SPA's <html>; log at /tmp/sm.log (override with SM_LOG)
+    verify: curl localhost:3001/api/health AND curl localhost:3001/ for the SPA's <html>; log at logs/server.log + logs/server.err (system daemon); /tmp/sm.log only for a hand-started API (SM_LOG)
     rollback: git checkout an earlier commit on the mini and re-run npm run build
   - name: web
     kind: caddy-static
@@ -61,9 +64,19 @@ targets:
     config_scope: repo-root .env — VITE_* values are BAKED INTO THE BUNDLE at build time
     verify: load the Caddy-served host and confirm the change is present
     rollback: git checkout an earlier commit on the mini and rebuild
+  - name: session-api-daemon
+    kind: mac-mini-launchd
+    trigger: ALREADY INSTALLED on the mini (system LaunchDaemon, root-owned); restarted by `npm run build` via restart-api.sh (kill pid, launchd respawns)
+    source: /Library/LaunchDaemons/ai.wmpc.sessions.plist (template copy in launchd/ai.wmpc.sessions.plist)
+    env: LAN
+    url: http://localhost:3001 on the mini — the same API as the `api` target
+    host: wmpcMacMini1
+    config_scope: repo-root .env; logs/server.log + logs/server.err in the repo
+    verify: "ls /Library/LaunchDaemons/ai.wmpc.sessions.plist; lsof -nP -iTCP:3001 -sTCP:LISTEN; curl localhost:3001/api/health"
+    rollback: changing or removing it needs root on the mini (sudo launchctl bootout system/ai.wmpc.sessions)
   - name: session-api-agent
     kind: mac-mini-launchd
-    trigger: MANUAL, one time — `./scripts/install-api.sh` on the mini after `npm run build` (idempotent). Once loaded, `npm run build`'s restart goes through `launchctl kickstart`.
+    trigger: NOT USED on the mini (the system daemon owns the port; install-api.sh refuses). For a machine without the daemon: MANUAL, one time — `./scripts/install-api.sh` on the mini after `npm run build` (idempotent). Once loaded, `npm run build`'s restart goes through `launchctl kickstart`.
     source: launchd/com.wmpc.session-api.plist.template (REPO substituted by the installer)
     env: LAN
     url: http://localhost:3001 on the mini — the same API as the `api` target, now restarted by launchd after a reboot or crash
@@ -71,16 +84,6 @@ targets:
     config_scope: repo-root .env (dotenv, unchanged); log at ~/.local/state/wmpc-session-api/server.log
     verify: "launchctl list | grep com.wmpc.session-api; then a real reboot and curl localhost:3001/api/health"
     rollback: ./scripts/install-api.sh --uninstall (the API is then started by hand with npm run start, as before)
-  - name: launchd-plist
-    kind: none
-    trigger: NOT INSTALLED — setup.sh does not install it, and its path is stale; superseded by session-api-agent
-    source: launchd/ai.wmpc.sessions.plist
-    env: n/a
-    url: n/a
-    host: wmpcMacMini1
-    config_scope: WorkingDirectory still points at the repo's OLD name (rating-session-manager)
-    verify: launchctl list | grep ai.wmpc.sessions — expect nothing
-    rollback: n/a
   - name: lesson-transcribe
     kind: mac-mini-launchd
     trigger: MANUAL, one time — `./scripts/install-lesson-transcribe.sh` on the mini (idempotent; re-run after a pull that touches it)
@@ -119,8 +122,8 @@ targets:
 |---|---|---|
 | `api` | `npm run build` on the mini | `localhost:3001` on the mini |
 | `web` | `npm run build` on the mini | `../www/sessionmanager` → Caddy |
-| `session-api-agent` | one-time `./scripts/install-api.sh` on the mini | the API, restarted by launchd after a reboot |
-| `launchd-plist` | — | **not installed**; superseded by `session-api-agent` |
+| `session-api-daemon` | already installed on the mini (system LaunchDaemon) | the API, restarted by launchd after a reboot or `npm run build` |
+| `session-api-agent` | `./scripts/install-api.sh` — only on a machine without the daemon | the API as a user LaunchAgent (refused on the mini) |
 | `lesson-clips` | rides the lesson-transcribe tick | clip mp4s on the NAS + `lessons.clips` |
 | `lesson-transcribe` | one-time `./scripts/install-lesson-transcribe.sh` on the mini | a LaunchAgent ticking every 10 min; transcripts on the NAS, text on `lessons.transcript` |
 | `tunnel` | one-time `bash deploy/cloudflared/setup.sh` on the mini | `https://session.wmpc.app` (behind Cloudflare Access) |
@@ -135,14 +138,18 @@ git pull && npm run build
 ```
 
 `npm run build` is `tsc && vite build && ./scripts/restart-api.sh`. The restart
-step matters: the mini runs the API as a backgrounded `node dist/server.js`, so a
+step matters: the mini's API is run by the `ai.wmpc.sessions` system LaunchDaemon, so a
 build that didn't restart would leave the new code on disk with the **old code
-still serving requests**. `restart-api.sh` is idempotent (safe cold, safe twice),
+still serving requests**. `restart-api.sh` kills the daemon's pid, waits for
+launchd's respawn, and confirms a NEW pid is listening and `/api/health`
+answers (it starts no second copy; a failed `lsof` lookup is an error, never
+"nothing running"). Elsewhere it is idempotent (safe cold, safe twice),
 SIGTERMs then escalates to SIGKILL after 5s, and honours `SKIP_API_RESTART=1` for
 CI or a dev machine where you only want to prove the build compiles. Use
 `npm run build:only` to build without touching a running server.
 
-Port `3001` (`PORT`), log `/tmp/sm.log` (`SM_LOG`).
+Port `3001` (`PORT`). Logs: `logs/server.log` / `logs/server.err` under the
+daemon; `/tmp/sm.log` (`SM_LOG`) only for a hand-started API.
 
 Since 2026-09-05 Express also **serves the built SPA** from the same directory
 Caddy publishes (`../www/${APP_NAME}`, override `WEB_DIST`), with an SPA fallback
@@ -177,13 +184,12 @@ is two halves: the script, then the Access application + those two variables.
 
 Runbook: [`deploy/cloudflared/README.md`](./deploy/cloudflared/README.md)
 
-### launchd-plist — present but inert
+### session-api-daemon — the system LaunchDaemon
 
-`launchd/ai.wmpc.sessions.plist` declares `RunAtLoad` + `KeepAlive` for
-`node dist/server.js`, which is what this service *should* have. It is not
-installed, and its `WorkingDirectory` is the repo's pre-rename path. Fixing it
-means updating the path and installing it; until then the API is not
-reboot-durable.
+`/Library/LaunchDaemons/ai.wmpc.sessions.plist` (`RunAtLoad` + `KeepAlive`, runs
+`node dist/server.js` as the user) owns the API on the mini. Changing or
+reinstalling it needs root there; nothing in this repo does that. Do not run
+`install-api.sh` on the mini — it refuses.
 
 ## Environments & variable scopes
 
@@ -211,7 +217,7 @@ npm run build:only
 
 on a dev machine to prove it compiles without disturbing anything. On the mini,
 after `npm run build`: confirm the API answers on `localhost:3001` (and
-`localhost:3001/` returns the SPA's `<html>`), check `/tmp/sm.log` for a clean
+`localhost:3001/` returns the SPA's `<html>`), check `logs/server.err` for a clean
 start, and load the Caddy-served SPA host. For the public URL:
 
 ```bash
