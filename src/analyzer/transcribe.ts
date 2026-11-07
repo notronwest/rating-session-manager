@@ -18,8 +18,10 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   ANALYZER_SCHEMA_VERSION,
+  assertTenant,
   type AnalyzerAsk,
   type AnalyzerDocument,
+  type TranscriptSegment,
 } from "./document.js";
 
 /** Everything the analyzer needs. No paths that belong to a caller's operation. */
@@ -33,15 +35,46 @@ export interface AnalyzerConfig {
   threads: number;
 }
 
-/** One job. The caller owns every path in here; the analyzer owns none of them. */
+/**
+ * One job. D-0243 clause 3: a readable link, a tenant id, and the asks —
+ * nothing else.
+ *
+ * WHAT CHANGED, AND WHY IT MATTERS MORE THAN IT LOOKS. This used to carry
+ * `outBase`: a path in the CALLER's tree that whisper wrote `.txt` and `.srt`
+ * into. An analyzer reachable over a network cannot write into its caller's
+ * folder, so that field was the single thing that made this module
+ * un-liftable — it is gone, and the text and its timings come back IN the
+ * document instead. `scratchDir` is now the analyzer's own working space and
+ * everything it puts there is deleted before the job returns.
+ */
 export interface AnalyzerInput {
-  /** The video to read. A link the caller can read — on disk today, a URL later. */
-  file: string;
-  /** Scratch for the 16 kHz wav. Created if absent; the wav is deleted after. */
+  /** Whose job this is. Required; see assertTenant. */
+  tenant: string;
+  /** The video to read: an `http(s)` URL the analyzer can read for the length of the job, or a local path. */
+  video: string;
+  /** The analyzer's own scratch. Created if absent; emptied of this job's files after. */
   scratchDir: string;
-  /** Where whisper writes `<outBase>.txt` / `.srt`. The caller's tree, not ours. */
-  outBase: string;
   asks?: AnalyzerAsk[];
+}
+
+/**
+ * What the analyzer will read. A URL or a filesystem path, and NOTHING else —
+ * `pipe:`, `concat:`, `rtmp:` and friends are ffmpeg protocols that would turn
+ * a caller-supplied string into a caller-supplied capability. Refused rather
+ * than sanitised, because a protocol list grows and a refusal does not.
+ */
+export function assertReadableVideo(video: unknown): string {
+  if (typeof video !== "string" || video.trim() === "") {
+    throw new Error(`a job needs a video to read; got ${JSON.stringify(video)}`);
+  }
+  const v = video.trim();
+  if (/^https?:\/\//i.test(v)) return v;
+  // A bare path. Anything with a scheme that is not http(s) is refused; a
+  // Windows-style drive letter is not a scheme we accept either.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) {
+    throw new Error(`a video link must be http(s) or a local path; got ${v.split(":")[0]}:`);
+  }
+  return v;
 }
 
 export const SILENCE_FLOOR_DB = -70;
@@ -161,23 +194,69 @@ export function meanVolumeForDocument(db: number | null): number | "-inf" | null
 }
 
 /**
+ * SubRip to timed segments. Added with 1.2, because whisper has been writing
+ * these timings beside every transcript since the first lesson and the document
+ * threw them away — so `cues`, `timeline` and `events` had nothing to be built
+ * from, and no caller could point a clip at a moment.
+ *
+ * Lenient on purpose: a half-written or oddly-numbered file yields the blocks
+ * it can read rather than failing the whole job. A transcript with no timings
+ * is worth far more than no transcript.
+ */
+export function parseSrt(srt: string): TranscriptSegment[] {
+  const out: TranscriptSegment[] = [];
+  const stamp = /(\d{2}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{1,3})/;
+  for (const block of srt.replace(/\r\n/g, "\n").split(/\n{2,}/)) {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+    const idx = lines.findIndex((l) => stamp.test(l));
+    if (idx === -1) continue;
+    const m = stamp.exec(lines[idx])!;
+    const secs = (h: string, mi: string, se: string, ms: string) =>
+      Number(h) * 3600 + Number(mi) * 60 + Number(se) + Number(ms.padEnd(3, "0")) / 1000;
+    const text = lines.slice(idx + 1).join(" ").trim();
+    if (text === "") continue;
+    out.push({
+      startS: secs(m[1], m[2], m[3], m[4]),
+      endS: secs(m[5], m[6], m[7], m[8]),
+      text,
+    });
+  }
+  return out;
+}
+
+/**
  * The job. Extract audio, refuse silence, transcribe, return ONE document.
  *
  * It never throws for an analysis failure — a failed decode is a document with
  * `result: "failed"`, because the caller's retry policy is the caller's business
- * (here: the meta file is not written, so the next tick tries again).
+ * (here: the meta file is not written, so the next tick tries again). It DOES
+ * throw for a malformed job — no tenant, no readable link — because that is the
+ * caller's bug and returning a document for it would hide it.
+ *
+ * NOTHING IS LEFT BEHIND. Every file this function creates lives under
+ * `input.scratchDir` and is removed in the `finally`, including whisper's own
+ * `.txt` and `.srt`. D-0243 clause 4: a reader, never a store.
  */
 export async function transcribeAudio(
   cfg: AnalyzerConfig,
   input: AnalyzerInput,
   log: (line: string) => void = () => {},
 ): Promise<AnalyzerDocument> {
+  const tenant = assertTenant(input.tenant);
+  const video = assertReadableVideo(input.video);
   const asks = input.asks ?? ["transcript"];
   const started = Date.now();
   fs.mkdirSync(input.scratchDir, { recursive: true });
-  const wav = path.join(input.scratchDir, `${path.basename(input.outBase)}.wav`);
+  // The analyzer's own working name. Derived from the job, never from a path in
+  // the caller's tree, so two jobs on the same machine cannot collide and the
+  // analyzer does not have to be told where the caller keeps things.
+  const stem = `job-${process.pid}-${started.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const outBase = path.join(input.scratchDir, stem);
+  const wav = `${outBase}.wav`;
   const doc = (over: Partial<AnalyzerDocument>): AnalyzerDocument => ({
     schema_version: ANALYZER_SCHEMA_VERSION,
+    tenant,
     asks,
     result: "failed",
     source: { durationS: null, meanVolumeDb: null },
@@ -191,7 +270,7 @@ export async function transcribeAudio(
   });
 
   try {
-    const durationS = await probeDurationS(cfg, input.file);
+    const durationS = await probeDurationS(cfg, video);
 
     // Audio extraction. This is the slow step — 44 minutes for a 2.2 GB file in
     // the 2026-10-07 prototype, because the mini reaches the NAS over Wi-Fi at
@@ -212,7 +291,7 @@ export async function transcribeAudio(
     //
     // A missing audio track is permanent, so it is recorded like silence:
     // terminal, with the reason on the record.
-    const hasAudio = await probeHasAudioStream(cfg, input.file);
+    const hasAudio = await probeHasAudioStream(cfg, video);
     if (hasAudio === false) {
       return doc({
         result: "silent",
@@ -221,9 +300,9 @@ export async function transcribeAudio(
       });
     }
 
-    log(`extracting audio from ${input.file}`);
+    log(`extracting audio from ${video}`);
     const ext = await run(cfg.ffmpegBin,
-      ["-v", "error", "-y", "-i", input.file, "-vn", "-ac", "1", "-ar", "16000", wav],
+      ["-v", "error", "-y", "-i", video, "-vn", "-ac", "1", "-ar", "16000", wav],
       { timeoutMs: 3 * 60 * 60 * 1000 });
     if (ext.code !== 0 || !fs.existsSync(wav)) {
       return doc({
@@ -240,8 +319,8 @@ export async function transcribeAudio(
     }
 
     log(`transcribing (${durationS ? Math.round(durationS / 60) : "?"} min of audio)`);
-    const txt = `${input.outBase}.txt`;
-    const w = await run(cfg.whisperBin, decodeArgs(cfg, wav, input.outBase),
+    const txt = `${outBase}.txt`;
+    const w = await run(cfg.whisperBin, decodeArgs(cfg, wav, outBase),
       { timeoutMs: 6 * 60 * 60 * 1000 });
     if (w.code !== 0 || !fs.existsSync(txt)) {
       return doc({
@@ -251,12 +330,32 @@ export async function transcribeAudio(
     }
 
     const text = fs.readFileSync(txt, "utf8");
+    // The timings, which used to be written into the caller's folder and never
+    // read by anything. A missing or unreadable .srt leaves the transcript
+    // whole and the segments absent — it is not a reason to fail a job.
+    let srt: string | undefined;
+    let segments: TranscriptSegment[] | undefined;
+    try {
+      srt = fs.readFileSync(`${outBase}.srt`, "utf8");
+      const parsed = parseSrt(srt);
+      if (parsed.length > 0) segments = parsed;
+    } catch { /* no timings on this one */ }
+
     return doc({
       result: "transcribed",
       source: { durationS, meanVolumeDb: meanForDoc },
-      transcript: { text, words: text.split(/\s+/).filter(Boolean).length },
+      transcript: {
+        text,
+        words: text.split(/\s+/).filter(Boolean).length,
+        ...(segments ? { segments } : {}),
+        ...(srt ? { srt } : {}),
+      },
     });
   } finally {
-    try { fs.unlinkSync(wav); } catch { /* scratch only */ }
+    // Scratch only, and ALL of it: the wav, and whisper's own .txt/.srt, which
+    // before 1.2 were left in the caller's tree for the caller to own.
+    for (const f of [wav, `${outBase}.txt`, `${outBase}.srt`]) {
+      try { fs.unlinkSync(f); } catch { /* scratch only */ }
+    }
   }
 }

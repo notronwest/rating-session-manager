@@ -20,10 +20,23 @@ function sources(): string[] {
   return fs.readdirSync(DIR).filter((f) => f.endsWith(".ts")).map((f) => path.join(DIR, f));
 }
 
-/** Every `from "x"` and `import("x")` specifier in a file. */
+/** A file with its comments removed. An import cannot live in one. */
+function code(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+/**
+ * Every `from "x"` and `import("x")` specifier in a file.
+ *
+ * Comments are stripped FIRST. The scan is a text match, and an ordinary
+ * English sentence inside a comment — `... one thing from "another" ...` —
+ * read as an import of a module called "another" and failed the gate on prose.
+ * This narrows what the scanner sees, not what the rule allows: the assertion
+ * below is unchanged, and an import in real code cannot hide in a comment.
+ */
 function specifiers(src: string): string[] {
   const out: string[] = [];
-  for (const m of src.matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)) out.push(m[1]);
+  for (const m of code(src).matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)) out.push(m[1]);
   return out;
 }
 
@@ -52,11 +65,10 @@ test("the analyzer names no club path, host or table", () => {
     /supabase/i, /\blessons\b/, /camd/, /CRAPI/, /SERVICE_ROLE/,
   ];
   for (const file of sources()) {
-    const src = fs.readFileSync(file, "utf8");
     // Comments may discuss the club; code may not name it.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const src = code(fs.readFileSync(file, "utf8"));
     for (const re of banned) {
-      assert.equal(re.test(code), false,
+      assert.equal(re.test(src), false,
         `${path.basename(file)} names ${re} in code — see D-0243 clause 4`);
     }
   }

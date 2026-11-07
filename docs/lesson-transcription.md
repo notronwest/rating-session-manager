@@ -40,17 +40,62 @@ every 10 min (launchd, user agent)
         ffprobe duration ─ under 10 min? a camera test, skip
         │
         ├── THE ANALYZER (src/analyzer, knows nothing about the club) ──────────
-        │   ffmpeg  -vn -ac 1 -ar 16000      → wav   (nice 15)
+        │   in: { tenant, video (a URL or a path), scratchDir, asks }
+        │   ffprobe -select_streams a       → no audio track? "silent", terminal
+        │   ffmpeg  -vn -ac 1 -ar 16000      → wav   (nice 15, ITS OWN scratch)
         │   volumedetect ─ mean ≤ -70 dBFS? → result: "silent", no transcript
-        │   whisper-cli --vad -mc 0          → .txt + .srt   (nice 15)
-        │   returns ONE document: schema_version, result, source, transcript
+        │   whisper-cli --vad -mc 0          → .txt + .srt  in scratch, deleted
+        │   returns ONE document: schema_version, tenant, result, source,
+        │                         transcript { text, words, segments, srt }
         └───────────────────────────────────────────────────────────────────────
         assertSupportedDocument(doc)     ← refuses a major it cannot read
+        WE write the .txt and .srt       ← the analyzer no longer writes our tree
         lessons.recording_ref == ref?    → lessons.transcript
                                          → TSA drafts what_we_did + homework
 ```
 
 Transcripts land in `/Volumes/wmpc-video/transcripts/<date>/<name>.{txt,srt,json}`.
+
+## Step one of D-0243, finished — 2026-11-07, schema 1.2
+
+Until this landed the module was described as a service and was not one. Five
+things were missing, and each was a different kind of blocker:
+
+| the contract says | before | now |
+|---|---|---|
+| a tenant id, scoped from the first line (clause 4) | nothing anywhere | required on the input AND on the document; `assertTenant` refuses a job without one, and it is never defaulted |
+| a URL in | `input.file` was a local path | `input.video` takes an `http(s)` URL or a path; every other ffmpeg protocol (`pipe:`, `concat:`, `rtmp:`) is refused rather than filtered |
+| times on the transcript | whisper wrote an `.srt` the document threw away | `transcript.segments` and `transcript.srt`. This is what `cues`, `timeline` and `events` are built from — without it they had no times to point at |
+| the caller owns nothing but the document | `outBase` made the analyzer write `.txt`/`.srt` into the club's NAS tree | the analyzer writes only inside its own scratch and deletes all of it; the club half writes the files where the club keeps them |
+| an async job with a callback | a function call, nothing on a network | `src/analyzer/jobs.ts` + `server.ts`: `POST /v1/jobs`, `GET /v1/jobs/:id`, a signed callback with a stable job id and a rising attempt number |
+
+**`outBase` was the un-liftable one.** A service reachable over a network cannot
+write into its caller's folder, so that single field was what made "move this
+into its own repo" a rewrite rather than a move. It is gone.
+
+**The `.txt` is load-bearing, not an artifact.** `reattachPending()` skips a
+recording whose `.txt` is missing, so a transcript held only in the database
+would never be re-attached when its lesson record appeared later. The club half
+writes it before anything that can throw.
+
+**What the network surface does NOT do.** It is not deployed and nothing points
+at it: `com.wmpc.lesson-transcribe` still calls the analyzer in-process, beside
+the files, which is what D-0243 clause 2 says WMPC should keep doing (the file is
+already there, and it costs about a cent a lesson). The surface exists so the
+lift is mechanical, and so the shape Ron approved — send a job, get called back —
+is real rather than described. It holds no caller's database key; the only secret
+it has is an API key that authorises analysis and nothing else.
+
+**A finished document is held in memory only**, until it is delivered and its
+retention window passes. Whether the engine should *persist* structured output is
+the first thing D-0243 left unsettled, and an in-memory hand-off is the one shape
+that pre-empts neither answer.
+
+**Replay is answered on both ends.** A re-submitted `idempotencyKey` returns the
+same job instead of a second hour of decode, and every callback carries
+`job.id` with a rising `job.attempt` *inside* the document. A receiver whose
+first write is permanent — the Academy's draft columns are write-once — can
+therefore write once and ignore the rest. The receiver's own half is still owed.
 
 ## The two bugs from the prototype, and how each is closed
 
