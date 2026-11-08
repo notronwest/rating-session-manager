@@ -622,3 +622,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 ## 2026-11-06 — rsm#116: restart script and deploy doc match the mini's system daemon
 - `restart-api.sh` now restarts through `ai.wmpc.sessions` (kill pid, wait for launchd respawn, confirm NEW pid + `/api/health`), resolves `lsof` by absolute path, and treats a failed lookup as an error. `install-api.sh` refuses while the system plist exists. `DEPLOYMENT.md` corrected. Tests: `tests/restart-api.test.ts`.
 - Not done (out of scope): moving the API to the user agent; running any installer or restarting the live API.
+
+## 2026-11-07 — lesson-clip signing key live (Ron-approved, TSA#751)
+- `LESSON_VIDEO_SIGNING_SECRET` set on the mini's `.env` (same value as the TSA PROD Supabase secret); API restarted via `restart-api.sh` through `ai.wmpc.sessions`. `localhost:3001/lesson-video/<garbage>` now returns 403 `token_refused` (not 503 unconfigured).
+- Next: `video.thirdshotacademy.com` did not resolve from the mini at check time — check the cloudflared tunnel/DNS route; a coach mint on PROD and a real marked lesson on iPhone are still unverified.
