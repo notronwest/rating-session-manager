@@ -8,6 +8,82 @@ design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
 Last updated: **2026-10-28**
 
+## 2026-11-08 — the analysis moved out, and this repo became its first consumer (#121, #123, #126)
+
+Ron: *"Lets get this into its own repo."* The analysis is now
+`notronwest/lesson-analyzer` (private), with the four source files' history intact — a
+`git subtree split`, four commits back to 2026-10-13, not a squashed import — and its 29
+tests went with it. Architecture: **D-0306**, amending D-0243.
+
+**What this repo does now.** Depends on it **pinned to a full commit sha** and calls it
+**in process**, because the lesson video is already on the mini (D-0243 clause 2, D-0294
+rule 7). `src/analyzer/` is gone; `src/services/lesson-transcribe.ts` imports the package.
+
+**What stayed, and why it had to** — D-0243 clause 5 is a veto: `lesson-match.ts` and
+`lesson-sync.ts` reach Court Reserve with a key that can charge a member's card; the
+retention clock cannot be separated from the write-up state it exempts, or the cleanup job
+starts deleting footage a coach still needs; and `com.wmpc.lesson-transcribe` with its camd
+guard belongs where the recordings are. A test suite stays too — clause 5 names it.
+
+**The 29 engine tests became 4 contract tests** about the caller's half: the major version
+this club reads, the symbols it imports, its refusal of a document from an unknown major,
+and two new gates — the pin must be a commit, not `#main`, and `src/analyzer/` must not
+reappear. Both gates were negative-controlled.
+
+### Three things the architecture table found, and the measurement that mattered
+
+1. **The gates were tests nothing ran.** This repo's only workflows were a fork alert and a
+   linked-issue check. CI now runs the pin gate, a no-second-copy gate, a **lockfile** gate
+   and the wrapper's shell suite — all four without needing the private package, which a
+   runner cannot reach over ssh.
+2. **A stale analyzer was invisible by construction.** Deploying here is `git pull && npm
+   run build`, and neither installs. A pull that moves the pin, rebuilt without installing,
+   keeps running the **previous** analyzer with the new source on disk looking correct. The
+   job now compares pinned against installed on every tick and logs and alerts on a
+   mismatch, **failing open** — the recordings are the perishable half.
+3. **`DEPLOYMENT.md` did not know the dependency existed.** It does now, and it documents
+   the forms that were **measured** to work. Hand-editing the `#<sha>` and running a plain
+   `npm install` left the lockfile naming **both** commits and `node_modules` on the **old**
+   one: the exact silent staleness, produced by following the obvious procedure. So:
+   `npm install <name>@<url>#<sha>` in a branch, `npm ci` on the mini.
+
+Two self-inflicted faults were caught by tests rather than production, and both are written
+beside the code. The first staleness guard read an empty pin through a mangled `sed`
+backreference and compared empty to empty — a gate that passes in silence. The second
+killed the whole wrapper, because `grep` exiting 1 or 2 under `set -euo pipefail` becomes
+the assignment's status: the **third** time that exact interaction has bitten this file.
+
+### Proof on the mini, 2026-11-09 03:57Z
+
+`git pull && npm ci && npm run build:only`, then the analyzer **from `node_modules`**, given
+an **http link**, on a real lesson from 2026-11-08:
+
+```
+P0b commit        = 77057a0f74a0bcfc07340da3c1ca25a2d1fe151e
+P3 result         = transcribed (took 2s)
+P4 words          = 55
+P5 segments       = 9
+P6 first segment  = 1.06s-44.95s
+P8 in time order  = true
+P9 srt chars      = 589
+P11 scratch after = EMPTY (nothing left behind)
+```
+
+Pinned and installed agree; `dist/` carries no analyzer directory; the staleness guard was
+silent while they agree (0 warnings in new log lines); a live tick of the job ran `rc=0`
+and reported `nothing to do` after skipping three sub-10-minute camera tests.
+
+Two stale compiled copies were removed on the mini: `tsc` does not delete outputs for files
+that have gone, so `dist/analyzer/` survived the move. Nothing imported it — checked before
+deleting — but it is exactly the second copy the new contract test refuses.
+
+### Still owed
+
+CI cannot run this repo's TypeScript suite or typecheck until the private dependency is
+reachable from a runner (**#125**, a read-only deploy key). Cues and the drill timeline are
+**#120**. The drafting half still writes rather than returns — that is the Academy's
+(third-shot-academy#777).
+
 ## 2026-11-06 — A transcript had nowhere to land: the lesson creator had never been scheduled (#114, #115)
 
 Five transcribed lessons resolved to a real booking, a type and a student, and
