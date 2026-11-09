@@ -1,14 +1,27 @@
-# Typecheck and tests on every pull request, and that is the whole point of it.
+# The two analyzer gates, run by a machine instead of by somebody remembering.
 #
-# WHY IT EXISTS, AND WHY IT EXISTS NOW. This repo had two workflows — a fork
-# alert and a linked-issue check — and NEITHER ran `npm test`. The architecture
-# table that reviewed the analyzer's extraction (2026-11-08) put it plainly: the
-# two new gates in tests/analyzer-contract.test.ts fire only when a human
-# remembers, and D-0071 says a convention is a gate deployed via a hook or it is
-# not a rule. A gate nothing runs is a comment.
+# WHY IT EXISTS. This repo's only workflows were a fork alert and a linked-issue
+# check; NEITHER installed or ran a test. The architecture table that reviewed the
+# analyzer's extraction (2026-11-08) put it plainly: the commit-pin gate and the
+# no-second-copy gate fired only when a human remembered, and D-0071 says a
+# convention is a gate deployed via a hook or it is not a rule.
 #
-# The two gates in question refuse a `#main` pin on the analyzer dependency and
-# refuse a second copy of the analyzer under src/. Both would otherwise merge.
+# WHAT IT CAN AND CANNOT DO, STATED RATHER THAN DISCOVERED.
+# `lesson-analyzer` is a PRIVATE repo reached over ssh with a host alias that
+# exists on the club's machines. A GitHub runner has neither the key nor the
+# alias, so `npm install` fails OUTRIGHT here — and the first version of this
+# file learned that the expensive way: it marked the install `continue-on-error`,
+# the install failed, nothing was installed including `tsx`, and all seven
+# TypeScript test files failed with ERR_MODULE_NOT_FOUND. A green-looking install
+# step that installs nothing is worse than no install step.
+#
+# So this workflow runs what genuinely runs with no dependencies at all:
+#   - the two gates, in plain node against the committed package.json;
+#   - the wrapper's shell suite, whose fixtures are CommonJS stubs and need no
+#     package manager.
+# The TypeScript suite and the typecheck need the private package and therefore a
+# read-only deploy key. That is filed (#125) rather than bodged, because minting
+# a credential deserves its own reviewed change.
 name: CI
 
 on:
@@ -20,7 +33,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,21 +42,6 @@ jobs:
         with:
           node-version: '22'
 
-      # WHY THE PRIVATE DEPENDENCY DOES NOT NEED A DEPLOY KEY HERE.
-      # `lesson-analyzer` is a private repo reached over ssh, which a runner
-      # cannot do. So the install omits it and the contract tests read the PIN
-      # out of package.json rather than importing the package — which is what
-      # they are about: that the pin is a commit and that no second copy of the
-      # analyzer has appeared in src/. The tests that need the real package run
-      # in the analyzer's own repo, where they belong.
-      #
-      # If a future change makes a test genuinely need the installed analyzer,
-      # add a read-only deploy key as the secret ANALYZER_DEPLOY_KEY and drop
-      # the --omit below. Do not paste a personal token into this file.
-      - name: Install, without the private analyzer
-        run: npm install --no-audit --no-fund --ignore-scripts || npm install --no-audit --no-fund --ignore-scripts --omit=optional
-        continue-on-error: true
-
       - name: The analyzer pin is a commit, and there is no second copy
         run: |
           set -euo pipefail
@@ -51,8 +49,8 @@ jobs:
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             const spec = (pkg.dependencies || {})["lesson-analyzer"] || "";
-            if (!spec) { console.error("lesson-analyzer is not a dependency"); process.exit(1); }
-            const ref = (spec.split("#")[1] || "");
+            if (!spec) { console.error("lesson-analyzer is not a dependency of this repo"); process.exit(1); }
+            const ref = spec.split("#")[1] || "";
             if (!/^[0-9a-f]{40}$/.test(ref)) {
               console.error(`the analyzer must be pinned to a full commit sha, not "${ref}" — a branch would move the live job without a review`);
               process.exit(1);
@@ -61,15 +59,42 @@ jobs:
               console.error("src/analyzer exists again — the analyzer is a dependency now, and a second copy is the one that goes stale");
               process.exit(1);
             }
-            console.log("pin is a commit (" + ref.slice(0, 10) + "…) and there is no second copy");
+            console.log("pin is a commit (" + ref.slice(0, 10) + "...) and there is no second copy");
           '
 
-      # Everything that does not need the private package. The suite imports it
-      # in one file (analyzer-contract), which is skipped here and covered by the
-      # step above plus the analyzer repo's own CI.
-      - name: Tests
+      - name: The lockfile agrees with the pin
         run: |
           set -euo pipefail
-          files=$(ls tests/*.test.ts | grep -v 'analyzer-contract' | tr '\n' ' ')
-          echo "running: $files"
-          node --import tsx --test $files
+          node -e '
+            const fs = require("fs");
+            const pin = (JSON.parse(fs.readFileSync("package.json","utf8")).dependencies["lesson-analyzer"].split("#")[1]) || "";
+            const lock = JSON.parse(fs.readFileSync("package-lock.json","utf8"));
+            const seen = new Set();
+            const walk = (o) => {
+              if (!o || typeof o !== "object") return;
+              for (const [k, v] of Object.entries(o)) {
+                if (k === "resolved" && typeof v === "string" && v.includes("lesson-analyzer.git#")) seen.add(v.split("#")[1]);
+                else walk(v);
+              }
+            };
+            walk(lock);
+            const list = [...seen];
+            if (list.length !== 1 || list[0] !== pin) {
+              console.error(`the lockfile names ${JSON.stringify(list)} but package.json pins ${pin}`);
+              console.error("a lockfile naming two commits is how the mini ends up installing the OLD analyzer. Run:");
+              console.error("  npm install lesson-analyzer@git+ssh://git@github-notronwest/notronwest/lesson-analyzer.git#" + pin);
+              process.exit(1);
+            }
+            console.log("lockfile and package.json agree on " + pin.slice(0, 10) + "...");
+          '
+
+      # Shell behaviour, proved in the shell. No package manager involved: the
+      # fixtures are CommonJS stubs the wrapper runs with plain node.
+      - name: The wrapper's shell suite
+        run: bash tests/lesson-transcribe-wrapper.sh
+
+      - name: Every shell script still parses
+        run: |
+          set -euo pipefail
+          for f in scripts/*.sh tests/*.sh; do bash -n "$f"; done
+          echo "all shell scripts parse"
