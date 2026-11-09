@@ -4,15 +4,25 @@ LP-08, issue #74. Architecture: **D-0243** (*lesson analysis is a standalone
 analyzer: a video link in, a versioned document out*), superseding D-0064. Spec:
 daemon `agents/cto/initiatives/lesson-analyzer.md` for the analyzer and
 `agents/chief-of-staff/initiatives/lesson-plan.md` for the coaching surface.
+The analyzer's own repo is [`notronwest/lesson-analyzer`](https://github.com/notronwest/lesson-analyzer)
+(private); read its `README.md` and `DEPLOYMENT.md` before changing anything
+about the document.
 
-> **The job is in two halves, and the seam is the product.** `src/analyzer/`
+> **The job is in two halves, in two repos, and the seam is the product.** The
+> analysis is now `notronwest/lesson-analyzer` — its own private repo with its
+> own tests and CI, installed here as a **dependency pinned to a commit**. It
 > takes a video it does not own and returns one versioned document; it imports
-> nothing but node builtins and names no club path, host or table, which
-> `tests/analyzer-boundary.test.ts` refuses rather than asks for.
+> nothing but node builtins and names no club path, host or table, which its own
+> boundary test refuses rather than asks for.
 > `src/services/lesson-transcribe.ts` is the club half — the NAS, the settle
 > window, the camd guard, the lesson row, the write-up draft — and it stays
 > here. D-0243 clause 5 says what may move and what may not: the booking match,
 > the retention clock and the write-up state stay with WMPC.
+>
+> **The pin is the interface.** A merge in the analyzer repo changes nothing
+> here until `package.json`'s `#<sha>` is bumped, which is a reviewed commit in
+> this repo. `tests/analyzer-contract.test.ts` refuses a branch pin and refuses
+> a second copy of the analyzer under `src/`.
 
 > **Where this came from.** On 2026-10-07 Ron was handed write-ups for two
 > lessons. They were produced by a 14-line zsh script in his home directory on
@@ -39,7 +49,7 @@ every 10 min (launchd, user agent)
    └─ for the first eligible recording:
         ffprobe duration ─ under 10 min? a camera test, skip
         │
-        ├── THE ANALYZER (src/analyzer, knows nothing about the club) ──────────
+        ├── THE ANALYZER (the lesson-analyzer package, knows no club) ─────────
         │   in: { tenant, video (a URL or a path), scratchDir, asks }
         │   ffprobe -select_streams a       → no audio track? "silent", terminal
         │   ffmpeg  -vn -ac 1 -ar 16000      → wav   (nice 15, ITS OWN scratch)
@@ -67,7 +77,7 @@ things were missing, and each was a different kind of blocker:
 | a URL in | `input.file` was a local path | `input.video` takes an `http(s)` URL or a path; every other ffmpeg protocol (`pipe:`, `concat:`, `rtmp:`) is refused rather than filtered |
 | times on the transcript | whisper wrote an `.srt` the document threw away | `transcript.segments` and `transcript.srt`. This is what `cues`, `timeline` and `events` are built from — without it they had no times to point at |
 | the caller owns nothing but the document | `outBase` made the analyzer write `.txt`/`.srt` into the club's NAS tree | the analyzer writes only inside its own scratch and deletes all of it; the club half writes the files where the club keeps them |
-| an async job with a callback | a function call, nothing on a network | `src/analyzer/jobs.ts` + `server.ts`: `POST /v1/jobs`, `GET /v1/jobs/:id`, a signed callback with a stable job id and a rising attempt number |
+| an async job with a callback | a function call, nothing on a network | the analyzer's `jobs.ts` + `server.ts`: `POST /v1/jobs`, `GET /v1/jobs/:id`, a signed callback with a stable job id and a rising attempt number |
 
 **`outBase` was the un-liftable one.** A service reachable over a network cannot
 write into its caller's folder, so that single field was what made "move this
@@ -175,3 +185,36 @@ rework, and nothing is lost in the interval.
 - **Retention of transcripts is not set here.** D-0059's clock and D-0243's
   write-up exemption are LP-07's scope (#73). This job writes a transcript and
   does not delete anything.
+
+## The analyzer moved out — 2026-11-08
+
+Ron asked for it to have its own repo, and D-0243 clause 6 had already settled that
+it would. The four analyzer sources left this repo with their history intact (a
+`git subtree split`, four commits back to 2026-10-13) and are now
+[`notronwest/lesson-analyzer`](https://github.com/notronwest/lesson-analyzer), private.
+
+| | before | now |
+|---|---|---|
+| where the analysis lives | `src/analyzer/` in this repo | its own repo, installed as `lesson-analyzer` |
+| how this job gets it | a relative import | a dependency pinned to a full commit sha |
+| what guards the boundary | a test in this repo scanning a sibling directory | that test, in the analyzer's repo, with its own CI — plus a narrower rule for its `bin/` deployments |
+| what this repo tests about the analysis | all 29 engine tests | 4 contract tests: the major it speaks, the symbols it exports, the caller's refusal of a future major, and that the pin is a commit with no second copy here |
+| how a change reaches the club | immediately, on merge | when somebody bumps the pin — a reviewed commit here |
+
+**Three things that did not move**, and the reason each one cannot (D-0243 clause 5,
+which is a veto): `lesson-match.ts` and `lesson-sync.ts` reach Court Reserve with a key
+that can charge a member's card; the retention clock cannot be separated from the
+write-up state it exempts, or the cleanup job deletes footage a coach still needs; and
+the scheduled job with its camera guard belongs where the recordings are.
+
+**Updating the analyzer, end to end.** Merge there, then here: bump `#<sha>` in
+`package.json`, `npm install`, open a PR, merge, and on the mini `git pull && npm run
+build:only`. The last step is not optional — the launchd job runs `dist/`, so an
+un-built pull leaves the old analyzer running with new source on disk.
+
+**The ssh host alias in the dependency URL is deliberate.** `git@github-notronwest`
+is an alias every fleet remote uses, present on the mini and the laptop, because
+`git@github.com` resolves to a different GitHub account on at least one machine and
+that account cannot read this private repo. On a machine without the alias `npm
+install` fails loudly with a git authentication error; add the alias rather than
+rewriting the URL.
