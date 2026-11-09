@@ -4801,6 +4801,15 @@ club, and sending lesson footage to pb.vision.
    The session says which, in the PR body: `In-session-build: <reason>`.
 4. **The gate** (`build-route-gate`) refuses a session-built PR in a served repo that names no
    such reason. It is a routing check, so it fails open on anything it cannot read.
+   **A promotion is not a build and never needed a reason** — base `production`, head `main`. It is
+   a release of code the lane already built and the reviewer already passed, carrying no commits of
+   its own, and the lane has no way to take one: its branches are `feature|db|fn/issue-<N>-…` opened
+   against `main`, and nothing in BUILDER-REPOS promotes. The gate shipped reading only the head, so
+   it refused one on 2026-11-09 and offered a build card as the route — which is not a place a
+   release can go. It now reads the base too, and exempts exactly that pair; a feature branch onto
+   `production`, `main` onto `main`, and `main` onto any other branch are all still refused
+   (negative-controlled in `test-build-route-gate.sh`). Whether the promotion itself waits for Ron is
+   a different question with its own gate and its own record (D-0304).
 5. **Ron is told when it ships, and his phone does not ring for it.** When the reviewer merges a
    PR whose issue carries `build:agreed`, it posts one line to the channel his cards arrive in: what
    finished, and the link. Before this, an unassisted build finished with no word anywhere. Both this
