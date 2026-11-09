@@ -1,0 +1,75 @@
+# Typecheck and tests on every pull request, and that is the whole point of it.
+#
+# WHY IT EXISTS, AND WHY IT EXISTS NOW. This repo had two workflows — a fork
+# alert and a linked-issue check — and NEITHER ran `npm test`. The architecture
+# table that reviewed the analyzer's extraction (2026-11-08) put it plainly: the
+# two new gates in tests/analyzer-contract.test.ts fire only when a human
+# remembers, and D-0071 says a convention is a gate deployed via a hook or it is
+# not a rule. A gate nothing runs is a comment.
+#
+# The two gates in question refuse a `#main` pin on the analyzer dependency and
+# refuse a second copy of the analyzer under src/. Both would otherwise merge.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # WHY THE PRIVATE DEPENDENCY DOES NOT NEED A DEPLOY KEY HERE.
+      # `lesson-analyzer` is a private repo reached over ssh, which a runner
+      # cannot do. So the install omits it and the contract tests read the PIN
+      # out of package.json rather than importing the package — which is what
+      # they are about: that the pin is a commit and that no second copy of the
+      # analyzer has appeared in src/. The tests that need the real package run
+      # in the analyzer's own repo, where they belong.
+      #
+      # If a future change makes a test genuinely need the installed analyzer,
+      # add a read-only deploy key as the secret ANALYZER_DEPLOY_KEY and drop
+      # the --omit below. Do not paste a personal token into this file.
+      - name: Install, without the private analyzer
+        run: npm install --no-audit --no-fund --ignore-scripts || npm install --no-audit --no-fund --ignore-scripts --omit=optional
+        continue-on-error: true
+
+      - name: The analyzer pin is a commit, and there is no second copy
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const spec = (pkg.dependencies || {})["lesson-analyzer"] || "";
+            if (!spec) { console.error("lesson-analyzer is not a dependency"); process.exit(1); }
+            const ref = (spec.split("#")[1] || "");
+            if (!/^[0-9a-f]{40}$/.test(ref)) {
+              console.error(`the analyzer must be pinned to a full commit sha, not "${ref}" — a branch would move the live job without a review`);
+              process.exit(1);
+            }
+            if (fs.existsSync("src/analyzer")) {
+              console.error("src/analyzer exists again — the analyzer is a dependency now, and a second copy is the one that goes stale");
+              process.exit(1);
+            }
+            console.log("pin is a commit (" + ref.slice(0, 10) + "…) and there is no second copy");
+          '
+
+      # Everything that does not need the private package. The suite imports it
+      # in one file (analyzer-contract), which is skipped here and covered by the
+      # step above plus the analyzer repo's own CI.
+      - name: Tests
+        run: |
+          set -euo pipefail
+          files=$(ls tests/*.test.ts | grep -v 'analyzer-contract' | tr '\n' ' ')
+          echo "running: $files"
+          node --import tsx --test $files

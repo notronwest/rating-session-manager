@@ -86,13 +86,13 @@ targets:
     rollback: ./scripts/install-api.sh --uninstall (the API is then started by hand with npm run start, as before)
   - name: lesson-transcribe
     kind: mac-mini-launchd
-    trigger: MANUAL, one time — `./scripts/install-lesson-transcribe.sh` on the mini (idempotent; re-run after a pull that touches it)
-    source: src/cli/lesson-transcribe.ts + src/services/lesson-transcribe.ts, via scripts/lesson-transcribe.sh
+    trigger: MANUAL, one time — `./scripts/install-lesson-transcribe.sh` on the mini (idempotent; re-run after a pull that touches it). AFTER ANY PULL THAT MOVES THE ANALYZER PIN, `npm ci` BEFORE `npm run build:only` — see "The analyzer is a pinned dependency" below
+    source: src/cli/lesson-transcribe.ts + src/services/lesson-transcribe.ts, via scripts/lesson-transcribe.sh, calling the pinned `lesson-analyzer` package (notronwest/lesson-analyzer, private) in process
     env: LAN
     url: n/a — no listener; it reads /Volumes/wmpc-video/teaching and writes lessons.transcript in the TSA Supabase
     host: wmpcMacMini1 (the committed TRANSCRIBE-HOST fact; every other machine exits 0)
     config_scope: repo-root .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, optional LESSON_DRAFT_URL + LESSON_DRAFT_SECRET, optional DISCORD_WEBHOOK_URL); models in ~/.local/share/wmpc-lesson-transcribe/
-    verify: "npm run transcribe:self-test — every line ok; then npm run transcribe:status for what is transcribed, pending or silent; log at ~/.local/state/wmpc-lesson-transcribe/transcribe.log"
+    verify: "npm run transcribe:self-test — every line ok; then npm run transcribe:status for what is transcribed, pending or silent; log at ~/.local/state/wmpc-lesson-transcribe/transcribe.log, which also names the analyzer commit if the installed one is not the pinned one"
     rollback: ./scripts/install-lesson-transcribe.sh --uninstall (leaves transcripts and state alone)
   - name: game-indexer
     kind: mac-mini-launchd
@@ -296,3 +296,60 @@ the tunnel, CNAME and Access app entirely).
   per day (`daemon/infrastructure/ping/ping.sh`, identical text deduped 24 h); success beats the
   `game-indexer` heartbeat; log at `~/.local/state/wmpc-game-indexer/index.log`.
 - **Chief of Staff surface.** `npm run index:nightly` on the mini; the store is plain JSON.
+
+## The analyzer is a pinned dependency, and `npm run build` does not install it
+
+Since 2026-11-08 the analysis lives in its own private repo,
+[`notronwest/lesson-analyzer`](https://github.com/notronwest/lesson-analyzer), and this
+repo depends on it **pinned to a full commit sha** in `package.json`. The transcription
+job calls it **in process**, because the lesson video is already on the mini.
+
+**The hazard, named because it is invisible.** Deploying here is `git pull && npm run
+build` — and *neither of those installs anything*. A pull that moves the pin, rebuilt
+without `npm install`, recompiles against the **previous** copy of the analyzer and goes
+on running it, with the new source sitting on disk looking correct. Nothing errors.
+
+Three things hold against it:
+
+1. `npm ci` is in the trigger line above, as a step, not a note.
+2. The job **checks on every tick** whether the analyzer npm actually installed is the
+   one `package.json` pins, and when it is not, it says so in its log and raises an
+   alert. It keeps transcribing on what is installed — the recordings are the perishable
+   half, and refusing to transcribe would turn a stale dependency into lost lessons.
+3. `tests/analyzer-contract.test.ts` and this repo's CI refuse a branch pin (`#main`,
+   which would move the live job with nothing to review) and refuse a second copy of the
+   analyzer reappearing under `src/`.
+
+### Moving to a newer analyzer, end to end
+
+**Use the explicit install form, and `npm ci` on the mini. Measured 2026-11-08, both:**
+hand-editing the `#<sha>` in `package.json` and running a plain `npm install` left the
+lockfile naming BOTH commits and `node_modules` on the OLD one — exactly the silent
+staleness described above, produced by following the obvious procedure. The forms below
+were verified to land the pinned commit.
+
+```bash
+npm install lesson-analyzer@git+ssh://git@github-notronwest/notronwest/lesson-analyzer.git#<new-sha>
+```
+
+then `npm run typecheck && npm test`, PR, merge — and on the mini:
+
+```bash
+git -C ~/data/web/wmpc/projects/rating-session-manager pull && npm ci && npm run build:only
+```
+
+`npm ci` rather than `npm install` because it installs **exactly** what the lockfile
+says and nothing else, which is the whole question here. If `npm ci` ever refuses because
+the lockfile is out of sync with `package.json`, that refusal is correct — fix it in a
+branch, not on the mini.
+
+**`github-notronwest` is an ssh host alias, not a hostname.** Every fleet remote uses
+it; it exists on the mini and the laptop. It is needed because `git@github.com`
+authenticates as a *different* GitHub account on at least one machine, and that account
+cannot read a private repo. On a machine without the alias, `npm install` fails loudly
+with a git authentication error — add the alias to `~/.ssh/config` rather than rewriting
+the URL.
+
+**What does NOT ship from the analyzer's repo.** Nothing, to anywhere, ever: merging
+there changes no running system until the pin here is bumped. That is the point of the
+pin.

@@ -79,6 +79,48 @@ if [ -z "${SUPABASE_URL:-}" ]; then
   log "SUPABASE_URL is not set after sourcing .env — a transcript could not be attached to a lesson. Fix .env before expecting output."
 fi
 
+# ── 3·0 is the analyzer this job will run the one the repo asks for? ────────
+# THE SILENT FAILURE THIS CATCHES, found by the architecture table on 2026-11-08
+# rather than by an outage. The analysis is a separate repo now, installed as a
+# dependency pinned to a commit. The deploy on this machine is `git pull && npm
+# run build` — and NEITHER of those installs anything. So a pull that moves the
+# pin, rebuilt without `npm install`, recompiles against the PREVIOUS copy of the
+# analyzer and keeps running it, with the new source sitting on disk looking
+# correct. Nothing fails. The log says nothing. Every transcript afterwards comes
+# from code nobody is reading.
+#
+# So the job compares what package.json pins against what npm actually put in
+# node_modules, on every tick, and says so when they differ.
+#
+# FAIL OPEN, LOUDLY — the same rule as 3a and 3b. The previous analyzer is not
+# broken, it is just old, and the recordings are the perishable half: refusing to
+# transcribe would turn a stale dependency into lost lessons. So this logs and
+# carries on, and because an operator does not read this log, it also goes to the
+# one alarm rail.
+#
+# AND ERREXIT IS OFF ACROSS THE TWO READS, for the THIRD time in this file. A
+# `grep` that matches nothing exits 1 and one on a missing file exits 2; with
+# `set -euo pipefail` in force that status becomes the assignment's, and the
+# wrapper dies before Node starts. That is the same interaction that killed it
+# while sourcing .env (section 3) and again around the lesson creator (3a) — a
+# machine with no node_modules yet would have been a wrapper that silently did
+# nothing every ten minutes. Caught by the wrapper test, which is why that test
+# asserts the matching case too and not only the mismatch.
+sha_of(){ /usr/bin/grep -oE 'lesson-analyzer\.git#[0-9a-f]{40}' "$1" 2>/dev/null | head -1 | cut -d'#' -f2 || true; }
+set +e
+PIN="$(sha_of "$REPO/package.json")"
+GOT="$(sha_of "$REPO/node_modules/.package-lock.json")"
+set -e
+if [ -n "$PIN" ] && [ "$PIN" != "$GOT" ]; then
+  MSG="the analyzer installed here is not the one this repo pins: pinned ${PIN:0:10}, installed ${GOT:-NOTHING}. Transcription continues on what is installed. To move it: npm ci && npm run build:only in $REPO"
+  log "$MSG"
+  ALERT="$REPO/../daemon/infrastructure/alerting/alert.sh"
+  if [ -f "$ALERT" ]; then
+    # shellcheck disable=SC1090
+    . "$ALERT" && wmpc_alert "lesson-transcribe: $MSG" || true
+  fi
+fi
+
 # ── 3a. the lesson records the transcripts land IN ──────────────────────────
 # A transcript with no lesson record to attach to sits `pending` forever and
 # looks like a matcher failure. Found live 2026-11-06 (rsm#114): FIVE lessons had
