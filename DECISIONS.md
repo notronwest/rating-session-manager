@@ -4919,6 +4919,49 @@ instructions. Deploying a moved pin without installing it. A receiver that write
 document without checking its major version and, where callbacks are used, its signature. Promising a customer that any link will do, without saying the host must honour byte ranges.
 Standing the HTTP service up anywhere without its own record.
 
+### D-0307 — Every deployed surface owes an end-to-end check, and a daily sweep names the ones without
+
+*2026-11-08 · scope: `**e2e*, **playwright*, .github/workflows/**, **COVERAGE-ROOTS*` · source: Ron, 2026-11-08 — "come up with E2E testing that could be created and create it ... a schedule is created to check daily if E2E testing needs to be updated"*
+
+**Decision.** Every repo with a **deployed surface** — a site, a Worker, an API a
+member or Ron can reach — owes two things: an end-to-end check that drives that
+surface, and a workflow that runs it. Every other repo owes tests that something
+actually runs. Which repos owe which is a committed fact,
+`infrastructure/e2e-coverage/COVERAGE-ROOTS`, and `expect: none` requires a
+written reason on the line.
+
+A gap is not a matter of opinion: `audit.sh` reads each repo's own facts —
+tracked files, its workflows, its router, its git log, its last green run — and
+names the gap. A **sweep that cannot run is a fault**, not a pass: unreadable or
+empty roots exits 2 and says to treat the day as unchecked.
+
+**Why.** On 2026-11-08 eight of thirteen repos carried tests that **nothing ever
+ran**, and three deployed surfaces had no end-to-end check at all — including the
+club's phone system, where a break means the club stops answering. A `test`
+script with no CI looked identical to a covered repo, and its existence was the
+evidence that the behaviour was covered. That is D-0093's failure repeated: the
+guard was built and nobody watched the thing that watches.
+
+It is deliberately **arithmetic, not an agent**. The fleet already ran the other
+shape — a daily `claude -p` testing agent — and it died in a stale lock for
+eleven days while every tick logged "skip" and nothing alarmed. Its own retirement
+note wrote the rebuild conditions: a heartbeat on a completed run, a stale reclaim
+on the lock, a `JOBS` line, and an answer to "what tells me this stopped
+working?". All four bind here, and a `grep`-and-`git` judgement cannot quietly
+become vague the way a prompt can.
+
+The alert fingerprints the **whole finding set**, so a standing list of gaps
+speaks once and a gap that appears tomorrow speaks tomorrow. A daily nag gets
+muted inside a week, and a muted coverage check is worse than none because it
+looks like cover.
+
+**Forbids.** Adding a repo to `COVERAGE-ROOTS` with `expect: none` to silence a
+real gap. Marking a surface covered on the strength of tests no workflow runs.
+Letting the sweep report a clean fleet it did not check — a missing checkout, an
+empty roots file or an unreadable `gh` is reported as unknown or as a fault, never
+as green. Replacing the deterministic audit with a model-driven one without first
+answering, in its own `DESIGN.md`, the four conditions the retired agent failed.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
