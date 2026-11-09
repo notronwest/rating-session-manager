@@ -702,3 +702,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 ## 2026-11-07 — lesson-clip signing key live (Ron-approved, TSA#751)
 - `LESSON_VIDEO_SIGNING_SECRET` set on the mini's `.env` (same value as the TSA PROD Supabase secret); API restarted via `restart-api.sh` through `ai.wmpc.sessions`. `localhost:3001/lesson-video/<garbage>` now returns 403 `token_refused` (not 503 unconfigured).
 - Next: `video.thirdshotacademy.com` did not resolve from the mini at check time — check the cloudflared tunnel/DNS route; a coach mint on PROD and a real marked lesson on iPhone are still unverified.
+
+## 2026-11-08 — rsm#128: hand-copied camera recordings are seen; an unrecognised name is logged
+- `.MP4` (any case) now parses; `discover()` logs each non-dotted, unparseable file in a date dir; a GoPro `GX02+` chapter with a `GX01` sibling skips the lesson floor (continuation, own transcript). Tests + doc paragraph added.
+- Not done: joining chapter audio; attaching the 11-04 recordings to lessons (out of scope). Next: review, then the mini's next tick should log/transcribe any remaining uncovered names.

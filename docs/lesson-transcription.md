@@ -186,6 +186,18 @@ rework, and nothing is lost in the interval.
   write-up exemption are LP-07's scope (#73). This job writes a transcript and
   does not delete anything.
 
+## Hand-copied camera files
+
+Files copied off the camera by hand keep the camera's names — `GX010024.MP4`, upper-case
+extension and all. Discovery treats them as recordings: names are matched in any case, and
+the transcript is keyed on the name as it is (`<base>.json`), so a recording transcribed by
+hand under its camera base is found done and not redone. A GoPro splits a long recording into
+chapters (`GX01<clip>`, `GX02<clip>`, …): a chapter whose `GX01` sibling is present belongs to
+that clip, is exempt from the lesson-duration floor, and is transcribed as its own continuation
+transcript. An unrecognised name in a date directory is logged ("not a recording name I
+recognise") rather than dropped — it used to read as `nothing to do`, which hid three lessons
+for four days (2026-11-04 → 11-08). Dotted temps stay silent.
+
 ## The analyzer moved out — 2026-11-08
 
 Ron asked for it to have its own repo, and D-0243 clause 6 had already settled that

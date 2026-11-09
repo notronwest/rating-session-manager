@@ -323,14 +323,14 @@ async function tick(dryRun: boolean): Promise<number> {
 
   let done = 0;
   let heldOff = 0;
-  for (const rec of discover(cfg)) {
+  for (const rec of discover(cfg, log)) {
     if (done >= cfg.maxPerRun) break;
     if (isDone(cfg, rec)) continue;
 
     let ageS = Infinity;
     try { ageS = (Date.now() - fs.statSync(rec.file).mtimeMs) / 1000; } catch { continue; }
     const durationS = await probeDurationS(cfg, rec.file);
-    const e = eligibility({ ageS, durationS, settleS: cfg.settleS, minDurationS: cfg.minDurationS, alreadyDone: false });
+    const e = eligibility({ ageS, durationS, settleS: cfg.settleS, minDurationS: cfg.minDurationS, alreadyDone: false, chapter: !!rec.chapterOf });
     if (e.skip) {
       log(`${rec.ref}: ${e.reason}`);
       // An unreadable duration is the one skip reason that can repeat forever

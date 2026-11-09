@@ -123,6 +123,8 @@ export interface Recording {
   base: string;
   /** Absolute path we will actually read. */
   file: string;
+  /** Set when this file is a GoPro chapter (`GX02…`+) whose `GX01…` sibling is present — the ref of that sibling. */
+  chapterOf?: string;
 }
 
 /**
@@ -140,7 +142,8 @@ export function parseRecordingPath(rel: string): { date: string; base: string } 
   if (parts.length !== 2) return null;
   const [date, file] = parts;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  if (!file.endsWith(".mp4")) return null;
+  // Any case: hand-copied GoPro files are `.MP4`.
+  if (!/\.mp4$/i.test(file)) return null;
   // Dotfiles are recordings-sync's `.uploading` temps and camd's `.recording`
   // temps. Both are live writes; neither is a finished recording.
   if (file.startsWith(".")) return null;
@@ -161,13 +164,15 @@ export function eligibility(opts: {
   settleS: number;
   minDurationS: number;
   alreadyDone: boolean;
+  /** A GoPro chapter is the tail of a recording, not a recording: the lesson floor does not apply. */
+  chapter?: boolean;
 }): SkipReason {
   if (opts.alreadyDone) return { skip: true, reason: "already transcribed" };
   if (opts.ageS < opts.settleS) {
     return { skip: true, reason: `still settling (${Math.round(opts.ageS)}s < ${opts.settleS}s)` };
   }
   if (opts.durationS === null) return { skip: true, reason: "duration unreadable" };
-  if (opts.durationS < opts.minDurationS) {
+  if (!opts.chapter && opts.durationS < opts.minDurationS) {
     return { skip: true, reason: `${Math.round(opts.durationS)}s is under the ${opts.minDurationS}s lesson floor — camera test` };
   }
   return { skip: false };
@@ -226,7 +231,33 @@ function safeIsDir(p: string): boolean {
 
 // ── Discovery ────────────────────────────────────────────────────────────────
 
-export function discover(cfg: TranscribeConfig): Recording[] {
+/**
+ * GoPro splits a long recording into `GX01<clip>`, `GX02<clip>`, … — same clip
+ * number, sequential chapters. Returns the `GX01` base when `base` is a later
+ * chapter and that sibling is among `siblings` (file names in the same
+ * directory), else null.
+ */
+export function chapterLead(base: string, siblings: string[]): string | null {
+  const m = /^GX(\d{2})(\d{4})$/i.exec(base);
+  if (!m || m[1] === "01") return null;
+  const lead = new RegExp(`^(GX01${m[2]})\\.mp4$`, "i");
+  for (const f of siblings) {
+    const hit = lead.exec(f);
+    if (hit) return hit[1];
+  }
+  return null;
+}
+
+/**
+ * `onUnrecognised` is called once for each non-dotted file in a date directory
+ * that is not a recording name. Dropping those silently let three lessons sit
+ * unseen for four days while the log said "nothing to do". Dotted temps stay
+ * silent: they are expected.
+ */
+export function discover(
+  cfg: TranscribeConfig,
+  onUnrecognised?: (line: string) => void,
+): Recording[] {
   const out: Recording[] = [];
   const seen = new Set<string>();
   // NAS first: it is the tree that reliably holds finished recordings.
@@ -237,11 +268,20 @@ export function discover(cfg: TranscribeConfig): Recording[] {
       if (!safeIsDir(sub)) continue;
       for (const f of safeReaddir(sub)) {
         const parsed = parseRecordingPath(`${date}/${f}`);
-        if (!parsed) continue;
+        if (!parsed) {
+          if (onUnrecognised && /^\d{4}-\d{2}-\d{2}$/.test(date) && !f.startsWith(".")) {
+            onUnrecognised(`${date}/${f}: not a recording name I recognise — left alone`);
+          }
+          continue;
+        }
         const ref = recordingRef(parsed.date, parsed.base);
         if (seen.has(ref)) continue;
         seen.add(ref);
-        out.push({ ref, date: parsed.date, base: parsed.base, file: path.join(sub, f) });
+        const lead = chapterLead(parsed.base, safeReaddir(sub));
+        out.push({
+          ref, date: parsed.date, base: parsed.base, file: path.join(sub, f),
+          ...(lead ? { chapterOf: recordingRef(parsed.date, lead) } : {}),
+        });
       }
     }
   }
