@@ -87,5 +87,52 @@ ok "$([ -f "$R/state/relinked" ] && echo 0 || echo 1)" \
    "the relink pass ran even though it was switched off"
 rm -rf "$R"
 
+# ── 4. a stale analyzer is SAID, not silently used ──────────────────────────
+# The failure this guards is invisible by construction: the deploy here is
+# `git pull && npm run build`, and neither installs. A pull that moves the pin,
+# rebuilt without `npm install`, keeps running the PREVIOUS analyzer while the
+# new source sits on disk looking right. So the only evidence is a log line, and
+# this is the test that there is one.
+#
+# Both directions, because the first version of this guard was built with a
+# mangled sed backreference: it read an empty pin, compared empty to empty, and
+# passed in silence. Matching is asserted, not assumed.
+pin_case(){  # $1 = pinned sha, $2 = installed sha ("" = nothing installed)
+  R="$(mk 0)"
+  cat > "$R/repo/package.json" <<EOF
+{ "dependencies": { "lesson-analyzer": "git+ssh://git@github-notronwest/notronwest/lesson-analyzer.git#$1" } }
+EOF
+  if [ -n "$2" ]; then
+    mkdir -p "$R/repo/node_modules"
+    cat > "$R/repo/node_modules/.package-lock.json" <<EOF
+{ "packages": { "node_modules/lesson-analyzer": { "resolved": "git+ssh://git@github-notronwest/notronwest/lesson-analyzer.git#$2" } } }
+EOF
+  fi
+  run "$R" >/dev/null
+  printf '%s\n' "$R"
+}
+
+A=1111111111111111111111111111111111111111
+B=2222222222222222222222222222222222222222
+
+R="$(pin_case "$A" "$B")"
+ok "$(grep -q 'is not the one this repo pins' "$R/state/transcribe.log" && echo 1 || echo 0)" \
+   "a pinned analyzer that is NOT the installed one went unreported"
+ok "$(grep -q 'pinned 1111111111, installed 2222222222' "$R/state/transcribe.log" && echo 1 || echo 0)" \
+   "the log did not name both shas, so an operator cannot tell which way round it is"
+ok "$([ -f "$R/state/ran" ] && echo 1 || echo 0)" \
+   "a stale analyzer stopped the transcription — it must fail OPEN, the recordings are perishable"
+rm -rf "$R"
+
+R="$(pin_case "$A" "")"
+ok "$(grep -q 'installed NOTHING' "$R/state/transcribe.log" && echo 1 || echo 0)" \
+   "nothing installed at all was not reported"
+rm -rf "$R"
+
+R="$(pin_case "$A" "$A")"
+ok "$(grep -q 'is not the one this repo pins' "$R/state/transcribe.log" && echo 0 || echo 1)" \
+   "a MATCHING pin was reported as stale — the guard cries wolf on every tick"
+rm -rf "$R"
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
