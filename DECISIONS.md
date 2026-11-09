@@ -4826,6 +4826,99 @@ up to half an hour to start.
 an unlabelled Backlog card as queued; moving the tick under 5 minutes, or removing the floor, the
 meter or the live-holder lock check, without new measurements.
 
+### D-0306 — The lesson analyzer is its own repo, consumed by a commit pin or the HTTP contract, under a descriptive name until the product is named
+
+*2026-11-08 · scope: `**lesson*,**analyz*,src/services/lesson-transcribe.ts,package.json,DEPLOYMENT.md` · source: Ron, 2026-11-08, in a daemon session — "Lets get this into its own repo." D-0243 clause 6 had already settled that the analyzer repo, when it existed, joins WMPC's register. Table run per PROCESS.md, three voices: the analyzer CONCERN, the session pipeline CONCERN, the Academy CONCERN, no veto. Two of the three changed the rules below rather than objecting to them, and clauses 2 and 4 are those corrections.*
+
+**Decision.** The analysis has left the club's session pipeline and is
+`notronwest/lesson-analyzer` — private, with the four source files' git history intact.
+D-0243 clause 6 authorised the repo; this record says how it is consumed, what its name
+means, and what the extraction's own review found wrong with it. Five clauses.
+
+1. **The club consumes it as a dependency pinned to a full commit sha, called in
+   process.** In process because the lesson video is already on that machine and reading
+   it over a network would be slower and pointless (D-0243 clause 2, D-0294 rule 7).
+   Pinned because the live transcription must not change when somebody merges in the other
+   repo: **moving is a decision, and it is a reviewed commit in the consuming repo.** A
+   branch ref is refused by a test and by CI, because `#main` would move the live job at
+   the next install with nothing to review.
+
+2. **Which route a consumer takes is a fact about the consumer's platform, not about the
+   analyzer — and this clause is a correction.** The proposal put to the table said every
+   caller takes the pinned dependency or the HTTP surface; the Academy's voice pointed out
+   that its drafting half is a Deno edge function deployed by GitHub Actions, with **no
+   npm install step, no ssh key and no host alias on a runner**, so clause 1 resolves to
+   nothing there. So: a consumer that can install a package may pin one; a consumer that
+   cannot uses the HTTP contract. **Nobody vendors the engine's source into their own
+   tree** — two copies means the one being edited is not the one that runs.
+
+   **A link must be served by a host that honours byte ranges, and this is part of the
+   input contract rather than a deployment detail.** A host that answers a range request
+   with a plain 200 and the whole file leaves a reader unable to seek, so an mp4 whose
+   index is not at the front decodes to a truncated audio file, the extraction exits
+   **zero**, and the job then fails at transcription with every symptom pointing at the
+   audio. The same media as a local path works. Measured four ways on the club computer;
+   a failed job given a link now says this in its own error, as a note and never a
+   refusal, because some hosts serve ranges without advertising them.
+
+   And because the engine is private and publishes no slice into a caller's repo, **a
+   receiver asserts the document's major version and the callback signature scheme in its
+   own test.** Under the drafting work the Academy's first write lands in write-once
+   columns, so a shape drift arrives as a wrong or missing draft on a coach's lesson,
+   once, unrecoverably. A contract a caller's CI cannot read is a contract that caller
+   must assert for itself.
+
+3. **The repo's name is descriptive, and the product's name and price remain Ron's.**
+   `lesson-analyzer` says what the thing does; it is the word daemon's own records already
+   use. D-0243 forbids standing the analyzer up under an invented product name, and
+   nothing here claims one — renaming the repo is one step when Ron decides, and GitHub
+   keeps the old remote working. A future session must not read the directory name as a
+   decision.
+
+4. **A machine-specific install fact belongs in the consumer's deployment doc, never in
+   the product's instructions — and this clause is the second correction.** The analyzer's
+   own deployment doc gave `git+ssh://git@github-notronwest/...` as *the* install line.
+   `github-notronwest` is an ssh host alias in WMPC's own machine configuration, needed
+   because `git@github.com` authenticates as a different GitHub account on at least one of
+   its machines and that account cannot read a private repo. A second customer has no such
+   alias, so the product was documenting the club's setup as everyone's. The product states
+   the two routes; each consumer states its own URL.
+
+5. **A deploy that does not install is a stale deploy, and it says so rather than running
+   quietly.** The pipeline's deploy is `git pull` and a build, and neither installs
+   anything — so a pull that moves the pin, rebuilt without installing, keeps running the
+   **previous** analyzer with the new source on disk looking correct. Nothing errors.
+   Three things hold against it: the install step is in the deployment doc's trigger line
+   as a step; the job compares pinned against installed on every tick and logs and alerts
+   on a mismatch while continuing on what is installed; and the documented procedure is
+   the one that was **measured** to work, not the obvious one.
+
+**Why.** Ron asked for the repo in four words, and the only thing in the way was that
+D-0243 forbids creating it under an invented product name. A **descriptive** name is not a
+product name, so clause 3 takes that reading explicitly and writes down that it is a
+placeholder — the alternative was leaving a repo Ron asked for unbuilt over a naming
+question that blocks nothing.
+
+The table earned its cost here. Three voices, three CONCERNs, no veto, and **four real
+defects in work that had already merged** — a boundary gate that silently skipped any
+subdirectory, one fleet's ssh alias presented as the product's install line, two new gates
+sitting in a repo whose CI never ran tests, and a deployment doc that did not know the
+dependency existed. The fourth is the dangerous one: it is invisible by construction, and
+chasing it down produced the finding in clause 5, because the obvious fix — "just run
+`npm install`" — was measured and **did not move the installed copy**.
+
+What this record deliberately does not do is decide where the HTTP service runs. D-0294
+rule 7 already says a reader outside the club's own network handed a link to lesson media
+meets the camera-media rules and needs its own record. The service entry point exists, is
+tested, and nothing runs it.
+
+**Forbids.** A dependency ref that is not a full commit sha. A second copy of the engine's
+source in any consumer's tree. Reading the repo's name as the product's name, or setting a
+price without Ron. Putting a consumer's machine-specific install fact in the analyzer's own
+instructions. Deploying a moved pin without installing it. A receiver that writes from a
+document without checking its major version and, where callbacks are used, its signature. Promising a customer that any link will do, without saying the host must honour byte ranges.
+Standing the HTTP service up anywhere without its own record.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
