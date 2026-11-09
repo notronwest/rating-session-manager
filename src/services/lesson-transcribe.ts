@@ -2,9 +2,16 @@
 // text to its lesson. Issue #74. Architecture: D-0243 (superseding D-0064).
 //
 // THIS FILE IS THE CLUB HALF, and that is the point of it. D-0243 cuts the seam
-// between the analysis and the operation: `src/analyzer/` takes a video it does
-// not own and returns a versioned document, while everything here — the NAS, the
-// settle window, camd, the lesson row, the write-up — is WMPC's and stays.
+// between the analysis and the operation: the `lesson-analyzer` package takes a
+// video it does not own and returns a versioned document, while everything here
+// — the NAS, the settle window, camd, the lesson row, the write-up — is WMPC's
+// and stays.
+//
+// THE ANALYZER IS NOW A DIFFERENT REPO, pinned to a commit in package.json
+// (2026-11-08, D-0243 clause 6). That matters to anyone editing this file:
+// nothing in the analysis can be changed from here, and a change there does not
+// reach this job until the pin is bumped deliberately. If you want a new field
+// on the document, it is a pull request in that repo first.
 //
 // THE TWO RULES THAT STILL BIND THIS FILE, both enforced below:
 //   1. Never transcribe while a lesson is being recorded. The mini's CPU is
@@ -37,13 +44,13 @@ import os from "os";
 import { getSupabase } from "../supabase.js";
 import {
   type AnalyzerConfig,
+  assertSupportedDocument,
   decodeArgs,
   probeDurationS,
   probeMeanVolumeDb,
   SILENCE_FLOOR_DB,
   transcribeAudio,
-} from "../analyzer/transcribe.js";
-import { assertSupportedDocument } from "../analyzer/document.js";
+} from "lesson-analyzer";
 
 // Re-exported because they are this job's published surface and its tests read
 // them from here. The definitions live in the analyzer, where they belong.
