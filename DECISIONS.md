@@ -2795,57 +2795,6 @@ Re-labelling an issue that carries `ruled`. Adding a rail's own artifact to a re
 allowlist instead of excluding it at the writer (D-0144). Installing a rail whose committed enable
 fact says `no`, or re-filing an approval Ron has denied.
 
-### D-0157 — A colour is measured where it is used, and a brand fill is not text ink
-
-*2026-10-13 · scope: `web/src/tokens.css, design-system/tokens.css, docs/DESIGN_PREFERENCES.md, docs/BRAND.md, infrastructure/design-gate/**` · source: Ron 2026-10-13, on the table's output — "yes to D-0157, do the wmpc-meta tokens first". Originally: club-dashboard's design gate (D-0065) measured --primary #007cff at 3.94:1 on white, on every link and button label in the dashboard, and left it below the line on five consecutive passes because repainting a brand colour is not a branch's call (club-dashboard #507, 2026-10-12). Table of five repo voices run 2026-10-13 — five concerns, no veto; every ratio below computed from the token files on origin/main, not quoted.*
-
-**Decision.** Four parts, and part 2 is the one that is usually got wrong.
-
-1. **The floor binds where a colour is used, not where it is declared.** 4.5:1 for text under
-   24px (19px bold), 3:1 for larger text and for the boundary of a control — measured against the
-   surface the text actually sits on. For this fleet that is **two** surfaces, not one: `--surface`
-   / `--bg` *and* `--surface-sunken` (table zebra, wells, inset rows). A value that passes on white
-   and fails in a table row fails.
-2. **A fill that carries a label is measured against its label.** "Brand fill is not text ink" is
-   half the rule, and alone it is wrong, because contrast is symmetric: white on `#f97316` is the
-   same 2.80:1 as `#f97316` on white. So a brand keeps its fill only if the label on it passes —
-   by darkening the fill, or by putting a dark label on it (navy `#05052d` on TSA orange is
-   **7.03:1**). An ink token does not rescue a filled button.
-3. **Text gets an ink token of the same hue; no brand value is repainted as "drift".**
-   `--<name>-ink` is a darkened sibling that passes on both surfaces; links, labels and
-   meaning-bearing icons use it, the fill token fills. club-dashboard already ships exactly this
-   (`--brand-green-ink #2f7a00`, 5.38:1) and third-shot-academy's brand brief already names its
-   ink (`#C2410C`, 4.88:1 on its cream). **`#007cff` and `#2563eb` are declared brand values, not
-   drift** — the first session to look called club-dashboard's blue drift and was wrong.
-4. **wmpc-meta fixes its own template first.** The canonical set violates the rule it would
-   publish: `--primary #1a73e8` is 4.51:1 on white but **4.05:1 on `--surface-sunken`**;
-   `--text-subtle #9ca3af` is **2.54:1** while being declared for "empty-state" (disabled and
-   placeholder are exempt under WCAG 1.4.3; empty-state prose is not), `--warning #d97706` is
-   **3.19:1**. Each gets a measured ink sibling or a recorded exemption naming which use is exempt.
-
-Then each product repo converts in its own change, behind its own D-0047 phone gate.
-
-**Why.** The number was already written (design checklist #14) and still shipped, because it bound
-on diffs instead of on the thing that decides thousands of pixels at once. Five voices priced it and
-none of them disputed the floor; what they showed is that the obvious enforcement is theatre. A
-check over declared tokens reports green in **tournament-manager** while 50 raw `#2563eb` literals
-and 26 inline `color:` declarations render the customer-facing registration path, and in
-**rating-session-manager** while the brand blue is hardcoded as 12–13px link text and `#999`
-(2.85:1) dates sit on white. That is why enforcement stays on rendered pixels. The bill is real, and
-Ron accepted it when he made this active (2026-10-13): 124 `color: var(--primary)` call sites in
-club-dashboard, 60 in third-shot-academy across 29 files, a hex-to-token migration in the other two,
-and a hand-copy propagation step in wmpc-meta, which has no CI to hang a check on. Active does not
-mean paid: it is paid in the order the Decision sets — wmpc-meta's tokens first (wmpc-meta#51), then
-each product repo converts in its own change — and until a repo's change lands, its unconverted call
-sites are known debt under this record, not evidence that the record is not yet binding.
-
-**Forbids.** Shipping a colour as text without measuring it against every surface it lands on.
-Calling another repo's declared brand value "drift" and repainting it. Claiming the ink/fill split
-fixes a filled button. Letting a token-level checker stand in for the rendered-pixel gate, or a
-repo report compliance while its colour is raw hex at the call site. Re-arguing the ratio in a
-design-gate pass once this record is active — a value that fails is fixed here, in the register,
-not noted again below the line.
-
 ### D-0169 — A session never writes in a shared checkout
 
 *2026-10-13 · scope: `infrastructure/git-guards/**, infrastructure/presence/**, infrastructure/worktrees/**` · source: Ron, 2026-10-13 — "do all three"; loop plan step 3, "the one that actually ends it"*
@@ -4971,6 +4920,90 @@ empty roots file or an unreadable `gh` is reported as unknown or as a fault, nev
 as green. Replacing the deterministic audit with a model-driven one without first
 answering, in its own `DESIGN.md`, the four conditions the retired agent failed.
 
+### D-0313 — A token that is both a fill and an ink is darkened, and the brand value is recorded beside it
+
+*2026-11-10 · scope: `web/src/tokens.css, design-system/tokens.css, docs/DESIGN_PREFERENCES.md, docs/BRAND.md, infrastructure/design-gate/**` · source: Ron 2026-11-10 — "Darken it." Raised by club-dashboard#594 / PR #776, where D-0157's parts 2 and 3 prescribed different fixes for one token and the branch could satisfy only one of them. Table of six repo voices run 2026-11-10 on origin/main — three no objection, three concerns, no veto; every ratio below computed from the token files, not quoted.*
+
+**Decision.** Five parts. One to four carry D-0157 forward unchanged, restated in full
+because D-0157 goes `superseded` and a superseded record is not published into the repo
+slices. **Part five amends part three rather than clarifying it**: part three's default and
+its `#007cff` example are replaced here.
+
+1. **The floor binds where a colour is used, not where it is declared.** 4.5:1 for text
+   under 24px (19px bold), 3:1 for larger text and for the boundary of a control — measured
+   against the surface the text actually sits on. For this fleet that is **every** light
+   ground in the palette, not one: `--surface` / `--bg`, `--page-bg`, `--surface-sunken`
+   (table zebra, wells, inset rows), any tint a token is painted on, and the status washes.
+   A value that passes on white and fails in a table row fails.
+2. **A fill that carries a label is measured against its label.** "Brand fill is not text
+   ink" is half the rule, and alone it is wrong, because contrast is symmetric: white on
+   `#f97316` is the same 2.80:1 as `#f97316` on white. So a brand keeps its fill only if the
+   label on it passes — by darkening the fill, or by putting a dark label on it. **An ink
+   token does not rescue a filled button.**
+3. **Text gets an ink token of the same hue, and a brand value is not repainted as "drift".**
+   `--<name>-ink` is a darkened sibling that passes on every ground it lands on; links,
+   labels and meaning-bearing icons use it, the fill token fills. club-dashboard ships this
+   for its green (`--brand-green-ink #2f7a00`, 5.38:1). The first session to look at a
+   declared brand value and call it drift was wrong. **Part five says when this part does
+   not apply.**
+4. **wmpc-meta fixes its own template first**, then each product repo converts in its own
+   change, behind its own D-0047 phone gate. A repo's unconverted call sites are known debt
+   under this part, not a violation of this record.
+5. **When a single token is both a fill that carries a label and the ink of text, part two
+   governs.** The fill is darkened until it clears the text floor, and **no ink sibling is
+   added for that hue** — once the fill is dark enough to be read as text, the sibling has
+   nothing left to do. A brand value darkened for this reason is **not "drift"**: the
+   brand's own value stays recorded in the token file's palette block and in that repo's
+   `docs/DESIGN_PREFERENCES.md` or `docs/BRAND.md`, each stating why the shipped token is a
+   step darker. Part three's `-ink` sibling remains correct for a fill that carries no label,
+   and for a hue **whose bright fill keeps its brightness because a dark label that clears
+   the floor is shipped on it** — shipped, not available: a repo whose label is still white
+   and failing has not earned that carve-out.
+
+**Why.** Contrast is symmetric, so a filled button's white label and its blue fill are the
+same pair read the other way round — which part 2 already said, and which makes part 3's
+remedy unable to fix the commonest case. In club-dashboard one token was the ink of ~130
+text uses, the fill of ~26 buttons under white labels, and also hairlines, icons and chart
+marks. At `#007cff` it failed **all eight** distinct light grounds in that palette
+(3.32–3.94:1). Both of part 2's options were measured rather than assumed: a dark label does
+pass (`--text` `#111827` 4.50:1, navy `#05052d` 5.00:1) but repaints ~26 labels and leaves
+all 130 text uses failing. Only darkening fixed both, at `#0062cc` — 5.80:1 on white, 5.13:1
+on its tint, clearing all eight grounds. Darkening only gains contrast against a light
+ground, so nothing that cleared the 3:1 non-text floor stopped clearing it, and one adjacent
+pair crossed that floor for the first time.
+
+The cost of leaving part 3 as written is measured, not predicted. **48 call sites across 23
+files had each worked around that one token privately**, many re-deriving the 3.94:1 ratio by
+hand in their own comment — and **16 of them, in 7 further files, were written during the ten
+days the fix sat in review**, including the active-tab label on the screen `/` lands on. The
+defect reproduced itself eleven times while its own fix was open, because every author who
+checked the floor correctly fixed their screen and had no way to see that the token was the
+thing that was wrong. A rule that forbids repainting a declared value, with no precedence for
+the case where the value cannot do its jobs, converts one wrong token into an unbounded
+number of correct-looking local workarounds — and each one becomes a stale record the moment
+the token does move.
+
+The table priced it. **third-shot-academy's concern corrected this record before it was
+written**: part 3's carve-out had been drafted citing its orange under a navy label as a
+shipped fact, and on origin/main that label is `#ffffff` at **2.80:1** — itself under the
+floor, with the brand's text ink a warm brown and no navy in the token file at all. Hence the
+conditional wording of 5 ("because a dark label that clears the floor **is shipped** on it")
+rather than naming a repo as an example. **rating-session-manager** noted that darkening a
+token reaches nothing there until 42 raw hex literals are converted, which part 4 already
+governs and this record does not accelerate. **daemon** required that this replace part 3's
+sentence and D-0157's Forbids wording rather than append to them, that it be called an
+amendment plainly, and that it carry a Forbids line so a darkened value is not later
+"restored" as a brand correction. All three are in the text above.
+
+**Forbids.** Everything D-0157 forbids, except its "calling another repo's declared brand
+value drift and repainting it", which is replaced by: repainting a brand value for any reason
+other than a measured floor failure in a role that token actually serves, or darkening one
+without recording the brand's own value and the reason beside it. Also forbids: **restoring a
+token darkened under 5 back to its brand value** — that is a floor regression, and it is
+superseded here, not reverted in a branch; adding an `-ink` sibling for a hue whose fill had
+to be darkened anyway; and citing a contrast script that does not exist as the enforcer of
+any part of this record.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
@@ -4986,6 +5019,7 @@ answering, in its own `DESIGN.md`, the four conditions the retired agent failed.
 - D-0064 — Lesson analysis is a coaching plan, not computer vision; the Lesson Plan is TSA's lesson surface and pb.vision is not asked about lesson footage (2026-10-07) → superseded by D-0243
 - D-0130 — The fleet watchdog lives off the fleet, and a quiet agent is an alarm (2026-10-11) → superseded by D-0155
 - D-0132 — A worktree is retired by the mechanism that made it, and "merged" is proven by content (2026-10-12) → superseded by D-0268
+- D-0157 — A colour is measured where it is used, and a brand fill is not text ink (2026-10-13) → superseded by D-0313
 - D-0161 — A pause covers one phase, and the phase it covers is named in code (2026-10-13) → superseded by D-0181
 - D-0177 — Every reply is a short summary; a question or an action for Ron is unmistakable (2026-10-14) → superseded by D-0189
 - D-0183 — A lesson record is created from the Court Reserve booking, with or without a recording; the coach may be named without an account (2026-10-15) → superseded by D-0242
