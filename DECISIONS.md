@@ -5004,6 +5004,51 @@ superseded here, not reverted in a branch; adding an `-ink` sibling for a hue wh
 to be darkened anyway; and citing a contrast script that does not exist as the enforcer of
 any part of this record.
 
+### D-0318 — A coach prepares from a sheet built from per-lesson items, and reviews items not prose
+
+*2026-11-12 · scope: `**lesson*, supabase/migrations/*lesson*, supabase/functions/draft-lesson-writeup/**, src/services/lesson-transcribe.ts, scripts/*backfill*` · source: Ron 2026-11-12. Brief — "From a coaches perspective I want to be able to prepare for a session with one of my students. I want to see what we just worked on -- what we have worked on in the past and what is carrying over. While I like a slightly verbose summary I need smaller actionable items. Additionally, as a coach I want to bring to light some of the items that I repeat across all of my students (my 'isms'). I think each lesson should have a review process but it needs to be more concrete vs. verbatim". Shown a prep sheet hand-built from one student's three real lessons, he answered "Build this shape". Measured the same day: PROD 17 lessons drafted (11 students, 1 coach), 0 written up; a timed `.srt` on club storage for all 17, but only plain text ever reached the Academy; TEST holds 0 lessons. Table run (PROCESS.md), two voices: third-shot-academy CONCERN (8 points, all taken: own freeze marker, own re-draft refusals, one editor per lesson, add-item, item-level measurement, a separate student summary, carry is evidence not a list, drill items stay coach-side, cues seek the existing player and degrade after retention, group lessons out of carry-over); rating-session-manager CONCERN (all taken: no analyzer change, one attach update, a narrow one-off backfill that never loosens the attach rule, PROD column before the sender, public-repo hygiene). No veto.*
+
+**Decision.** Seven rules.
+
+1. **A lesson is drafted once into structure, not prose.** The Academy's drafter (it keeps the model
+   key, D-0294 rule 5) returns, from the timed transcript: a coach's summary (4–6 sentences), a
+   student summary (2–4, second person, today's voice), 3–8 **items** — each a kind (drill /
+   technique / strategy / homework), a shot, an FPTM label, ≤ 15 words of concrete instruction and an
+   optional verbatim cue with its time — and the coach's cues, each with a normalised key. **FPTM is a
+   label, never a score.** It is stored write-once in new columns under their own landed marker; the
+   existing draft columns and their guard are untouched (D-0243 clause 4, D-0316 rule 4). Output that
+   does not validate writes nothing.
+2. **Review is per item: Keep, Edit, Drop, Carry, plus Add.** The coach's version is stored beside the
+   frozen draft. A lesson with a structured draft has one editor — the item review; the old free-text
+   form shows it read-only. Marking written up stays the only student gate.
+3. **The student's card does not change.** On save, the reviewed student summary fills `what_we_did`
+   and kept homework items fill `homework`. Nothing from `items` reaches the student otherwise —
+   no second drill list (D-0064), no second priorities list (D-0049).
+4. **The prep sheet is computed, not generated.** Carrying over = an item the coach marked Carry, or
+   the same shot + FPTM in ≥ 2 of the student's last 3 lessons, shown with its cue and date and a
+   "make this a priority" action into the existing Lesson Plan. Before anything is reviewed the sheet
+   reads the drafts, labelled as such. No model call when the sheet opens. Group lessons stay out of
+   a single student's carry-over until speakers are mapped (D-0294 rule 6).
+5. **Isms are a coach's cue keys used with ≥ 3 distinct students in 90 days**, ranked by student count.
+   A coach sees their own; a head coach (D-0316) sees any coach's.
+6. **Times reach the Academy.** The club computer writes the transcript and its timed segments in
+   one update; a one-off backfill fills segments for existing lessons only where empty, never touches
+   the transcript, and skips a lesson whose stored text differs from the file. The Academy column
+   exists on PROD before the club computer sends it. The analyzer is unchanged.
+7. **A cue's time seeks the existing recording player**; it is never a clip and never writes marks
+   (D-0273). After the recording's retention (D-0274) the cue shows its quote without a play link.
+
+**Why.** A coach preparing for a session needs a short list of what to work on and the evidence for
+it, not a paragraph to reread. Items are what a coach can keep or cut in seconds, and what can be
+counted across lessons (carry-over) and across students (isms) without a model guessing each time the
+page opens. The times were computed and thrown away; keeping them is what lets a cue point at the
+moment it was said.
+
+**Forbids.** A model call on opening the prep sheet; an FPTM score; a second priorities or drill list
+visible to the student; rewriting either draft; a backfill that writes `transcript` or loosens the
+attach rule; the club computer sending segments before the Academy can store them; lesson ids,
+recording refs, names or transcript text in the public session-pipeline repo.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
