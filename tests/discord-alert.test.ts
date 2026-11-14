@@ -8,7 +8,7 @@ test("discord alert body carries the quiet flag and no mention parsing", async (
   let body: any;
   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
     body = JSON.parse(String(init?.body));
-    return new Response("", { status: 204 });
+    return new Response("", { status: 200 });
   }) as typeof fetch;
   try {
     const res = await sendDiscordAlert({ title: "quiet-flag-test", message: "hi", alwaysFire: true });
