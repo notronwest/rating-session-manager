@@ -36,6 +36,10 @@ export interface DiscordAlert {
   alwaysFire?: boolean;
 }
 
+// Discord SUPPRESS_NOTIFICATIONS message flag: the post lands silently, no
+// phone buzz. Only a pressable card rings (D-0308). OR it into any other flags.
+const DISCORD_SUPPRESS_NOTIFICATIONS = 4096;
+
 const LEVEL_COLOR: Record<AlertLevel, number> = {
   info: 0x1a73e8,    // blue
   warning: 0xfbbc04, // amber
@@ -65,6 +69,8 @@ export async function sendDiscordAlert(alert: DiscordAlert): Promise<{ sent: boo
 
   const payload = {
     username: "Session Manager",
+    flags: DISCORD_SUPPRESS_NOTIFICATIONS,
+    allowed_mentions: { parse: [] as string[] },
     embeds: [
       {
         title: `${LEVEL_PREFIX[level]} ${alert.title}`,
