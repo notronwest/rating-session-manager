@@ -8,6 +8,19 @@ design tokens adopted; public access via Cloudflare Tunnel + Access (PR open,
 not yet run on the mini).**
 Last updated: **2026-10-28**
 
+## 2026-11-14 — hand-copied recordings fix is live on the mini (#128, #129)
+
+Ron approved the ship. The mini moved `ed307d2` → `137b53b` by fast-forward (no lockfile
+change, no migrations, no launchd changes), then `npm run build` rebuilt and restarted the
+API through the system LaunchDaemon; `/api/health` answers 200 on 3001. Hand-copied lesson
+recordings are now picked up on the next transcription tick, and an unreadable file is logged
+instead of dropped silently.
+
+**Gotcha:** `src/cli/lesson-transcribe.ts` has no `--help` — passing it runs a real scan tick.
+The verification did exactly that, without Supabase env, so nothing was written (reattach and
+clips refused). Next: confirm on the next scheduled tick that the hand-copied files transcribe;
+consider adding a real `--help` so a smoke check doesn't run the job.
+
 ## 2026-11-08 — the analysis moved out, and this repo became its first consumer (#121, #123, #126)
 
 Ron: *"Lets get this into its own repo."* The analysis is now
