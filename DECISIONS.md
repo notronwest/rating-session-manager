@@ -5049,6 +5049,81 @@ visible to the student; rewriting either draft; a backfill that writes `transcri
 attach rule; the club computer sending segments before the Academy can store them; lesson ids,
 recording refs, names or transcript text in the public session-pipeline repo.
 
+### D-0329 — The card brief and the card Stop gate reach a work session in every club repo, not only daemon
+
+*2026-11-15 · scope: `infrastructure/session-cards/**, infrastructure/daemon-sync/reconcile.sh, infrastructure/decision-register/REPOS` · source: Ron 2026-11-15 — "There are a lot of things waiting for me in open sessions -- but most sessions didn't have access to the card service in the MCP -- can you fix that problem"; widens D-0314, which he directed on 2026-11-10*
+
+**Decision.** D-0314 stands and is widened in one respect: its first three rules bind a work
+session in **every repo of the club operation**, not only one opened in daemon.
+
+1. **Every club session is told about its card at start.** A global SessionStart hook prints the
+   "your card" block in every repo on `infrastructure/decision-register/REPOS`, less the ones
+   named in `infrastructure/session-cards/EXCLUDE`, except daemon, whose own start hook already
+   prints it. The repo is read from the origin remote and then the clone's folder, case and
+   punctuation aside, so a worktree folder named after a branch, or a checkout spelled
+   differently on another machine, is still its repo.
+2. **Every club session is held to it at stop.** A global Stop hook hands the stop to the same
+   `stop-gate.sh` daemon runs — one gate, one set of tests. It is silent in daemon, so one stop
+   is never refused twice.
+3. **A question with no card goes through `needs_ron`, and the brief says so.** D-0314 rule 3
+   already left `needs_ron` as the way to ask when there is no card; a session outside daemon
+   will often find none, because `card_read` lists the cards daemon owns. A session **started
+   by another session** sends what it did and its question to that session, which holds the
+   card, so one ask reaches him once. What is forbidden is the third place: the reply.
+4. **Unattended runs and other operations are untouched.** Both hooks are silent when
+   `WMPC_ACTOR` is set (Mr. Robot, the reviewer), when the run carries Rachel's board key, in a
+   repo that is not on the list (`personal` and `watchlist` are another operation — D-0131 —
+   and never see a club card), in a repo named in `EXCLUDE` (third-shot-academy, its own
+   operation under D-0134, from the start), and in a folder that is not a repo.
+5. **A session that cannot load the card tools says so in its first line.** A session's tool
+   list is fixed when it starts, so one opened before the tools existed, or while the
+   connector's sign-in had lapsed, never gains them. That is a fault to restart out of, not a
+   licence to ask in prose.
+
+**Why.** The connector is on the account, so the card tools are offered to every session in every
+folder; the instruction to use them lived in daemon's project hook alone. Measured 2026-11-15 over
+every transcript since the tools shipped (2026-11-12): four sessions in two other repos, the two
+tools in each one's list, **zero calls**. All four were helpers started by one daemon session
+that held the card and wrote to it, so most of their work did reach the board second-hand; one
+of them still ended "One thing still waiting on you … Want
+me to write them next?" — an ask that existed only in a reply nobody was reading. This is the
+smaller of the two things behind his words and the only one still open. A
+reminder in each repo's CLAUDE.md would be a convention without a gate (D-0071), and a copy of the
+hook in sixteen repos would be sixteen things to keep in step; the fleet's existing answer is one
+global hook whose logic lives here.
+
+**The larger cause was already repaired.** The connector's thirty-day sign-in lapsed on
+2026-11-15 from 02:41 to 17:08 UTC (STATUS 2026-11-15, wmpc-mcp#53); for those fourteen hours no
+session anywhere could load a card tool, which is the "most sessions" he saw. A third, smaller
+case: a long-running session that predated the tools and said so (2026-11-14). Neither is
+something a hook can repair in a session that is already open; rule 5 makes such a session say so.
+
+**What tells us it stopped working (D-0084).** `test-global-hooks.sh`, run beside `test-stop-gate.sh`; and
+on any machine, a transcript scan — a session in a club repo other than daemon that edited files
+and made no `card_read` call was either refused once at stop or the hook is not installed.
+`reconcile.sh` logs the installer's result on every sync.
+
+**The table (2026-11-15).** The change adds no file to any repo but daemon. Voices were taken
+from the three repos other than daemon in which interactive sessions have actually been opened
+since the tools shipped. Two no objection, one concern, no veto. *courtreserve-api:* no
+objection; it could not see from its own tree that Rachel's unattended runs mark themselves — they
+do not set `WMPC_ACTOR`, so both hooks are also silent on her board key (rule 4, tested).
+*court-reserve-scheduler:* no objection; its launchd jobs are not sessions and load no hook.
+*third-shot-academy:* **concern** — D-0134 makes it its own operation, the register's list is a
+publishing artifact rather than a statement of membership, and the day it leaves that list the
+gate would vanish with no handover. **Taken in full:** membership is the register's list **minus
+`infrastructure/session-cards/EXCLUDE`**, a committed file, and the Academy is named in it from
+the start. No session in that repo has opened since the tools shipped, so this costs nothing today;
+its work keeps reaching the club board through a daemon session, as it has so far.
+
+**Forbids.**
+- A work session in any club repo leaving a question for Ron only in its reply.
+- Copying the brief or the gate into another repo's own hooks; the logic lives here once.
+- Showing a club card, or this brief, to a session in `personal`, `watchlist` or any repo not on
+  the register's list.
+- Running the gate twice for one stop (registering `stop-gate.sh` globally as well as through
+  the wrapper).
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
