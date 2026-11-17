@@ -719,3 +719,8 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 ## 2026-11-08 — rsm#128: hand-copied camera recordings are seen; an unrecognised name is logged
 - `.MP4` (any case) now parses; `discover()` logs each non-dotted, unparseable file in a date dir; a GoPro `GX02+` chapter with a `GX01` sibling skips the lesson floor (continuation, own transcript). Tests + doc paragraph added.
 - Not done: joining chapter audio; attaching the 11-04 recordings to lessons (out of scope). Next: review, then the mini's next tick should log/transcribe any remaining uncovered names.
+
+## 2026-11-17 — rsm#130: transcript times reach the Academy (PR #133, merged)
+- `attachTranscript` writes transcript + `transcript_segments` in one update; retry path parses the `.srt` with the analyzer's `parseSrt`; missing-column fallback attaches text only. Analyzer pin unchanged.
+- Mini pulled to 6608958, `npm run build:only`. Backfill (`npm run transcribe:backfill-segments`) on live: **filled 20 / skipped-mismatch 0 / no-srt 0** (no-txt 0); second run: 0 candidates. Live check: 20 of 20 recorded lessons have non-empty segments.
+- Open: the mini's `LESSON_DRAFT_URL` still points at the old `draft-lesson-writeup`, so NEW lessons get no structured draft (nothing calls `draft-lesson-structured` on arrival). Not changed here.
