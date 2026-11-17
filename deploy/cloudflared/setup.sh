@@ -144,8 +144,8 @@ fi
 step "DNS check $VIDEO_HOST (read only — this script never creates it)"
 # Two public resolvers over TCP: an empty answer from one resolver (or from a
 # MagicDNS-style local one) is not proof the record is missing.
-VIDEO_DNS_A="$(dig +short +tcp @1.1.1.1 "$VIDEO_HOST" 2>/dev/null | head -5)"
-VIDEO_DNS_B="$(dig +short +tcp @8.8.8.8 "$VIDEO_HOST" 2>/dev/null | head -5)"
+VIDEO_DNS_A="$(dig +short +tcp @1.1.1.1 "$VIDEO_HOST" 2>/dev/null | head -5 || true)"
+VIDEO_DNS_B="$(dig +short +tcp @8.8.8.8 "$VIDEO_HOST" 2>/dev/null | head -5 || true)"
 if [[ -n "$VIDEO_DNS_A" || -n "$VIDEO_DNS_B" ]]; then
   ok "$VIDEO_HOST resolves publicly (1.1.1.1: ${VIDEO_DNS_A//$'\n'/ } | 8.8.8.8: ${VIDEO_DNS_B//$'\n'/ }) — left as is"
 else
