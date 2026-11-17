@@ -22,6 +22,7 @@
     "index:nightly": "./scripts/index-nightly.sh",
     "transcribe": "./scripts/lesson-transcribe.sh",
     "transcribe:status": "./scripts/lesson-transcribe.sh --status",
+    "transcribe:backfill-segments": "tsx scripts/lesson-segments-backfill.ts",
     "transcribe:self-test": "./scripts/lesson-transcribe.sh --self-test",
     "lessons:sync": "tsx src/cli/lesson-sync.ts"
   },

@@ -89,7 +89,7 @@ targets:
     trigger: MANUAL, one time — `./scripts/install-lesson-transcribe.sh` on the mini (idempotent; re-run after a pull that touches it). AFTER ANY PULL THAT MOVES THE ANALYZER PIN, `npm ci` BEFORE `npm run build:only` — see "The analyzer is a pinned dependency" below
     source: src/cli/lesson-transcribe.ts + src/services/lesson-transcribe.ts, via scripts/lesson-transcribe.sh, calling the pinned `lesson-analyzer` package (notronwest/lesson-analyzer, private) in process
     env: LAN
-    url: n/a — no listener; it reads /Volumes/wmpc-video/teaching and writes lessons.transcript in the TSA Supabase
+    url: n/a — no listener; it reads /Volumes/wmpc-video/teaching and writes lessons.transcript and lessons.transcript_segments (one update) in the TSA Supabase; one-off backfill of segments for older lessons: npm run transcribe:backfill-segments [-- --dry-run]
     host: wmpcMacMini1 (the committed TRANSCRIBE-HOST fact; every other machine exits 0)
     config_scope: repo-root .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, optional LESSON_DRAFT_URL + LESSON_DRAFT_SECRET, optional DISCORD_WEBHOOK_URL); models in ~/.local/share/wmpc-lesson-transcribe/
     verify: "npm run transcribe:self-test — every line ok; then npm run transcribe:status for what is transcribed, pending or silent; log at ~/.local/state/wmpc-lesson-transcribe/transcribe.log, which also names the analyzer commit if the installed one is not the pinned one"

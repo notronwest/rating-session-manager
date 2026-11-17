@@ -41,11 +41,13 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "../supabase.js";
 import {
   type AnalyzerConfig,
   assertSupportedDocument,
   decodeArgs,
+  parseSrt,
   probeDurationS,
   probeMeanVolumeDb,
   SILENCE_FLOOR_DB,
@@ -321,8 +323,11 @@ export interface LessonRow { id: string; transcript: string | null; written_up_a
  * lands. Until it lands, a transcript simply sits in the store as "pending" and
  * every later tick retries the attach for free.
  */
-export async function findLessonForRecording(ref: string): Promise<LessonRow | null> {
-  const { data, error } = await getSupabase()
+export async function findLessonForRecording(
+  ref: string,
+  db: Pick<SupabaseClient, "from"> = getSupabase(),
+): Promise<LessonRow | null> {
+  const { data, error } = await db
     .from("lessons")
     .select("id, transcript, written_up_at, what_we_did, homework")
     .eq("recording_ref", ref)
@@ -331,12 +336,63 @@ export async function findLessonForRecording(ref: string): Promise<LessonRow | n
   return (data as LessonRow | null) ?? null;
 }
 
-export async function attachTranscript(lessonId: string, transcript: string): Promise<void> {
-  const { error } = await getSupabase()
-    .from("lessons")
-    .update({ transcript, updated_at: new Date().toISOString() })
-    .eq("id", lessonId);
+/** One timed line of a transcript — the analyzer document's `transcript.segments` shape. */
+export interface TranscriptSegment { startS: number; endS: number; text: string }
+
+/**
+ * Is this error "lessons.transcript_segments does not exist"? Narrow on
+ * purpose: only Postgres 42703 (undefined_column) or PostgREST's PGRST204
+ * (column not in the schema cache) AND naming this column. Anything else —
+ * a network fault, a permission error — is rethrown, never swallowed as
+ * "column missing".
+ */
+export function isMissingSegmentsColumn(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  const named = /transcript_segments/i.test(err.message ?? "");
+  return (err.code === "42703" || err.code === "PGRST204") && named;
+}
+
+/** Segments parsed from an `.srt` on disk, or null when the file is absent or yields none. */
+export function segmentsFromSrtFile(file: string): TranscriptSegment[] | null {
+  let srt: string;
+  try { srt = fs.readFileSync(file, "utf8"); } catch { return null; }
+  // The analyzer's own parser (D-0318 rule 6: the analyzer is unchanged, and
+  // there is no second parser here).
+  const segs = parseSrt(srt);
+  return segs.length > 0 ? segs : null;
+}
+
+/**
+ * Write the transcript — and its timed segments, when there are any — in ONE
+ * update (D-0318 rule 6), so the draft call that follows never sees text
+ * without times.
+ *
+ * GUARD FOR ORDER. If the Academy's `transcript_segments` column is not there
+ * (a deploy landed in the wrong order), the update is refused as a whole and
+ * nothing is written; we then retry WITHOUT the field, so a mis-ordered deploy
+ * can never stop a transcript attaching. An empty segment list is never sent:
+ * `[]` would read as "has times" to anything counting non-null.
+ *
+ * Multi-file (GoPro chapter) lessons: the lesson's recording_ref is the LEAD
+ * file, so only the lead file's segments ever reach here, with startS relative
+ * to that file. Chapters are not stitched.
+ */
+export async function attachTranscript(
+  lessonId: string,
+  transcript: string,
+  segments: TranscriptSegment[] | null = null,
+  db: Pick<SupabaseClient, "from"> = getSupabase(),
+): Promise<{ segments: boolean }> {
+  const base = { transcript, updated_at: new Date().toISOString() };
+  if (segments && segments.length > 0) {
+    const { error } = await db.from("lessons").update({ ...base, transcript_segments: segments }).eq("id", lessonId);
+    if (!error) return { segments: true };
+    if (!isMissingSegmentsColumn(error)) throw new Error(`attach failed for lesson ${lessonId}: ${error.message}`);
+    // Column absent: fall through and attach the text alone.
+  }
+  const { error } = await db.from("lessons").update(base).eq("id", lessonId);
   if (error) throw new Error(`attach failed for lesson ${lessonId}: ${error.message}`);
+  return { segments: false };
 }
 
 /**
@@ -453,7 +509,7 @@ export async function transcribeOne(
       attached = true;
       attachNote = "lesson already had a transcript; left as is";
     } else {
-      await attachTranscript(lesson.id, transcript);
+      await attachTranscript(lesson.id, transcript, doc.transcript?.segments ?? null);
       attached = true;
       // The draft gets its OWN catch. Without it a failing draft call — the
       // function not deployed to this project yet, say, which is exactly the
@@ -491,7 +547,11 @@ export async function transcribeOne(
  * with no rework: the day a lesson gets a recording_ref, the next tick attaches
  * the text that has been sitting in the store all along.
  */
-export async function reattachPending(cfg: TranscribeConfig, log: (line: string) => void): Promise<number> {
+export async function reattachPending(
+  cfg: TranscribeConfig,
+  log: (line: string) => void,
+  db: Pick<SupabaseClient, "from"> = getSupabase(),
+): Promise<number> {
   let n = 0;
   for (const rec of discover(cfg)) {
     const paths = transcriptPaths(cfg, rec);
@@ -500,10 +560,11 @@ export async function reattachPending(cfg: TranscribeConfig, log: (line: string)
     try { meta = JSON.parse(fs.readFileSync(paths.meta, "utf8")); } catch { continue; }
     if (meta.result !== "transcribed" || meta.attached) continue;
     try {
-      const lesson = await findLessonForRecording(rec.ref);
+      const lesson = await findLessonForRecording(rec.ref, db);
       if (!lesson || lesson.transcript) continue;
       const transcript = fs.readFileSync(paths.txt, "utf8");
-      await attachTranscript(lesson.id, transcript);
+      // The times sit in the `.srt` beside the `.txt`; carry them in the same update.
+      await attachTranscript(lesson.id, transcript, segmentsFromSrtFile(paths.srt), db);
       const d = await draftWriteUp({ ...lesson, transcript }, transcript);
       fs.writeFileSync(paths.meta, JSON.stringify({ ...meta, attached: true, drafted: d.drafted, attachNote: d.drafted ? "drafted on retry" : `draft skipped: ${d.reason}`, reattachedAt: new Date().toISOString() }, null, 2));
       log(`${rec.ref}: attached to lesson ${lesson.id} on retry${d.drafted ? " + drafted" : ""}`);
