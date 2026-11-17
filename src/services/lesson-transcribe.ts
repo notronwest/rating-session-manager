@@ -436,6 +436,78 @@ export async function draftWriteUp(
   return { drafted: true };
 }
 
+/**
+ * Ask TSA for the STRUCTURED draft too (D-0318 rule 1): coach summary, student
+ * summary, action items and cues, written into the lesson's own write-once
+ * columns. This is what puts a newly recorded lesson in the coach's review list
+ * with items to keep or edit; the prose draft above alone does not.
+ *
+ * Only the lesson id is sent: the function reads the transcript and its timed
+ * segments from the row this process just attached, so it must run AFTER
+ * attachTranscript. Every guard is the function's own — it refuses a lesson
+ * already drafted, already written up, or out of attempts, and validates the
+ * model's reply before its first write — so calling it twice is harmless.
+ *
+ * The URL is LESSON_DRAFT_STRUCTURED_URL when set; otherwise it is the sibling
+ * of LESSON_DRAFT_URL (same project, same functions path), so the mini needs no
+ * new configuration. Same secret, same Bearer header.
+ *
+ * FAILS OPEN: the caller catches anything thrown here, after the prose draft
+ * has already run, so an error in this call never costs the transcript or the
+ * old draft.
+ */
+export async function draftStructured(
+  lesson: Pick<LessonRow, "id" | "written_up_at">,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ drafted: boolean; reason?: string }> {
+  const secret = env.LESSON_DRAFT_SECRET;
+  const url = structuredDraftUrl(env);
+  if (!url || !secret) return { drafted: false, reason: "structured draft not configured" };
+  if (lesson.written_up_at) return { drafted: false, reason: "already written up" };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
+    body: JSON.stringify({ lessonId: lesson.id }),
+    // A long lesson at high effort takes minutes; the function counts the
+    // attempt before the model call, so a timeout here is counted, not lost.
+    signal: AbortSignal.timeout(300_000),
+  });
+  const body = (await res.json().catch(() => ({}))) as { drafted?: boolean; reason?: string; error?: string };
+  if (res.ok && body.drafted) return { drafted: true };
+  // The function's own refusals — 200 with drafted:false (already drafted,
+  // written up, out of attempts) and 422 (the reply did not validate) — are
+  // reported, not thrown: nothing is wrong with the pipeline.
+  if (res.ok || res.status === 422) {
+    return { drafted: false, reason: (body.reason ?? body.error ?? `HTTP ${res.status}`).slice(0, 200) };
+  }
+  throw new Error(`structured draft failed HTTP ${res.status}: ${(body.error ?? body.reason ?? "").slice(0, 300)}`);
+}
+
+/** The structured drafter's URL: explicit, or derived from the prose one. */
+export function structuredDraftUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.LESSON_DRAFT_STRUCTURED_URL) return env.LESSON_DRAFT_STRUCTURED_URL;
+  if (!env.LESSON_DRAFT_URL) return null;
+  try {
+    // Relative resolution replaces the last path segment:
+    // …/functions/v1/draft-lesson-writeup → …/functions/v1/draft-lesson-structured
+    return new URL("draft-lesson-structured", env.LESSON_DRAFT_URL).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Run the structured draft and fold its outcome into a one-line note. Never
+ *  throws: the prose draft and the transcript are already safe by now. */
+async function structuredNote(lesson: Pick<LessonRow, "id" | "written_up_at">): Promise<string> {
+  try {
+    const d = await draftStructured(lesson);
+    return d.drafted ? "structured draft written" : `structured draft skipped: ${d.reason}`;
+  } catch (err) {
+    return `structured draft failed (old draft unaffected): ${(err as Error).message}`;
+  }
+}
+
 // ── One recording ────────────────────────────────────────────────────────────
 
 export type Outcome =
@@ -523,6 +595,7 @@ export async function transcribeOne(
       } catch (err) {
         attachNote = `attached; draft failed (transcript is safe): ${(err as Error).message}`;
       }
+      attachNote += `; ${await structuredNote(lesson)}`;
     }
   } catch (err) {
     attachNote = `attach failed, will retry: ${(err as Error).message}`;
@@ -566,8 +639,9 @@ export async function reattachPending(
       // The times sit in the `.srt` beside the `.txt`; carry them in the same update.
       await attachTranscript(lesson.id, transcript, segmentsFromSrtFile(paths.srt), db);
       const d = await draftWriteUp({ ...lesson, transcript }, transcript);
-      fs.writeFileSync(paths.meta, JSON.stringify({ ...meta, attached: true, drafted: d.drafted, attachNote: d.drafted ? "drafted on retry" : `draft skipped: ${d.reason}`, reattachedAt: new Date().toISOString() }, null, 2));
-      log(`${rec.ref}: attached to lesson ${lesson.id} on retry${d.drafted ? " + drafted" : ""}`);
+      const sNote = await structuredNote(lesson);
+      fs.writeFileSync(paths.meta, JSON.stringify({ ...meta, attached: true, drafted: d.drafted, attachNote: `${d.drafted ? "drafted on retry" : `draft skipped: ${d.reason}`}; ${sNote}`, reattachedAt: new Date().toISOString() }, null, 2));
+      log(`${rec.ref}: attached to lesson ${lesson.id} on retry${d.drafted ? " + drafted" : ""}; ${sNote}`);
       n++;
     } catch (err) {
       log(`${rec.ref}: reattach failed: ${(err as Error).message}`);

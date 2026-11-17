@@ -134,15 +134,23 @@ else
   fi
 fi
 
-# The video hostname lives on the Academy's zone, which this machine's
-# `cloudflared tunnel login` (the wmpc.app zone) usually cannot write. Try; if it
-# fails, say exactly what to add by hand rather than pretending it worked.
-step "DNS route $VIDEO_HOST"
-if "$CFBIN" tunnel route dns --overwrite-dns "$UUID" "$VIDEO_HOST" 2>/tmp/cf_route_err2; then
-  ok "routed $VIDEO_HOST → $TUNNEL ($UUID)"
+# The video hostname lives on the Academy's zone, NOT the wmpc.app zone this
+# machine's `cloudflared tunnel login` is scoped to. NEVER route it through
+# `cloudflared tunnel route dns`: with a wmpc.app cert.pem that command does not
+# fail — it appends the cert's zone and creates a stray
+# `video.thirdshotacademy.com.wmpc.app` record, then reports success (it did,
+# 2026-11-17). The record is a hand-made proxied CNAME on the Academy zone.
+# This step only LOOKS at public DNS and never creates a record.
+step "DNS check $VIDEO_HOST (read only — this script never creates it)"
+# Two public resolvers over TCP: an empty answer from one resolver (or from a
+# MagicDNS-style local one) is not proof the record is missing.
+VIDEO_DNS_A="$(dig +short +tcp @1.1.1.1 "$VIDEO_HOST" 2>/dev/null | head -5)"
+VIDEO_DNS_B="$(dig +short +tcp @8.8.8.8 "$VIDEO_HOST" 2>/dev/null | head -5)"
+if [[ -n "$VIDEO_DNS_A" || -n "$VIDEO_DNS_B" ]]; then
+  ok "$VIDEO_HOST resolves publicly (1.1.1.1: ${VIDEO_DNS_A//$'\n'/ } | 8.8.8.8: ${VIDEO_DNS_B//$'\n'/ }) — left as is"
 else
-  warn "could not create DNS for $VIDEO_HOST from here (the login is for the wmpc.app zone)."
-  warn "In the Cloudflare dashboard for thirdshotacademy.com add a PROXIED CNAME:"
+  warn "$VIDEO_HOST does not resolve on 1.1.1.1 or 8.8.8.8. It is made by hand, once:"
+  warn "In the Cloudflare dashboard for thirdshotacademy.com → DNS → Add record, a PROXIED CNAME:"
   warn "  Name field: video"
   warn "  Target field — copy the next line exactly (nothing else on it):"
   echo "$UUID.cfargotunnel.com"

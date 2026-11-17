@@ -91,7 +91,7 @@ targets:
     env: LAN
     url: n/a — no listener; it reads /Volumes/wmpc-video/teaching and writes lessons.transcript and lessons.transcript_segments (one update) in the TSA Supabase; one-off backfill of segments for older lessons: npm run transcribe:backfill-segments [-- --dry-run]
     host: wmpcMacMini1 (the committed TRANSCRIBE-HOST fact; every other machine exits 0)
-    config_scope: repo-root .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, optional LESSON_DRAFT_URL + LESSON_DRAFT_SECRET, optional DISCORD_WEBHOOK_URL); models in ~/.local/share/wmpc-lesson-transcribe/
+    config_scope: repo-root .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, optional LESSON_DRAFT_URL + LESSON_DRAFT_SECRET — after attach it calls the prose drafter AND its sibling `draft-lesson-structured` with the same secret, the second failing open; optional LESSON_DRAFT_STRUCTURED_URL overrides the derived sibling URL; optional DISCORD_WEBHOOK_URL); models in ~/.local/share/wmpc-lesson-transcribe/
     verify: "npm run transcribe:self-test — every line ok; then npm run transcribe:status for what is transcribed, pending or silent; log at ~/.local/state/wmpc-lesson-transcribe/transcribe.log, which also names the analyzer commit if the installed one is not the pinned one"
     rollback: ./scripts/install-lesson-transcribe.sh --uninstall (leaves transcripts and state alone)
   - name: game-indexer
@@ -111,7 +111,7 @@ targets:
     env: PROD
     url: https://session.wmpc.app → http://localhost:3001 on the mini (Express, SPA + /api); AND https://video.thirdshotacademy.com → the same origin, restricted by ingress path to /lesson-video/<token> (PUBLIC, no Access — the HMAC token is the only protection)
     host: wmpcMacMini1
-    config_scope: LESSON_VIDEO_SIGNING_SECRET in the mini's .env (same value as the Academy function secret; unset refuses every public request); the video.thirdshotacademy.com proxied CNAME on the Academy zone (hand-made if setup.sh cannot); ~/.cloudflared/config-session.yml + the session.wmpc.app CNAME on the wmpc.app zone; LaunchAgent com.wmpc.cloudflared-session; Cloudflare Access app for session.wmpc.app (Zero Trust) whose AUD tag goes in the mini's .env
+    config_scope: LESSON_VIDEO_SIGNING_SECRET in the mini's .env (same value as the Academy function secret; unset refuses every public request); the video.thirdshotacademy.com proxied CNAME on the Academy zone (ALWAYS hand-made — setup.sh only checks it on two public resolvers and never creates it, because `cloudflared tunnel route dns` with the wmpc.app cert.pem silently makes a stray `video.thirdshotacademy.com.wmpc.app` record instead; it did on 2026-11-17); ~/.cloudflared/config-session.yml + the session.wmpc.app CNAME on the wmpc.app zone; LaunchAgent com.wmpc.cloudflared-session; Cloudflare Access app for session.wmpc.app (Zero Trust) whose AUD tag goes in the mini's .env
     verify: "curl -sI https://session.wmpc.app/ | head -1 — expect a 302 to *.cloudflareaccess.com; signed in, the dashboard loads"
     rollback: launchctl bootout the agent, delete the tunnel + its CNAME + the Access app (deploy/cloudflared/README.md → Undo)
 ```
