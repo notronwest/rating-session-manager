@@ -160,10 +160,16 @@ export function classify(ans: OccupancyAnswer, maxStaleS: number): Match {
   return { kind: "lesson", occurrence: occ, playerIds: [], unmatched: [] };
 }
 
-/** True when the declared type is exactly "Clinic" — whole string, case- and
- *  space-insensitive, never a substring (D-0238 clause 2). */
+const norm = (t: string) => t.replace(/\s+/g, "").toLowerCase();
+
+/** Declared Court Reserve types that are a clinic. Whole-string only. */
+export const CLINIC_TYPES = ["Clinic", "Third Shot Academy Clinic"];
+const CLINIC_TYPE_KEYS = new Set(CLINIC_TYPES.map(norm));
+
+/** True when the declared type is exactly one of CLINIC_TYPES — whole string,
+ *  case- and space-insensitive, never a substring (D-0238 clause 2). */
 export function isClinicType(t: string | null): boolean {
-  return (t ?? "").replace(/\s+/g, "").toLowerCase() === "clinic";
+  return CLINIC_TYPE_KEYS.has(norm(t ?? ""));
 }
 
 /**
