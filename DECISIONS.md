@@ -5124,6 +5124,35 @@ its work keeps reaching the club board through a daemon session, as it has so fa
 - Running the gate twice for one stop (registering `stop-gate.sh` globally as well as through
   the wrapper).
 
+### D-0340 — A clinic recording is transcribed; a clinic is still not a lesson record and the camera still does not start on one
+
+*2026-11-22 · scope: `src/cli/lesson-transcribe*, src/services/lesson-*.ts, **occupancy*` · source: Ron 2026-11-22, in a daemon session. Asked whether the Level 1 Dinking clinic (Tue 2026-11-17 14:00–15:00, Court #4) was recorded; shown that it was (teaching/2026-11-17/teaching-140556.mp4, 53 min, audio present) but never transcribed — the transcriber wrote "not-a-lesson: no teaching booking covers this recording" because `Clinic` is outside the five teaching types. Asked whether the build agent should make clinics count as lessons so they get transcribed — "Yes, send it". Then shown that this reverses his 2026-10-14 "clinics will not be recorded as of now" (D-0242 clause 5, D-0238 clause 1), that a clinic puts up to a dozen members on a recording while the group-booking recording notice is still unmet (D-0238 clause 5), and offered "transcribe only" vs "keep clinics out" — "Transcribe only".*
+
+**Decision.** This EXTENDS D-0242 and D-0238; it supersedes neither.
+
+1. **A teaching-court recording whose window is covered by exactly one single-court `Clinic`
+   booking is transcribed**, exactly as a lesson recording is. The match is on Court Reserve's
+   declared `reservation_type`, compared case- and space-insensitively and whole-string, as
+   D-0238 clause 2 already requires — never inferred from an event name.
+2. **A clinic is still not a lesson record** (D-0242 clause 5 stands). The transcript is kept
+   beside the recording and tagged as a clinic with its occurrence id and event name; no
+   `lessons` row is created or linked for it.
+3. **The camera still does not start on a clinic** (D-0238 clause 1 stands). What reaches the
+   transcriber is a recording someone started by hand on the teaching court.
+4. A recording already given a `not-a-lesson` verdict whose window a single-court `Clinic`
+   covers is re-judged under this rule once, starting with the 2026-11-17 dinking clinic.
+
+**Why.** Ron wanted the clinic's content; the video existed and was being discarded at the
+transcription step only. He chose the narrowest reversal: words from clinics he chooses to
+record, without widening what the camera records on its own or what counts as a lesson on a
+student's profile.
+
+**Forbids.** Adding `Clinic` to `TEACHING_TYPES` or to the record-watchdog's five (both feed
+the camera and lesson records, which this ruling deliberately leaves alone). Transcribing a
+multi-court clinic or a recording two bookings overlap — those stay refused as ambiguous.
+**Open, not answered here:** D-0238 clause 5's recording notice for group bookings is still
+unmet, and a clinic puts more members on a recording than any lesson type.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
