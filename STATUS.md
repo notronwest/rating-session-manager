@@ -736,3 +736,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 - `classifyClinic` (lesson-match.ts): when the teaching-only occupancy ask says not-teaching, a second unfiltered ask finds exactly one single-court `Clinic` (whole-string, case/space-insensitive) → `kind: "clinic"`. Multi-court or overlapped → `ambiguous`. courtreserve-api `TEACHING_TYPES` and the record-watchdog untouched (D-0340).
 - Clinic meta records `kind`, occurrence id, event name; no `findLessonByReservation`/`linkRecording`, no lessons row. New `--rejudge [--apply]` clears old `not-a-lesson` verdicts a clinic covers.
 - tsc, build:only, tests (109) pass. Not yet done: on the mini, `--rejudge --apply` then dry-run for `teaching-140556`, and quote the first timed line of its transcript on the PR.
+
+## 2026-11-22 — #138 rework: live check on the mini found no clinic in the CR cache (PR #139)
+- On the mini (branch build via tsx): `--rejudge --apply` → `cleared: 0`; `--dry-run` → nothing for `teaching-140556`. Cause is data, not code: courtreserve-api `/occupancy/at` (unfiltered, 19:06–19:59Z 2026-11-17) returns nothing on Court #4 (and nothing on #2–#6; Court #1 has only a Court Booking), so there is no Clinic for `classifyClinic` to find. The verdict stays `not-a-lesson`.
+- PR now `Refs #138`, not `Closes`; live verification split to a follow-up issue (needs the Dinking clinic's real CR booking/court, or a cache that holds past events).
