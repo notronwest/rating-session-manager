@@ -744,3 +744,8 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 ## 2026-11-22 — #140 Third Shot Academy Clinic type (Builder)
 - `isClinicType` now accepts `CLINIC_TYPES` = `Clinic` | `Third Shot Academy Clinic` (whole-string, case/space-insensitive; named constant in lesson-match.ts). Unit test added incl. `... Waitlist` rejected. tsc + build:only pass.
 - Left: live steps (`--rejudge --apply`, `--dry-run`, transcript on NAS) wait on courtreserve-api#897 being deployed.
+
+## 2026-11-22 — #140 live steps run on the mini (CoS)
+- courtreserve-api release now on 8b718cf (includes #898 occupancy fix); this checkout on main ec1ad70, dist has the #142 fix.
+- `--rejudge --apply`: cleared not-a-lesson for teaching/2026-11-17/teaching-140556 (Dinking Clinic). `--dry-run`: WOULD transcribe (53 min).
+- Next: transcript at `transcripts/2026-11-17/teaching-140556.txt` on the NAS after the next ticker run (lock was held by another transcription). CoS re-checks by 2026-11-23 06:00Z, quotes the first timed line on #140/#138, then closes #140.
