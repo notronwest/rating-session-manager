@@ -731,3 +731,8 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 - Shipped on the mini: `git pull --ff-only` (checkout was clean bar an untracked `supabase/`), `npm run build:only`; `dist` carries the call; `transcribe:self-test` all ok. The launchd tick picks it up; no restart needed.
 - Open: the mini's `.env` line 3 has an unquoted value with a space, so every shell `. ./.env` (the transcribe wrapper included) prints a "command not found" error and drops that variable. Value not read; needs quoting by hand.
 - Follow-up #137: the DNS check now survives a failing `dig` under `set -euo pipefail` (exercised: present, absent, dig unavailable). Also proved the built structured call on the mini with a zero-write probe (all-zero lesson id → 404 "lesson not found", so URL, secret and dist are right). Mini pulled to #137 (setup.sh is not run by the tick; no rebuild needed).
+
+## 2026-11-22 — #138: hand-recorded clinics are transcribed, never linked to a lesson (PR #139)
+- `classifyClinic` (lesson-match.ts): when the teaching-only occupancy ask says not-teaching, a second unfiltered ask finds exactly one single-court `Clinic` (whole-string, case/space-insensitive) → `kind: "clinic"`. Multi-court or overlapped → `ambiguous`. courtreserve-api `TEACHING_TYPES` and the record-watchdog untouched (D-0340).
+- Clinic meta records `kind`, occurrence id, event name; no `findLessonByReservation`/`linkRecording`, no lessons row. New `--rejudge [--apply]` clears old `not-a-lesson` verdicts a clinic covers.
+- tsc, build:only, tests (109) pass. Not yet done: on the mini, `--rejudge --apply` then dry-run for `teaching-140556`, and quote the first timed line of its transcript on the PR.
