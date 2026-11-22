@@ -731,3 +731,12 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 - Shipped on the mini: `git pull --ff-only` (checkout was clean bar an untracked `supabase/`), `npm run build:only`; `dist` carries the call; `transcribe:self-test` all ok. The launchd tick picks it up; no restart needed.
 - Open: the mini's `.env` line 3 has an unquoted value with a space, so every shell `. ./.env` (the transcribe wrapper included) prints a "command not found" error and drops that variable. Value not read; needs quoting by hand.
 - Follow-up #137: the DNS check now survives a failing `dig` under `set -euo pipefail` (exercised: present, absent, dig unavailable). Also proved the built structured call on the mini with a zero-write probe (all-zero lesson id → 404 "lesson not found", so URL, secret and dist are right). Mini pulled to #137 (setup.sh is not run by the tick; no rebuild needed).
+
+## 2026-11-22 — #138: hand-recorded clinics are transcribed, never linked to a lesson (PR #139)
+- `classifyClinic` (lesson-match.ts): when the teaching-only occupancy ask says not-teaching, a second unfiltered ask finds exactly one single-court `Clinic` (whole-string, case/space-insensitive) → `kind: "clinic"`. Multi-court or overlapped → `ambiguous`. courtreserve-api `TEACHING_TYPES` and the record-watchdog untouched (D-0340).
+- Clinic meta records `kind`, occurrence id, event name; no `findLessonByReservation`/`linkRecording`, no lessons row. New `--rejudge [--apply]` clears old `not-a-lesson` verdicts a clinic covers.
+- tsc, build:only, tests (109) pass. Not yet done: on the mini, `--rejudge --apply` then dry-run for `teaching-140556`, and quote the first timed line of its transcript on the PR.
+
+## 2026-11-22 — #138 rework: live check on the mini found no clinic in the CR cache (PR #139)
+- On the mini (branch build via tsx): `--rejudge --apply` → `cleared: 0`; `--dry-run` → nothing for `teaching-140556`. Cause is data, not code: courtreserve-api `/occupancy/at` (unfiltered, 19:06–19:59Z 2026-11-17) returns nothing on Court #4 (and nothing on #2–#6; Court #1 has only a Court Booking), so there is no Clinic for `classifyClinic` to find. The verdict stays `not-a-lesson`.
+- PR now `Refs #138`, not `Closes`; live verification split to a follow-up issue (needs the Dinking clinic's real CR booking/court, or a cache that holds past events).

@@ -4,6 +4,7 @@
 // lesson. Run by scripts/lesson-transcribe.sh under launchd.
 //
 //   lesson-transcribe              one tick (what launchd runs)
+//   lesson-transcribe --rejudge [--apply]  clear old not-a-lesson verdicts a clinic covers
 //   lesson-transcribe --dry-run    say what it WOULD do; reads nothing large
 //   lesson-transcribe --status     what is on disk and what is pending
 //   lesson-transcribe --self-test  config + binaries + models; no network, no CR
@@ -22,7 +23,7 @@ import {
 import { sendDiscordAlert } from "../services/discord-alert.js";
 import { cutClips, clipColumnsExist, loadClipConfig } from "../services/lesson-clips.js";
 import {
-  recordingWindow, askOccupancy, classify, playersForMembers,
+  recordingWindow, askOccupancy, classify, classifyClinic, playersForMembers,
   findLessonByReservation, linkRecording, type Match,
 } from "../services/lesson-match.js";
 
@@ -139,6 +140,10 @@ async function resolveMatch(rec: Recording, durationS: number): Promise<Match> {
     if (!win) return { kind: "unknown", reason: "could not read a start time from the filename" };
     const ans = await askOccupancy(win.start, win.end);
     const m = classify(ans, MAX_CACHE_STALE_S);
+    if (m.kind === "not-teaching") {
+      // Clinics are not teaching types (D-0340), so the filtered ask cannot see them.
+      return classifyClinic(await askOccupancy(win.start, win.end, process.env, { onlyTeaching: false }), MAX_CACHE_STALE_S);
+    }
     if (m.kind !== "lesson") return m;
     const ids = m.occurrence.participants.map((p) => p.org_member_id).filter((n) => Number.isFinite(n));
     const { found, missing } = await playersForMembers(ids);
@@ -170,10 +175,24 @@ function writeVerdict(rec: Recording, match: Match) {
  *  the resolved booking and students are recorded on the transcript, so the
  *  work is not lost and whoever creates the lesson inherits the answer. */
 async function recordMatch(rec: Recording, match: Match) {
-  if (match.kind !== "lesson") return;
   const p = transcriptPaths(cfg, rec);
   let meta: Record<string, unknown> = {};
   try { meta = JSON.parse(fs.readFileSync(p.meta, "utf8")); } catch { /* fresh */ }
+  if (match.kind === "clinic") {
+    // A clinic is transcribed, never linked: no findLessonByReservation, no
+    // linkRecording, no lessons row (D-0340, D-0242 clause 5). `attached` is set
+    // so reattachPending does not poll for a lesson that will never exist.
+    const o = match.occurrence;
+    fs.writeFileSync(p.meta, JSON.stringify({
+      ...meta, kind: "clinic", attached: true,
+      occurrence_id: o.occurrence_id, event_name: o.event_name ?? null,
+      reservation_type: o.reservation_type, booked: { start: o.start_at, end: o.end_at },
+      matchNote: "clinic — transcript kept on the NAS; no lesson row, by design",
+    }, null, 2));
+    log(`${rec.ref}: clinic ${o.event_name ?? o.occurrence_id} — transcribed, not linked to a lesson`);
+    return;
+  }
+  if (match.kind !== "lesson") return;
   const occ = match.occurrence;
   const resolved = {
     occurrence_id: occ.occurrence_id,
@@ -281,6 +300,31 @@ async function relink(apply: boolean) {
   if (!apply) log("\nnothing was written — re-run with --relink --apply");
 }
 
+/**
+ * One-time re-judge (D-0340): a `not-a-lesson` verdict written before clinics
+ * were recognised is cleared when a single-court Clinic covers the recording,
+ * so the next tick transcribes it. Verdicts only; nothing else is touched.
+ * Without --apply it reports what it WOULD clear.
+ */
+async function rejudge(apply: boolean) {
+  let cleared = 0;
+  for (const rec of discover(cfg)) {
+    const p = transcriptPaths(cfg, rec);
+    if (!fs.existsSync(p.meta)) continue;
+    let meta: { result?: string; durationS?: number } = {};
+    try { meta = JSON.parse(fs.readFileSync(p.meta, "utf8")); } catch { continue; }
+    if (meta.result !== "not-a-lesson") continue;
+    const durationS = meta.durationS ?? await probeDurationS(cfg, rec.file);
+    const m = await resolveMatch(rec, durationS ?? 0);
+    if (m.kind !== "clinic") continue;
+    log(`${rec.ref}: ${apply ? "cleared" : "WOULD clear"} not-a-lesson — it was the ${m.occurrence.event_name ?? "clinic"}`);
+    if (apply) fs.rmSync(p.meta);
+    cleared++;
+  }
+  log(`${apply ? "cleared" : "would clear"}: ${cleared}`);
+  if (!apply) log("\nnothing was written — re-run with --rejudge --apply");
+}
+
 async function tick(dryRun: boolean): Promise<number> {
   // Guard 1: bytes. A live dotted temp beats any status field — camd has
   // reported itself recording while writing nothing, and healthy while looping.
@@ -372,6 +416,10 @@ async function tick(dryRun: boolean): Promise<number> {
       continue;
     }
 
+    if (dryRun && match.kind === "clinic") {
+      log(`${rec.ref}: WOULD transcribe (${Math.round((durationS ?? 0) / 60)} min) — Clinic: ${match.occurrence.event_name ?? match.occurrence.occurrence_id}`);
+      done++; continue;
+    }
     if (dryRun) {
       const who = match.occurrence.participants.map((p) => p.name ?? "?").join(", ");
       log(`${rec.ref}: WOULD transcribe (${Math.round((durationS ?? 0) / 60)} min) — ${match.occurrence.reservation_type}: ${who}`);
@@ -431,6 +479,7 @@ async function main() {
   fs.mkdirSync(cfg.stateDir, { recursive: true });
   if (args.has("--self-test")) { process.exit((await selfTest()) === 0 ? 0 : 1); }
   if (args.has("--status")) { await status(); return; }
+  if (args.has("--rejudge")) { await rejudge(args.has("--apply")); return; }
   if (args.has("--relink")) { await relink(args.has("--apply")); return; }
   await tick(args.has("--dry-run"));
 }

@@ -25,6 +25,7 @@ import { getSupabase, getOrgId } from "../supabase.js";
 export interface Occurrence {
   occurrence_id: number;
   reservation_type: string | null;
+  event_name?: string | null;
   start_at: string;
   end_at: string;
   court_hint: string | null;
@@ -44,6 +45,9 @@ export interface OccupancyAnswer {
 export type Match =
   /** Exactly one teaching occurrence, confidently. */
   | { kind: "lesson"; occurrence: Occurrence; playerIds: string[]; unmatched: string[] }
+  /** Exactly one single-court Clinic. Transcribed like a lesson but never linked to a
+   *  lesson row (D-0340, D-0242 clause 5). */
+  | { kind: "clinic"; occurrence: Occurrence }
   /** The cache answered, confidently, that nothing teaching was booked then. */
   | { kind: "not-teaching" }
   /** Two or more overlapped, or one spanned several courts. Refuse, don't pick. */
@@ -154,6 +158,39 @@ export function classify(ans: OccupancyAnswer, maxStaleS: number): Match {
     return { kind: "ambiguous", reason: "the booking spans several courts, so who was on this one is not knowable", occurrences: [occ] };
   }
   return { kind: "lesson", occurrence: occ, playerIds: [], unmatched: [] };
+}
+
+/** True when the declared type is exactly "Clinic" — whole string, case- and
+ *  space-insensitive, never a substring (D-0238 clause 2). */
+export function isClinicType(t: string | null): boolean {
+  return (t ?? "").replace(/\s+/g, "").toLowerCase() === "clinic";
+}
+
+/**
+ * Second look at a recording `classify` called not-teaching: was it a clinic?
+ * `ans` is the UNFILTERED occupancy answer (no only_teaching). Clinics are
+ * deliberately not in courtreserve-api's TEACHING_TYPES (D-0340), so they are
+ * found here instead. Exactly one single-court Clinic transcribes; a clinic
+ * mixed with any other booking, or spanning courts, is refused as ambiguous;
+ * anything else stays not-teaching exactly as before.
+ */
+export function classifyClinic(ans: OccupancyAnswer, maxStaleS: number): Match {
+  if (!ans.ok || ans.refreshed_at === null) {
+    return { kind: "unknown", reason: "the booking cache has not refreshed — cannot tell what was booked" };
+  }
+  if (ans.stale_seconds !== null && ans.stale_seconds > maxStaleS) {
+    return { kind: "unknown", reason: `booking cache is ${Math.round(ans.stale_seconds / 60)} min stale (limit ${Math.round(maxStaleS / 60)} min)` };
+  }
+  const clinics = ans.occurrences.filter((o) => isClinicType(o.reservation_type));
+  if (clinics.length === 0) return { kind: "not-teaching" };
+  if (ans.occurrences.length > 1) {
+    return { kind: "ambiguous", reason: `${ans.occurrences.length} bookings overlap this clinic recording`, occurrences: ans.occurrences };
+  }
+  const occ = clinics[0];
+  if (occ.multi_court) {
+    return { kind: "ambiguous", reason: "the clinic spans several courts, so who was on this one is not knowable", occurrences: [occ] };
+  }
+  return { kind: "clinic", occurrence: occ };
 }
 
 /** A lesson already created for this Court Reserve booking, if any. */
