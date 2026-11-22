@@ -740,3 +740,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 ## 2026-11-22 — #138 rework: live check on the mini found no clinic in the CR cache (PR #139)
 - On the mini (branch build via tsx): `--rejudge --apply` → `cleared: 0`; `--dry-run` → nothing for `teaching-140556`. Cause is data, not code: courtreserve-api `/occupancy/at` (unfiltered, 19:06–19:59Z 2026-11-17) returns nothing on Court #4 (and nothing on #2–#6; Court #1 has only a Court Booking), so there is no Clinic for `classifyClinic` to find. The verdict stays `not-a-lesson`.
 - PR now `Refs #138`, not `Closes`; live verification split to a follow-up issue (needs the Dinking clinic's real CR booking/court, or a cache that holds past events).
+
+## 2026-11-22 — #140 Third Shot Academy Clinic type (Builder)
+- `isClinicType` now accepts `CLINIC_TYPES` = `Clinic` | `Third Shot Academy Clinic` (whole-string, case/space-insensitive; named constant in lesson-match.ts). Unit test added incl. `... Waitlist` rejected. tsc + build:only pass.
+- Left: live steps (`--rejudge --apply`, `--dry-run`, transcript on NAS) wait on courtreserve-api#897 being deployed.

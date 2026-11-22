@@ -102,6 +102,14 @@ test("the Clinic type is matched whole-string, case- and space-insensitively", (
   assert.ok(!isClinicType(null));
 });
 
+test("a single-court Third Shot Academy Clinic is a clinic; a longer string is not", () => {
+  const tsa = (t: string) => occ({ reservation_type: t, event_name: "Dinking Clinic", is_teaching: false, participants: [] });
+  assert.equal(classifyClinic(ans({ occurrences: [tsa("Third Shot Academy Clinic")] }), 1800).kind, "clinic");
+  assert.ok(isClinicType(" third shot  academy clinic "));
+  assert.ok(!isClinicType("Third Shot Academy Clinic Waitlist"));
+  assert.equal(classifyClinic(ans({ occurrences: [tsa("Third Shot Academy Clinic Waitlist")] }), 1800).kind, "not-teaching");
+});
+
 test("a multi-court Clinic is ambiguous", () => {
   const m = classifyClinic(ans({ occurrences: [clinic({ multi_court: true })] }), 1800);
   assert.equal(m.kind, "ambiguous");
