@@ -81,3 +81,56 @@ test("a stale cache yields unknown, NOT not-teaching", () => {
 test("a fresh cache inside the limit is trusted", () => {
   assert.equal(classify(ans({ stale_seconds: 1799 }), 1800).kind, "lesson");
 });
+
+// ── Clinics (D-0340): transcribed like a lesson, never linked to one ──────
+import { classifyClinic, isClinicType } from "../src/services/lesson-match.js";
+import fs from "node:fs";
+
+const clinic = (o: Partial<Occurrence> = {}) =>
+  occ({ reservation_type: "Clinic", event_name: "Level 1 Dinking", is_teaching: false, participants: [], ...o });
+
+test("a single-court Clinic is a transcribable clinic match", () => {
+  const m = classifyClinic(ans({ occurrences: [clinic()] }), 1800);
+  assert.equal(m.kind, "clinic");
+});
+
+test("the Clinic type is matched whole-string, case- and space-insensitively", () => {
+  assert.ok(isClinicType(" clinic "));
+  assert.ok(isClinicType("CLINIC"));
+  assert.ok(!isClinicType("Clinic Prep"));
+  assert.ok(!isClinicType("Junior Clinics"));
+  assert.ok(!isClinicType(null));
+});
+
+test("a multi-court Clinic is ambiguous", () => {
+  const m = classifyClinic(ans({ occurrences: [clinic({ multi_court: true })] }), 1800);
+  assert.equal(m.kind, "ambiguous");
+});
+
+test("a Clinic overlapped by another booking is ambiguous", () => {
+  const m = classifyClinic(ans({ status: "ambiguous", occurrences: [clinic(), occ({ reservation_type: "Court Booking", is_teaching: false })] }), 1800);
+  assert.equal(m.kind, "ambiguous");
+});
+
+test("a Court Booking or open play is still not-teaching", () => {
+  assert.equal(classifyClinic(ans({ occurrences: [occ({ reservation_type: "Court Booking", is_teaching: false })] }), 1800).kind, "not-teaching");
+  assert.equal(classifyClinic(ans({ occurrences: [occ({ reservation_type: "Open Play", is_teaching: false })] }), 1800).kind, "not-teaching");
+  assert.equal(classifyClinic(ans({ status: "none", occurrences: [] }), 1800).kind, "not-teaching");
+});
+
+test("a stale cache is unknown, never not-teaching", () => {
+  assert.equal(classifyClinic(ans({ stale_seconds: 99999, occurrences: [clinic()] }), 1800).kind, "unknown");
+});
+
+test("the five lesson types still classify as a lesson", () => {
+  assert.equal(classify(ans(), 1800).kind, "lesson");
+});
+
+test("a clinic match never calls linkRecording or findLessonByReservation", () => {
+  const src = fs.readFileSync(new URL("../src/cli/lesson-transcribe.ts", import.meta.url), "utf8");
+  const start = src.indexOf('if (match.kind === "clinic") {');
+  const end = src.indexOf('if (match.kind !== "lesson") return;', start);
+  assert.ok(start > 0 && end > start);
+  const branch = src.slice(start, end).replace(/\/\/.*$/gm, "");
+  assert.ok(!/linkRecording|findLessonByReservation/.test(branch));
+});
