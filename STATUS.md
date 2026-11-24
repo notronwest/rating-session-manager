@@ -749,3 +749,7 @@ Reviewer fix: nightly indexer now probes only recorder-segment filenames that ov
 - courtreserve-api release now on 8b718cf (includes #898 occupancy fix); this checkout on main ec1ad70, dist has the #142 fix.
 - `--rejudge --apply`: cleared not-a-lesson for teaching/2026-11-17/teaching-140556 (Dinking Clinic). `--dry-run`: WOULD transcribe (53 min).
 - Next: transcript at `transcripts/2026-11-17/teaching-140556.txt` on the NAS after the next ticker run (lock was held by another transcription). CoS re-checks by 2026-11-23 06:00Z, quotes the first timed line on #140/#138, then closes #140.
+
+## 2026-11-24 — #143 failed structured drafts retry on their own (Builder)
+- New `src/services/lesson-draft-retry.ts`, called from the transcribe CLI after the tick (not in dry-run, fails open): up to 2 lessons per tick with transcript + timed segments, no draft, not written up, under 3 attempts, 30 min since `draft_v2_failed_at` (or `updated_at` when there is none). Calls the existing `draftStructured`; never writes attempts. One Discord alert per lesson that reaches 3 attempts, remembered in `draft-retry-alerted.json` in the state dir.
+- tsc, build:only, tests (118) pass. Left: after merge pull + `npm run build:only` on the mini, then record one live tick here. The first tick may alert once for each lesson already at 3 attempts.
