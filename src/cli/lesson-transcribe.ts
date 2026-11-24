@@ -21,6 +21,8 @@ import {
   findLessonForRecording, type Recording,
 } from "../services/lesson-transcribe.js";
 import { sendDiscordAlert } from "../services/discord-alert.js";
+import { retryFailedDrafts } from "../services/lesson-draft-retry.js";
+import { getOrgId, getSupabase } from "../supabase.js";
 import { cutClips, clipColumnsExist, loadClipConfig } from "../services/lesson-clips.js";
 import {
   recordingWindow, askOccupancy, classify, classifyClinic, playersForMembers,
@@ -481,7 +483,19 @@ async function main() {
   if (args.has("--status")) { await status(); return; }
   if (args.has("--rejudge")) { await rejudge(args.has("--apply")); return; }
   if (args.has("--relink")) { await relink(args.has("--apply")); return; }
-  await tick(args.has("--dry-run"));
+  const dryRun = args.has("--dry-run");
+  await tick(dryRun);
+  // Retry lessons whose structured draft was refused (#143). After the tick so
+  // it never delays transcribing, and on every tick whether or not there was a
+  // recording to transcribe. It cannot throw into the tick's result.
+  if (!dryRun) {
+    try {
+      await retryFailedDrafts({
+        db: getSupabase(), orgId: await getOrgId(), log,
+        alertedFile: path.join(cfg.stateDir, "draft-retry-alerted.json"),
+      });
+    } catch (err) { log(`draft retry skipped: ${(err as Error).message}`); }
+  }
 }
 
 main().catch(async (err) => {
