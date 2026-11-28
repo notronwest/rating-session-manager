@@ -5153,6 +5153,50 @@ multi-court clinic or a recording two bookings overlap — those stay refused as
 **Open, not answered here:** D-0238 clause 5's recording notice for group bookings is still
 unmet, and a clinic puts more members on a recording than any lesson type.
 
+### D-0354 — Every fact has one owner in a committed catalogue, and is read as close as its reach demands: live at the act for anything a member receives or money moves, dated for a screen, any copy for thinking
+
+*2026-11-27 · scope: `infrastructure/source-of-truth/**, club-dashboard:supabase/migrations/*source_of_truth*, club-dashboard:web/src/views/*Facts*, courtreserve_api/addressed_mail*, court-reserve-scheduler:ts/src/jobs/**` · source: the owner, 2026-11-27, after a Contract Time welcome carried last season's slot to 21 players — "We're running into a general source of truth issue where assumptions are made with data found some of these are now becoming critical issues -- how do we fix" and "Do some research from the past 30 days -- what types of decisions are we making lets define flexible way to define and manage the source of truth". Research and design: infrastructure/source-of-truth/DESIGN.md. Owner approved the build 2026-11-28 (approval 21319127, a press on the Standup). Per-repo table run 2026-11-28: club-dashboard CONCERN (two homes for the catalogue; change log must be written by the database, not the page), courtreserve-api CONCERN (the facts block must be frozen with the send and re-checked before the send is claimed; campaign and academy sends do not pass the addressed-mail transport), court-reserve-scheduler NO OBJECTION (two of three sweeps already carry the person-wins test). All folded in below.*
+
+**Decision.** A catalogue — one table in the club database, which the owner edits on a dashboard
+page and every gate, brief and agent reads — holds one row
+per kind of fact: its owner and the read that reaches it, who may write it and who wins, each
+allowed copy with its max age, the look-alike fields that are `never` the fact, what happens
+when it is missing, and the gate that checks it. Adding a fact, or moving its owner, is one row edit, logged by the database with who and when.
+Any file copy of the catalogue (a CI lint's input) is generated from the table and stamped with its
+as-of; it is never edited by hand. Every use is read
+at one of three levels: **Acts** (reaches a member or the public, moves money, writes the
+booking system) reads the owner at the moment and is stamped with source and time, and the
+sender or executor refuses a mismatch; **Shows** (a staff screen) may use a copy that shows its
+"as of" and alarms past its age; **Thinks** (an agent's reasoning) may use any copy, re-read
+before it is carried up to Acts. Seven rules: one owner per fact; read as close as the reach
+demands; one writer wins and a person's later change beats a machine; missing is refused,
+never defaulted; a lower source only adds and a contradiction goes to a review list; a claim
+(done, live, applied, empty, a count) names the read that proved it, and the owner of "is it
+live" is the running system; every alarm has a heartbeat.
+
+**Why.** In thirty days the same failure was ruled on one consumer at a time — Rally's source
+ladder, occupancy's "unknown stays unknown", the publish job's "a cache of what we sent",
+session size twice, the contract emails today — each correct and none general, so every new
+consumer started from zero. The window holds 64 wrong-source incidents, ten of them reaching
+members; only fifteen were a stale copy, and the rest were work state, assumptions, drifted
+copies, silent defaults, dead alarms and two writers (DESIGN.md §2) — so the rule covers all of them.
+
+**Forbids.** Composing anything at the Acts level from a copy, a summary field or a hard-coded
+value. Defaulting a missing fact. A sweep overwriting a value a person set after it. A second
+home for a rule's number.
+
+**Amended on acceptance (2026-11-28, per-repo table).**
+1. *One home for the catalogue.* The table is the catalogue; the committed `FACTS.tsv` named in the
+   proposal is not built. A file a CI lint needs is an export of the table, stamped, never edited.
+2. *The change log is the database's.* A trigger records who and when; the page cannot write it.
+3. *The mail check sits in the frozen send.* The facts block is frozen with the message; the re-read
+   from each owner runs before the send is claimed, and a refusal does not spend the recipient's
+   one-send key. An owner that cannot be read refuses the send (rule 4).
+4. *Named gap.* Campaign sends and academy replies do not pass the addressed-mail transport. Both
+   already stop at the owner's press; bringing them under the fact check is a later card, not this build.
+5. *Build order is the owner's:* the editable list on the dashboard → the send-time fact check →
+   copy-read warnings and the copy-age sweep → the person-wins retrofit of the scheduler's sweeps.
+
 ## Proposed (not binding yet)
 
 - D-0024 — Style of play, from continuous recording and AI analysis, replaces the rating session as TSA's core loop (2026-09-22)
